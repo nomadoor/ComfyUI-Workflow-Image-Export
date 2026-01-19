@@ -1,6 +1,7 @@
-import { app } from "../../../scripts/app.js";
+import { app } from "/scripts/app.js";
 import { openExportDialog } from "./ui/dialog.js";
 import { installLegacyCanvasMenuItem } from "./core/menu.js";
+import { getSettingsDefinitions, registerLegacySettings } from "./core/settings.js";
 
 const DEBUG = localStorage.getItem("cwie.debug") === "1";
 let usedOfficialMenu = false;
@@ -25,12 +26,14 @@ function buildMenuLabel() {
 
 app.registerExtension({
   name: "comfyui.workflowImageExport",
+  settings: getSettingsDefinitions(),
   setup() {
     window.__cwie__ = {
       loadedAt: new Date().toISOString(),
       debug: DEBUG,
     };
     log("extension loaded", window.__cwie__);
+    registerLegacySettings(log);
     setTimeout(() => {
       if (usedOfficialMenu) {
         return;
