@@ -1,3 +1,5 @@
+import { app } from "/scripts/app.js";
+
 export function findGraphCanvas() {
   const selectors = [
     "canvas.graphcanvas",
@@ -19,6 +21,80 @@ export function findGraphCanvas() {
   }
 
   return null;
+}
+
+export function findWorkflowRoot() {
+  const rootSelectors = [
+    "#graph-canvas",
+    ".graph-canvas",
+    ".graph-canvas-container",
+    ".comfy-graph",
+    ".comfyui-graph",
+  ];
+
+  for (const selector of rootSelectors) {
+    const candidate = document.querySelector(selector);
+    if (candidate instanceof HTMLElement) {
+      return candidate;
+    }
+  }
+
+  const canvas = findGraphCanvas();
+  if (canvas) {
+    return canvas.parentElement || canvas;
+  }
+
+  return document.body;
+}
+
+export function getWorkflowElementSelectors() {
+  return {
+    nodes: [
+      ".node",
+      ".graph-node",
+      ".litegraph-node",
+      ".comfy-node",
+      ".node-container",
+      "[data-node-id]",
+      "[data-nodeid]",
+    ],
+    groups: [
+      ".group",
+      ".graph-group",
+      ".litegraph-group",
+      "[data-group-id]",
+    ],
+    notes: [
+      ".note",
+      ".comment",
+      ".graph-comment",
+      ".litegraph-comment",
+      "[data-note-id]",
+    ],
+  };
+}
+
+export function getLiteGraphAccess() {
+  const LGraphCanvas = window?.LGraphCanvas || window?.LiteGraph?.LGraphCanvas;
+  const canvas = app?.canvas || window?.app?.canvas || LGraphCanvas?.active_canvas;
+
+  const candidates = [
+    { graph: app?.graph, source: "app.graph" },
+    { graph: app?.canvas?.graph, source: "app.canvas.graph" },
+    { graph: app?.graph?.graph, source: "app.graph.graph" },
+    { graph: app?.canvas?.graph?.graph, source: "app.canvas.graph.graph" },
+    { graph: window?.app?.graph, source: "window.app.graph" },
+    { graph: window?.app?.canvas?.graph, source: "window.app.canvas.graph" },
+    { graph: LGraphCanvas?.active_canvas?.graph, source: "LGraphCanvas.active_canvas.graph" },
+    { graph: window?.graph, source: "window.graph" },
+    { graph: window?.LiteGraph?.graph, source: "LiteGraph.graph" },
+  ];
+
+  const pick = candidates.find((entry) => entry.graph);
+  if (!pick?.graph || !LGraphCanvas) {
+    return null;
+  }
+  return { graph: pick.graph, canvas, LGraphCanvas, source: pick.source };
 }
 
 export function getLegacyCanvasMenuHook() {
