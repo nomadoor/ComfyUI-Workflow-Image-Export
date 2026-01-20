@@ -4,21 +4,14 @@ import {
   isNode2UnsupportedError,
 } from "../core/capture/index.js";
 import { triggerDownload } from "../core/download.js";
+import {
+  getDefaultsFromSettings,
+  normalizeState as normalizeSettingsState,
+  setDefaultsInSettings,
+} from "../core/settings.js";
 
 let activeDialog = null;
 let activeMessageDialog = null;
-
-const DEFAULT_STATE = {
-  format: "png",
-  embedWorkflow: true,
-  background: "ui",
-  solidColor: "#1f1f1f",
-  padding: 100,
-  outputResolution: "auto",
-  maxLongEdge: 4096,
-  exceedMode: "downscale",
-  debug: false,
-};
 
 const STYLES = `
 .cwie-backdrop {
@@ -377,26 +370,7 @@ function createRadioGroup(name, options) {
 }
 
 function buildInitialState() {
-  return { ...DEFAULT_STATE };
-}
-
-function normalizeState(nextState) {
-  const safe = { ...DEFAULT_STATE, ...nextState };
-  const padding = Number.parseFloat(safe.padding);
-  const maxLongEdge = Number.parseFloat(safe.maxLongEdge);
-
-  return {
-    ...safe,
-    format: safe.format || "png",
-    embedWorkflow: Boolean(safe.embedWorkflow),
-    background: safe.background || "ui",
-    solidColor: safe.solidColor || DEFAULT_STATE.solidColor,
-    padding: Number.isFinite(padding) ? Math.max(0, Math.round(padding)) : DEFAULT_STATE.padding,
-    outputResolution: safe.outputResolution || DEFAULT_STATE.outputResolution,
-    maxLongEdge: Number.isFinite(maxLongEdge) ? Math.max(0, Math.round(maxLongEdge)) : DEFAULT_STATE.maxLongEdge,
-    exceedMode: safe.exceedMode || DEFAULT_STATE.exceedMode,
-    debug: Boolean(safe.debug),
-  };
+  return { ...getDefaultsFromSettings(), debug: false };
 }
 
 export function openExportDialog({ onExportStarted, onExportFinished, log } = {}) {
@@ -531,7 +505,7 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
   }
 
   function updateStateFromControls() {
-    state = normalizeState({
+    const normalized = normalizeSettingsState({
       format: formatSelect.value,
       embedWorkflow: embedToggle.input.checked,
       background: [...backgroundGroup.inputs.values()].find((input) => input.checked)?.value,
@@ -540,8 +514,8 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
       outputResolution: outputResolutionSelect.value,
       maxLongEdge: maxLongEdgeInput.value,
       exceedMode: exceedSelect.value,
-      debug: debugToggle.input.checked,
     });
+    state = { ...normalized, debug: debugToggle.input.checked };
   }
 
   function handleChange() {
@@ -603,6 +577,7 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
     let messageDialogPayload = null;
     try {
       const blob = await capture(state);
+      setDefaultsInSettings(state);
       await triggerDownload({
         blob,
         filename: `workflow.${state.format || "png"}`,

@@ -1,105 +1,5 @@
 import { app } from "/scripts/app.js";
 
-export function findGraphCanvas() {
-  const selectors = [
-    "canvas.graphcanvas",
-    "canvas#graph-canvas",
-    "#graph-canvas canvas",
-    "canvas.litegraph",
-  ];
-
-  for (const selector of selectors) {
-    const candidate = document.querySelector(selector);
-    if (candidate instanceof HTMLCanvasElement) {
-      return candidate;
-    }
-  }
-
-  const anyCanvas = document.querySelector("canvas");
-  if (anyCanvas instanceof HTMLCanvasElement) {
-    return anyCanvas;
-  }
-
-  return null;
-}
-
-export function findWorkflowRoot() {
-  const rootSelectors = [
-    "#graph-canvas",
-    ".graph-canvas",
-    ".graph-canvas-container",
-    ".comfy-graph",
-    ".comfyui-graph",
-  ];
-
-  for (const selector of rootSelectors) {
-    const candidate = document.querySelector(selector);
-    if (candidate instanceof HTMLElement) {
-      return candidate;
-    }
-  }
-
-  const canvas = findGraphCanvas();
-  if (canvas) {
-    return canvas.parentElement || canvas;
-  }
-
-  return document.body;
-}
-
-export function findNode2Root() {
-  const selectors = [
-    "#graph-canvas-container",
-    ".graph-canvas-container",
-    ".comfy-graph",
-    ".comfyui-graph",
-  ];
-  for (const selector of selectors) {
-    const candidate = document.querySelector(selector);
-    if (candidate instanceof HTMLElement) {
-      return candidate;
-    }
-  }
-  return null;
-}
-
-export function debugDomCandidates() {
-  const info = {
-    graphCanvas: findGraphCanvas(),
-    workflowRoot: findWorkflowRoot(),
-    node2Root: findNode2Root(),
-  };
-  console.log("[workflow-image-export] debug dom candidates", info);
-  return info;
-}
-
-export function getWorkflowElementSelectors() {
-  return {
-    nodes: [
-      ".node",
-      ".graph-node",
-      ".litegraph-node",
-      ".comfy-node",
-      ".node-container",
-      "[data-node-id]",
-      "[data-nodeid]",
-    ],
-    groups: [
-      ".group",
-      ".graph-group",
-      ".litegraph-group",
-      "[data-group-id]",
-    ],
-    notes: [
-      ".note",
-      ".comment",
-      ".graph-comment",
-      ".litegraph-comment",
-      "[data-note-id]",
-    ],
-  };
-}
-
 export function getLiteGraphAccess() {
   const LGraphCanvas = window?.LGraphCanvas || window?.LiteGraph?.LGraphCanvas;
   const canvas = app?.canvas || window?.app?.canvas || LGraphCanvas?.active_canvas;
@@ -135,14 +35,6 @@ export function getLegacyCanvasMenuHook() {
 }
 
 export function detectBackend() {
-  try {
-    const canvas = findGraphCanvas();
-    if (canvas) {
-      return "legacy";
-    }
-  } catch (e) {
-    // fall through
-  }
   return "legacy";
 }
 
