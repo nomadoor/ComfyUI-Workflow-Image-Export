@@ -1,9 +1,8 @@
 import { app } from "/scripts/app.js";
 
-function collectGraphBounds(graph, debugLog) {
+function collectNodeRects(graph, debugLog) {
   const rects = [];
   const nodes = graph?._nodes || graph?.nodes || [];
-  const groups = graph?._groups || graph?.groups || [];
 
   nodes.forEach((node, index) => {
     if (!node) return;
@@ -17,6 +16,9 @@ function collectGraphBounds(graph, debugLog) {
         top: bounding[1],
         right: bounding[0] + bounding[2],
         bottom: bounding[1] + bounding[3],
+        id: node.id,
+        title: node.title,
+        type: node.type,
       });
       debugLog?.("node.bounding", {
         index,
@@ -34,6 +36,9 @@ function collectGraphBounds(graph, debugLog) {
       top: pos[1],
       right: pos[0] + size[0],
       bottom: pos[1] + size[1],
+      id: node.id,
+      title: node.title,
+      type: node.type,
     });
     debugLog?.("node.pos", {
       index,
@@ -43,6 +48,13 @@ function collectGraphBounds(graph, debugLog) {
       size: [...size],
     });
   });
+
+  return rects;
+}
+
+function collectGraphBounds(graph, debugLog) {
+  const rects = collectNodeRects(graph, debugLog);
+  const groups = graph?._groups || graph?.groups || [];
 
   groups.forEach((group, index) => {
     if (!group) return;
@@ -64,7 +76,7 @@ function collectGraphBounds(graph, debugLog) {
   });
 
   if (!rects.length) {
-    return null;
+    return { bounds: null, nodeRects: [] };
   }
 
   let left = rects[0].left;
@@ -80,7 +92,7 @@ function collectGraphBounds(graph, debugLog) {
   }
   const bounds = { left, top, right, bottom, width: right - left, height: bottom - top };
   debugLog?.("bounds.raw", bounds);
-  return bounds;
+  return { bounds, nodeRects: rects };
 }
 
 function applyPadding(bounds, padding, debugLog) {
@@ -128,6 +140,24 @@ function ensureBgCanvas(offscreen, width, height) {
   const bgctx = offscreen.bgcanvas.getContext("2d", { alpha: true });
   if (bgctx) {
     offscreen.bgctx = bgctx;
+  }
+}
+
+function applyBackgroundFill(mode, width, height, exportCtx, bgctx, solidColor) {
+  if (!exportCtx || !width || !height) return;
+  if (mode === "transparent") {
+    exportCtx.clearRect(0, 0, width, height);
+    if (bgctx) bgctx.clearRect(0, 0, width, height);
+    return;
+  }
+  if (mode === "solid") {
+    const solid = solidColor || "#1f1f1f";
+    exportCtx.fillStyle = solid;
+    exportCtx.fillRect(0, 0, width, height);
+    if (bgctx) {
+      bgctx.fillStyle = solid;
+      bgctx.fillRect(0, 0, width, height);
+    }
   }
 }
 
@@ -207,10 +237,183 @@ function configureTransform(offscreen, bounds, viewportW, viewportH, scale, debu
   }
 }
 
-async function drawOffscreen(offscreen) {
+async function drawOffscreen(offscreen, options = {}) {
   offscreen.draw(true, true);
   await new Promise((resolve) => requestAnimationFrame(resolve));
+
+  if (typeof options.resetTransform === "function") {
+    options.resetTransform();
+  }
+
+  applyBackgroundFill(
+    options.mode,
+    options.width,
+    options.height,
+    options.exportCtx,
+    options.bgctx,
+    options.solidColor
+  );
+
   offscreen.draw(true, true);
+}
+
+function collectVideoElementsFromDom() {
+  const selectors = [
+    ".dom-widget video",
+    "video.VHS_loopedvideo",
+    "video",
+  ];
+  const elements = new Set();
+  for (const selector of selectors) {
+    for (const node of document.querySelectorAll(selector)) {
+      if (node instanceof HTMLVideoElement) {
+        elements.add(node);
+      }
+    }
+  }
+  return Array.from(elements);
+}
+
+function findNodeForPoint(nodeRects, x, y) {
+  if (!nodeRects?.length) return null;
+  for (let i = 0; i < nodeRects.length; i += 1) {
+    const rect = nodeRects[i];
+    if (x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom) {
+      return rect;
+    }
+  }
+  return null;
+}
+
+function isVideoNodeTitle(title, type) {
+  const text = `${title || ""} ${type || ""}`.toLowerCase();
+  return text.includes("video");
+}
+
+function drawVideoOverlays({ exportCtx, uiCanvas, bounds, scale, nodeRects, debugLog }) {
+  const canvasEl = uiCanvas?.canvas;
+  const ds = uiCanvas?.ds;
+  if (!canvasEl || !ds) return;
+
+  const rect = canvasEl.getBoundingClientRect();
+  if (!rect.width || !rect.height) return;
+
+  const scaleX = canvasEl.width / rect.width;
+  const scaleY = canvasEl.height / rect.height;
+
+  const videos = collectVideoElementsFromDom();
+  if (!videos.length) return;
+
+  const invScale = 1 / ds.scale;
+
+  for (const video of videos) {
+    if (video.readyState < 2) continue;
+    const vrect = video.getBoundingClientRect();
+    if (!vrect.width || !vrect.height) continue;
+
+    // DOM rects are CSS pixels relative to viewport.
+    const sx = (vrect.left - rect.left) * scaleX;
+    const sy = (vrect.top - rect.top) * scaleY;
+    const sw = vrect.width * scaleX;
+    const sh = vrect.height * scaleY;
+
+    const graphX = sx * invScale - ds.offset[0];
+    const graphY = sy * invScale - ds.offset[1];
+    const graphW = sw * invScale;
+    const graphH = sh * invScale;
+
+    const node = findNodeForPoint(nodeRects, graphX + graphW * 0.5, graphY + graphH * 0.5);
+    if (!node || !isVideoNodeTitle(node.title, node.type)) {
+      debugLog?.("video.overlay.skip", {
+        reason: "non-video-node",
+        node: node
+          ? { id: node.id, title: node.title, type: node.type }
+          : null,
+      });
+      continue;
+    }
+
+    const x = (graphX - bounds.left) * scale;
+    const y = (graphY - bounds.top) * scale;
+    const w = graphW * scale;
+    const h = graphH * scale;
+
+    try {
+      exportCtx.drawImage(video, x, y, w, h);
+      debugLog?.("video.overlay", {
+        x,
+        y,
+        w,
+        h,
+        node: { id: node.id, title: node.title, type: node.type },
+        rect: { left: vrect.left, top: vrect.top, width: vrect.width, height: vrect.height },
+      });
+    } catch (error) {
+      debugLog?.("video.overlay.error", { message: error?.message || String(error) });
+    }
+  }
+}
+function resolveNodeTitleFromElement(element) {
+  const nodeRoot = element.closest(
+    ".comfy-node, .litegraph-node, .graph-node, .node, [data-node-id], [data-nodeid]"
+  );
+  if (!nodeRoot) return "";
+  const titleEl =
+    nodeRoot.querySelector(".title, .node-title, .node-header, .litegraph-title, header") ||
+    nodeRoot.querySelector("[title]");
+  const title = titleEl?.textContent || titleEl?.getAttribute?.("title") || "";
+  return String(title).trim();
+}
+
+function collectDomMediaElements() {
+  const selectors = [
+    ".dom-widget video",
+    ".dom-widget canvas",
+    ".dom-widget img",
+  ];
+  const elements = [];
+  for (const selector of selectors) {
+    for (const node of document.querySelectorAll(selector)) {
+      if (
+        node instanceof HTMLVideoElement ||
+        node instanceof HTMLCanvasElement ||
+        node instanceof HTMLImageElement
+      ) {
+        elements.push(node);
+      }
+    }
+  }
+  return elements;
+}
+
+function logDomMedia(debugLog, uiCanvas) {
+  if (!debugLog) return;
+  const elements = collectDomMediaElements();
+  const canvasEl = uiCanvas?.canvas;
+  const rect = canvasEl?.getBoundingClientRect?.();
+  debugLog("dom.media.count", { count: elements.length });
+  if (rect) {
+    debugLog("ui.canvas.rect", {
+      left: rect.left,
+      top: rect.top,
+      width: rect.width,
+      height: rect.height,
+    });
+  }
+  elements.slice(0, 50).forEach((el, index) => {
+    const r = el.getBoundingClientRect();
+    debugLog("dom.media.item", {
+      index,
+      type: el.tagName?.toLowerCase?.() || "unknown",
+      title: resolveNodeTitleFromElement(el),
+      rect: {
+        left: r.left,
+        top: r.top,
+        width: r.width,
+        height: r.height,
+      },
+    });
+  });
 }
 
 function computeExportScale(srcW, srcH, options, debugLog) {
@@ -257,7 +460,7 @@ export async function captureLegacy(options = {}) {
       }
     : null;
 
-  const graphBounds = collectGraphBounds(graph, debugLog);
+  const { bounds: graphBounds, nodeRects } = collectGraphBounds(graph, debugLog);
   const bounds = applyPadding(graphBounds, padding, debugLog);
   if (!bounds) {
     throw new Error("Legacy capture: bounds not available.");
@@ -295,20 +498,14 @@ export async function captureLegacy(options = {}) {
   ensureBgCanvas(offscreen, width, height);
   configureTransform(offscreen, bounds, width, height, scale, debugLog);
 
-  if (mode === "transparent") {
-    exportCtx.clearRect(0, 0, width, height);
-    if (offscreen.bgctx) {
-      offscreen.bgctx.clearRect(0, 0, width, height);
-    }
-  } else if (mode === "solid") {
-    const solid = options?.solidColor || "#1f1f1f";
-    exportCtx.fillStyle = solid;
-    exportCtx.fillRect(0, 0, width, height);
-    if (offscreen.bgctx) {
-      offscreen.bgctx.fillStyle = solid;
-      offscreen.bgctx.fillRect(0, 0, width, height);
-    }
-  }
+  applyBackgroundFill(
+    mode,
+    width,
+    height,
+    exportCtx,
+    offscreen.bgctx,
+    options?.solidColor
+  );
 
   if (debug) {
     console.log("[CWIE][Legacy] export:bounds", bounds);
@@ -348,9 +545,19 @@ export async function captureLegacy(options = {}) {
       bgcolor: uiCanvas.bgcolor,
       background_color: uiCanvas.background_color,
     });
+    logDomMedia(debugLog, uiCanvas);
   }
 
-  await drawOffscreen(offscreen);
+  await drawOffscreen(offscreen, {
+    mode,
+    width,
+    height,
+    exportCtx,
+    bgctx: offscreen.bgctx,
+    solidColor: options?.solidColor,
+    resetTransform: () => configureTransform(offscreen, bounds, width, height, scale, debugLog),
+  });
+  drawVideoOverlays({ exportCtx, uiCanvas, bounds, scale, nodeRects, debugLog });
 
   const blob = await toBlobAsync(exportCanvas, mime);
   return {
