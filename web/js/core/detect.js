@@ -47,6 +47,32 @@ export function findWorkflowRoot() {
   return document.body;
 }
 
+export function findNode2Root() {
+  const selectors = [
+    "#graph-canvas-container",
+    ".graph-canvas-container",
+    ".comfy-graph",
+    ".comfyui-graph",
+  ];
+  for (const selector of selectors) {
+    const candidate = document.querySelector(selector);
+    if (candidate instanceof HTMLElement) {
+      return candidate;
+    }
+  }
+  return null;
+}
+
+export function debugDomCandidates() {
+  const info = {
+    graphCanvas: findGraphCanvas(),
+    workflowRoot: findWorkflowRoot(),
+    node2Root: findNode2Root(),
+  };
+  console.log("[workflow-image-export] debug dom candidates", info);
+  return info;
+}
+
 export function getWorkflowElementSelectors() {
   return {
     nodes: [
@@ -98,7 +124,7 @@ export function getLiteGraphAccess() {
 }
 
 export function getLegacyCanvasMenuHook() {
-  const LGraphCanvas = window?.LGraphCanvas;
+  const LGraphCanvas = window?.LGraphCanvas || window?.LiteGraph?.LGraphCanvas;
   if (!LGraphCanvas?.prototype?.getCanvasMenuOptions) {
     return null;
   }
@@ -106,6 +132,18 @@ export function getLegacyCanvasMenuHook() {
     LGraphCanvas,
     getCanvasMenuOptions: LGraphCanvas.prototype.getCanvasMenuOptions,
   };
+}
+
+export function detectBackend() {
+  try {
+    const canvas = findGraphCanvas();
+    if (canvas) {
+      return "legacy";
+    }
+  } catch (e) {
+    // fall through
+  }
+  return "legacy";
 }
 
 export function getSettingsAccess(app) {
