@@ -538,39 +538,58 @@ function drawWidgetTextFallback({ exportCtx, graph, bounds, scale, coveredNodeId
     const widgetsStartY =
       Number.isFinite(node.widgets_start_y) ? node.widgets_start_y : 0;
 
+    const standardWidgetTypes = ["string", "combo", "number", "toggle", "button", "slider"];
+    const multilineWidgetTypes = ["textarea", "markdown", "customtext"];
+
     for (let index = 0; index < node.widgets.length; index += 1) {
       const widget = node.widgets[index];
       if (!widget) continue;
+
       const isMultiline =
-        widget?.options?.multiline ||
-        widget.type === "textarea" ||
-        widget.type === "markdown";
+        widget?.options?.multiline === true ||
+        multilineWidgetTypes.includes(widget.type);
+
       if (!isMultiline) continue;
+
       const widgetValue =
         typeof widget.value === "string" && widget.value.trim()
           ? widget.value
           : typeof widgetsValues?.[index] === "string"
             ? widgetsValues[index]
             : "";
+
       if (!widgetValue.trim()) {
         skippedEmpty += 1;
         continue;
       }
 
-      const widgetY = Number.isFinite(widget.y) ? widget.y : widgetsStartY;
-      const widgetHeight = Number.isFinite(widget.height)
+      const fontSize = Math.max(10, Math.round(11 * scale));
+      const lineHeight = Math.max(fontSize * 1.2, 12 * scale);
+      const paddingX = 6 * scale;
+      const paddingY = 4 * scale;
+
+      let widgetY = Number.isFinite(widget.y) ? widget.y : widgetsStartY;
+      let widgetHeight = Number.isFinite(widget.height) && widget.height > 0
         ? widget.height
-        : nodeWidgetHeight;
+        : 0;
+
+      // If height is missing or tiny for a multiline widget, it's likely a fallback case.
+      // Use the rest of the node height as a safer default.
+      if (widgetHeight < fontSize * 2) {
+        // Fallback: Use the space from the widget start to the bottom of the node minus some margin.
+        widgetHeight = Math.max(fontSize * 3, nodeSize[1] - widgetY - 5);
+      }
 
       const x = (widgetBaseX - bounds.left) * scale;
       const y = (nodePos[1] + widgetY - bounds.top) * scale;
       const w = widgetWidth * scale;
       const h = widgetHeight * scale;
 
-      const fontSize = Math.max(10, Math.round(11 * scale));
-      const lineHeight = Math.max(fontSize * 1.2, 12 * scale);
-      const paddingX = 6 * scale;
-      const paddingY = 4 * scale;
+      const innerX = x + paddingX;
+      const innerY = y + paddingY;
+      const innerW = Math.max(1, w - paddingX * 2);
+      const innerH = Math.max(1, h - paddingY * 2);
+      const maxLines = Math.max(1, Math.floor(innerH / lineHeight) + 1);
 
       exportCtx.save();
       exportCtx.textBaseline = "top";
@@ -580,11 +599,6 @@ function drawWidgetTextFallback({ exportCtx, graph, bounds, scale, coveredNodeId
       exportCtx.rect(x, y, w, h);
       exportCtx.clip();
 
-      const innerX = x + paddingX;
-      const innerY = y + paddingY;
-      const innerW = Math.max(1, w - paddingX * 2);
-      const innerH = Math.max(1, h - paddingY * 2);
-      const maxLines = Math.max(1, Math.floor(innerH / lineHeight));
       wrapText(exportCtx, widgetValue, innerX, innerY, innerW, lineHeight, maxLines);
       exportCtx.restore();
 
@@ -601,10 +615,15 @@ function drawWidgetTextFallback({ exportCtx, graph, bounds, scale, coveredNodeId
 
     if (!drewForNode) {
       const candidate = getNodeTextCandidate(node);
-      const isNoteNode = node.type === "Note" || node.type === "Notes";
-      const hasVisibleWidgets = node.widgets && node.widgets.length > 0;
+      const isNoteNode = node.type === "Note" || node.type === "Notes" || node.type.includes("Note");
 
-      if (candidate && (isNoteNode || !hasVisibleWidgets) && (candidate.length >= 20 || candidate.includes("\n"))) {
+      // Identify if the node has any standard widgets that we expect LiteGraph to draw.
+      // If it does, we skip the generic fallback to avoid double-rendering (overlap).
+      const hasStandardWidgets = node.widgets.some(w =>
+        w && standardWidgetTypes.includes(w.type) && !w.options?.multiline
+      );
+
+      if (candidate && (isNoteNode || !hasStandardWidgets) && (candidate.length >= 20 || candidate.includes("\n"))) {
         const titleHeight = window?.LiteGraph?.NODE_TITLE_HEIGHT || 30;
         const x = (widgetBaseX - bounds.left) * scale;
         const y = (nodePos[1] + titleHeight - bounds.top) * scale;
