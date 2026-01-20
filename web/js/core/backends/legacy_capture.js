@@ -1,4 +1,12 @@
 import { app } from "/scripts/app.js";
+import {
+  collectDomMediaElements,
+  collectImageElementsFromDom,
+  collectTextElementsFromDom,
+  collectVideoElementsFromDom,
+  getDomElementGraphRect,
+  getNodeIdFromElement,
+} from "../overlays/dom_utils.js";
 
 function collectNodeRects(graph, debugLog) {
   const rects = [];
@@ -294,22 +302,6 @@ async function drawOffscreen(offscreen, options = {}) {
   offscreen.draw(true, true);
 }
 
-function collectVideoElementsFromDom(uiCanvas) {
-  const root = document;
-  const selectors = ["video.VHS_loopedvideo", "video"];
-  const elements = new Set();
-  for (const selector of selectors) {
-    for (const node of root.querySelectorAll(selector)) {
-      if (node instanceof HTMLVideoElement) {
-        if (isElementInGraphNode(node)) {
-          elements.add(node);
-        }
-      }
-    }
-  }
-  return Array.from(elements);
-}
-
 function findNodeForPoint(nodeRects, x, y) {
   if (!nodeRects?.length) return null;
   for (let i = 0; i < nodeRects.length; i += 1) {
@@ -462,102 +454,6 @@ function parsePx(value, fallback = 0) {
   if (!value) return fallback;
   const num = Number.parseFloat(value);
   return Number.isFinite(num) ? num : fallback;
-}
-
-function canvasPointToGraph(uiCanvas, x, y) {
-  if (typeof uiCanvas?.convertCanvasToOffset === "function") {
-    return uiCanvas.convertCanvasToOffset([x, y]);
-  }
-  const ds = uiCanvas?.ds;
-  if (!ds) return [x, y];
-  return [x / ds.scale - ds.offset[0], y / ds.scale - ds.offset[1]];
-}
-
-function getDomElementGraphRect(el, uiCanvas) {
-  const canvasEl = uiCanvas?.canvas;
-  const ds = uiCanvas?.ds;
-  if (!canvasEl || !ds) return null;
-
-  const rect = canvasEl.getBoundingClientRect();
-  if (!rect.width || !rect.height) return null;
-
-  const r = el.getBoundingClientRect();
-  if (!r.width || !r.height) return null;
-
-  const scaleX = canvasEl.width / rect.width;
-  const scaleY = canvasEl.height / rect.height;
-
-  const sx = (r.left - rect.left) * scaleX;
-  const sy = (r.top - rect.top) * scaleY;
-  const sw = r.width * scaleX;
-  const sh = r.height * scaleY;
-
-  const p0 = canvasPointToGraph(uiCanvas, sx, sy);
-  const p1 = canvasPointToGraph(uiCanvas, sx + sw, sy + sh);
-  return {
-    x: p0[0],
-    y: p0[1],
-    w: p1[0] - p0[0],
-    h: p1[1] - p0[1],
-  };
-}
-
-function getCanvasRoot(uiCanvas) {
-  const canvasEl = uiCanvas?.canvas;
-  if (!canvasEl) return document;
-  return canvasEl.closest?.(".graph-canvas-panel") || canvasEl.parentElement || document;
-}
-
-function isElementInGraphNode(element) {
-  return Boolean(
-    element?.closest?.(
-      ".comfy-node, .litegraph-node, .graph-node, .node, .dom-widget, [data-node-id], [data-nodeid]"
-    )
-  );
-}
-
-function getNodeIdFromElement(element) {
-  const nodeRoot = element?.closest?.(
-    ".comfy-node, .litegraph-node, .graph-node, .node, [data-node-id], [data-nodeid]"
-  );
-  if (!nodeRoot) return null;
-  const idAttr = nodeRoot.getAttribute?.("data-node-id") ?? nodeRoot.getAttribute?.("data-nodeid");
-  if (!idAttr) return null;
-  const id = Number.parseInt(idAttr, 10);
-  return Number.isFinite(id) ? id : null;
-}
-
-function collectTextElementsFromDom(uiCanvas) {
-  const root = document;
-  const selectors = [
-    ".dom-widget textarea",
-    ".dom-widget input[type='text']",
-    ".dom-widget .markdown",
-    ".dom-widget .markdown-body",
-    ".dom-widget .markdown-preview",
-    ".dom-widget pre",
-    "textarea",
-    "input[type='text']",
-    ".markdown",
-    ".markdown-body",
-    ".markdown-preview",
-    "pre",
-  ];
-  const elements = new Set();
-  for (const selector of selectors) {
-    for (const node of root.querySelectorAll(selector)) {
-      if (
-        node instanceof HTMLTextAreaElement ||
-        node instanceof HTMLInputElement ||
-        node instanceof HTMLElement
-      ) {
-        if (isElementInGraphNode(node)) {
-          elements.add(node);
-        }
-      }
-    }
-  }
-  return Array.from(elements);
 }
 
 function drawWidgetTextFallback({ exportCtx, graph, bounds, scale, coveredNodeIds, debugLog }) {
@@ -849,22 +745,6 @@ function drawTextOverlays({ exportCtx, uiCanvas, graph, bounds, scale, debugLog 
   });
 }
 
-function collectImageElementsFromDom(uiCanvas) {
-  const root = document;
-  const selectors = ["img", "canvas"];
-  const elements = new Set();
-  for (const selector of selectors) {
-    for (const node of root.querySelectorAll(selector)) {
-      if (node instanceof HTMLImageElement || node instanceof HTMLCanvasElement) {
-        if (isElementInGraphNode(node)) {
-          elements.add(node);
-        }
-      }
-    }
-  }
-  return Array.from(elements);
-}
-
 function drawImageOverlays({ exportCtx, uiCanvas, bounds, scale, debugLog }) {
   const elements = collectImageElementsFromDom(uiCanvas);
   if (!elements.length) return;
@@ -898,26 +778,6 @@ function resolveNodeTitleFromElement(element) {
     nodeRoot.querySelector("[title]");
   const title = titleEl?.textContent || titleEl?.getAttribute?.("title") || "";
   return String(title).trim();
-}
-
-function collectDomMediaElements(uiCanvas) {
-  const root = document;
-  const selectors = ["video", "canvas", "img"];
-  const elements = [];
-  for (const selector of selectors) {
-    for (const node of root.querySelectorAll(selector)) {
-      if (
-        node instanceof HTMLVideoElement ||
-        node instanceof HTMLCanvasElement ||
-        node instanceof HTMLImageElement
-      ) {
-        if (isElementInGraphNode(node)) {
-          elements.push(node);
-        }
-      }
-    }
-  }
-  return elements;
 }
 
 function logDomMedia(debugLog, uiCanvas) {
