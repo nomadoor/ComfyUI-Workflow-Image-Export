@@ -129,6 +129,15 @@ const STYLES = `
   transform: translateX(18px);
 }
 
+.cwie-toggle input:disabled + .cwie-toggle-slider {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.cwie-toggle input:disabled + .cwie-toggle-slider::before {
+  background: #b0b0b0;
+}
+
 .cwie-radio-group {
   display: flex;
   gap: 8px;
@@ -149,6 +158,12 @@ const STYLES = `
 
 .cwie-radio input {
   margin: 0;
+}
+
+.cwie-note {
+  font-size: 12px;
+  opacity: 0.8;
+  line-height: 1.4;
 }
 
 .cwie-advanced {
@@ -410,7 +425,7 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
 
   const formatSelect = document.createElement("select");
   formatSelect.className = "cwie-select";
-  ["png", "webp", "svg"].forEach((format) => {
+  ["png", "webp"].forEach((format) => {
     const option = document.createElement("option");
     option.value = format;
     option.textContent = format.toUpperCase();
@@ -418,6 +433,8 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
   });
 
   const embedToggle = createToggle();
+  const embedNote = document.createElement("div");
+  embedNote.className = "cwie-note";
 
   const backgroundGroup = createRadioGroup("cwie-bg", [
     { value: "ui", label: "UI" },
@@ -486,9 +503,28 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
 
   const debugToggle = createToggle();
 
+  function syncEmbedAvailability(formatValue) {
+    const v = String(formatValue || "png").toLowerCase();
+    if (v === "png") {
+      embedToggle.input.disabled = false;
+      embedNote.textContent = "";
+      return;
+    }
+
+    embedToggle.input.checked = false;
+    embedToggle.input.disabled = true;
+
+    if (v === "webp") {
+      embedNote.textContent =
+        "WebPではワークフロー埋め込みはOFF固定です。";
+      return;
+    }
+  }
+
   function applyStateToControls(nextState) {
     formatSelect.value = nextState.format;
     embedToggle.input.checked = nextState.embedWorkflow;
+    syncEmbedAvailability(nextState.format);
     const bgInput = backgroundGroup.inputs.get(nextState.background);
     if (bgInput) {
       bgInput.checked = true;
@@ -522,7 +558,10 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
     updateStateFromControls();
   }
 
-  formatSelect.addEventListener("change", () => handleChange());
+  formatSelect.addEventListener("change", () => {
+    syncEmbedAvailability(formatSelect.value);
+    handleChange();
+  });
   embedToggle.input.addEventListener("change", () => handleChange());
   solidColorInput.addEventListener("change", () => handleChange());
   paddingInput.addEventListener("change", () => handleChange());
@@ -611,6 +650,7 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
   dialog.appendChild(basicTitle);
   dialog.appendChild(createRow("Format", formatSelect));
   dialog.appendChild(createRow("Embed workflow", embedToggle.wrapper));
+  dialog.appendChild(embedNote);
   dialog.appendChild(createRow("Background", backgroundGroup.group));
 
   solidColorRow = createRow("Solid color", solidColorInput);

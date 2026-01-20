@@ -207,6 +207,14 @@ function applyBackgroundMode(offscreen, options) {
 }
 
 function configureTransform(offscreen, bounds, viewportW, viewportH, scale, debugLog) {
+  const applyArea = (target, values) => {
+    if (target && typeof target.set === "function") {
+      target.set(values);
+      return target;
+    }
+    return new Float32Array(values);
+  };
+
   if (offscreen.ds) {
     offscreen.ds.scale = scale;
     if (!Array.isArray(offscreen.ds.offset)) {
@@ -221,9 +229,9 @@ function configureTransform(offscreen, bounds, viewportW, viewportH, scale, debu
   }
   const visibleArea = [bounds.left, bounds.top, bounds.width, bounds.height];
   const viewport = [0, 0, viewportW, viewportH];
-  offscreen.visible_area = visibleArea;
-  offscreen.viewport = viewport;
-  offscreen.last_drawn_area = visibleArea;
+  offscreen.visible_area = applyArea(offscreen.visible_area, visibleArea);
+  offscreen.viewport = applyArea(offscreen.viewport, viewport);
+  offscreen.last_drawn_area = applyArea(offscreen.last_drawn_area, visibleArea);
   debugLog?.("visible_area", {
     visible_area: [...visibleArea],
     viewport: [...viewport],
