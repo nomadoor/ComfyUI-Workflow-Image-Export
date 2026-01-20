@@ -5,7 +5,7 @@ A simple ComfyUI extension to export images of your workflows with embedded JSON
 ## Features
 - **Workflow Capture**: Automatically calculates bounds to capture all nodes and groups in one image.
 - **Output Customization**: You can adjust the background, padding, and more to your liking.
-- **Workflow Embedding**: Embeds the workflow JSON data into the image (PNG only).
+- **Workflow Embedding**: Embeds the workflow JSON data into the image.
 
 ## Usage
 1. Right-click on the ComfyUI canvas.
