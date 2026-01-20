@@ -17,6 +17,11 @@ yarn.lock
 dist/
 build/
 
+# Logs / reports
+ops/reports/
+ops/log/
+*.log
+
 # Env / secrets
 .env
 .env.*

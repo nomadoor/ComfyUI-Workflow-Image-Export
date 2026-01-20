@@ -1,8 +1,24 @@
-import { capturePlaceholderPng } from "../core/capture.js";
+import {
+  capture,
+  detectBackendType,
+  isNode2UnsupportedError,
+} from "../core/capture/index.js";
 import { triggerDownload } from "../core/download.js";
-import { getDefaultsFromSettings, normalizeState, setDefaultsInSettings } from "../core/settings.js";
 
 let activeDialog = null;
+let activeMessageDialog = null;
+
+const DEFAULT_STATE = {
+  format: "png",
+  embedWorkflow: true,
+  background: "ui",
+  solidColor: "#1f1f1f",
+  padding: 100,
+  outputResolution: "auto",
+  maxLongEdge: 4096,
+  exceedMode: "downscale",
+  debug: false,
+};
 
 const STYLES = `
 .cwie-backdrop {
@@ -31,6 +47,12 @@ const STYLES = `
   margin: 0 0 12px 0;
   font-size: 14px;
   font-weight: 600;
+}
+
+.cwie-message {
+  margin: 0 0 12px 0;
+  font-size: 12px;
+  line-height: 1.5;
 }
 
 .cwie-section-title {
@@ -245,6 +267,58 @@ function closeDialog() {
   }
 }
 
+function closeMessageDialog() {
+  if (activeMessageDialog) {
+    activeMessageDialog.remove();
+    activeMessageDialog = null;
+  }
+}
+
+function openMessageDialog({ title, message }) {
+  ensureStyles();
+  closeMessageDialog();
+
+  const backdrop = document.createElement("div");
+  backdrop.className = "cwie-backdrop";
+  backdrop.addEventListener("click", (event) => {
+    if (event.target === backdrop) {
+      closeMessageDialog();
+    }
+  });
+
+  const dialog = document.createElement("div");
+  dialog.className = "cwie-dialog";
+
+  const heading = document.createElement("h3");
+  heading.textContent = title;
+
+  const body = document.createElement("p");
+  body.className = "cwie-message";
+  body.textContent = message;
+
+  const footer = document.createElement("div");
+  footer.className = "cwie-footer";
+
+  const footerRight = document.createElement("div");
+  footerRight.className = "cwie-footer-right";
+
+  const okButton = document.createElement("button");
+  okButton.type = "button";
+  okButton.className = "cwie-button primary";
+  okButton.textContent = "OK";
+  okButton.addEventListener("click", () => closeMessageDialog());
+
+  footerRight.appendChild(okButton);
+  footer.appendChild(footerRight);
+
+  dialog.appendChild(heading);
+  dialog.appendChild(body);
+  dialog.appendChild(footer);
+  backdrop.appendChild(dialog);
+  document.body.appendChild(backdrop);
+  activeMessageDialog = backdrop;
+}
+
 function createRow(labelText, inputElement) {
   const row = document.createElement("div");
   row.className = "cwie-row";
@@ -303,20 +377,44 @@ function createRadioGroup(name, options) {
 }
 
 function buildInitialState() {
-  const defaults = getDefaultsFromSettings();
-  return normalizeState(defaults);
+  return { ...DEFAULT_STATE };
 }
 
-export function openExportDialog({ onExportStarted, onExportFinished } = {}) {
+function normalizeState(nextState) {
+  const safe = { ...DEFAULT_STATE, ...nextState };
+  const padding = Number.parseFloat(safe.padding);
+  const maxLongEdge = Number.parseFloat(safe.maxLongEdge);
+
+  return {
+    ...safe,
+    format: safe.format || "png",
+    embedWorkflow: Boolean(safe.embedWorkflow),
+    background: safe.background || "ui",
+    solidColor: safe.solidColor || DEFAULT_STATE.solidColor,
+    padding: Number.isFinite(padding) ? Math.max(0, Math.round(padding)) : DEFAULT_STATE.padding,
+    outputResolution: safe.outputResolution || DEFAULT_STATE.outputResolution,
+    maxLongEdge: Number.isFinite(maxLongEdge) ? Math.max(0, Math.round(maxLongEdge)) : DEFAULT_STATE.maxLongEdge,
+    exceedMode: safe.exceedMode || DEFAULT_STATE.exceedMode,
+    debug: Boolean(safe.debug),
+  };
+}
+
+export function openExportDialog({ onExportStarted, onExportFinished, log } = {}) {
   if (activeDialog) {
     return;
   }
 
   ensureStyles();
 
+  if (detectBackendType() === "node2") {
+    openMessageDialog({
+      title: "Node2.0 未対応",
+      message: "Node2.0にはまだ対応していません。",
+    });
+    return;
+  }
+
   let state = buildInitialState();
-  let defaults = getDefaultsFromSettings();
-  let setDefaultButton = null;
 
   const backdrop = document.createElement("div");
   backdrop.className = "cwie-backdrop";
@@ -412,6 +510,8 @@ export function openExportDialog({ onExportStarted, onExportFinished } = {}) {
     exceedSelect.appendChild(option);
   });
 
+  const debugToggle = createToggle();
+
   function applyStateToControls(nextState) {
     formatSelect.value = nextState.format;
     embedToggle.input.checked = nextState.embedWorkflow;
@@ -424,6 +524,7 @@ export function openExportDialog({ onExportStarted, onExportFinished } = {}) {
     outputResolutionSelect.value = nextState.outputResolution;
     maxLongEdgeInput.value = String(nextState.maxLongEdge);
     exceedSelect.value = nextState.exceedMode;
+    debugToggle.input.checked = nextState.debug;
     if (solidColorRow) {
       solidColorRow.style.display = nextState.background === "solid" ? "grid" : "none";
     }
@@ -439,32 +540,12 @@ export function openExportDialog({ onExportStarted, onExportFinished } = {}) {
       outputResolution: outputResolutionSelect.value,
       maxLongEdge: maxLongEdgeInput.value,
       exceedMode: exceedSelect.value,
+      debug: debugToggle.input.checked,
     });
-  }
-
-  function isStateDifferent(a, b) {
-    return (
-      a.format !== b.format ||
-      a.embedWorkflow !== b.embedWorkflow ||
-      a.background !== b.background ||
-      a.solidColor !== b.solidColor ||
-      a.padding !== b.padding ||
-      a.outputResolution !== b.outputResolution ||
-      a.maxLongEdge !== b.maxLongEdge ||
-      a.exceedMode !== b.exceedMode
-    );
-  }
-
-  function updateSetDefaultState() {
-    if (!setDefaultButton) {
-      return;
-    }
-    setDefaultButton.disabled = !isStateDifferent(state, defaults);
   }
 
   function handleChange() {
     updateStateFromControls();
-    updateSetDefaultState();
   }
 
   formatSelect.addEventListener("change", () => handleChange());
@@ -474,6 +555,7 @@ export function openExportDialog({ onExportStarted, onExportFinished } = {}) {
   outputResolutionSelect.addEventListener("change", () => handleChange());
   maxLongEdgeInput.addEventListener("change", () => handleChange());
   exceedSelect.addEventListener("change", () => handleChange());
+  debugToggle.input.addEventListener("change", () => handleChange());
 
   for (const input of backgroundGroup.inputs.values()) {
     input.addEventListener("change", () => {
@@ -492,21 +574,6 @@ export function openExportDialog({ onExportStarted, onExportFinished } = {}) {
 
   const footer = document.createElement("div");
   footer.className = "cwie-footer";
-
-  const footerLeft = document.createElement("div");
-  setDefaultButton = document.createElement("button");
-  setDefaultButton.type = "button";
-  setDefaultButton.className = "cwie-button";
-  setDefaultButton.textContent = "Set as default";
-  setDefaultButton.disabled = true;
-  setDefaultButton.addEventListener("click", () => {
-    handleChange();
-    if (setDefaultsInSettings(state)) {
-      defaults = normalizeState(state);
-      updateSetDefaultState();
-    }
-  });
-  footerLeft.appendChild(setDefaultButton);
 
   const footerRight = document.createElement("div");
   footerRight.className = "cwie-footer-right";
@@ -533,23 +600,36 @@ export function openExportDialog({ onExportStarted, onExportFinished } = {}) {
     exportButton.classList.add("is-busy");
     onExportStarted?.();
     updateStateFromControls();
+    let messageDialogPayload = null;
     try {
-      const dataUrl = await capturePlaceholderPng();
+      const blob = await capture(state);
       await triggerDownload({
-        dataUrl,
-        filename: "workflow.png",
+        blob,
+        filename: `workflow.${state.format || "png"}`,
       });
+    } catch (error) {
+      if (isNode2UnsupportedError(error)) {
+        messageDialogPayload = {
+          title: "Node2.0 未対応",
+          message: "Node2.0にはまだ対応していません。",
+        };
+      } else {
+        log?.("export:error", { message: error?.message || String(error) });
+        console.error("[workflow-image-export] export failed", error);
+      }
     } finally {
       exportButton.classList.remove("is-busy");
       onExportFinished?.();
       closeDialog();
+      if (messageDialogPayload) {
+        openMessageDialog(messageDialogPayload);
+      }
     }
   });
 
   footerRight.appendChild(cancelButton);
   footerRight.appendChild(exportButton);
 
-  footer.appendChild(footerLeft);
   footer.appendChild(footerRight);
 
   dialog.appendChild(title);
@@ -565,6 +645,7 @@ export function openExportDialog({ onExportStarted, onExportFinished } = {}) {
   advancedBody.appendChild(createRow("Output resolution", outputResolutionSelect));
   advancedBody.appendChild(createRow("Max long edge", maxLongEdgeInput));
   advancedBody.appendChild(createRow("If exceeded", exceedSelect));
+  advancedBody.appendChild(createRow("Debug logs", debugToggle.wrapper));
 
   advancedSection.appendChild(advancedToggle);
   advancedSection.appendChild(advancedBody);
@@ -576,5 +657,4 @@ export function openExportDialog({ onExportStarted, onExportFinished } = {}) {
   activeDialog = backdrop;
 
   applyStateToControls(state);
-  updateSetDefaultState();
 }
