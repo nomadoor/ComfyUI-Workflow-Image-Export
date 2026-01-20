@@ -5,6 +5,7 @@ import {
 } from "../core/capture/index.js";
 import { triggerDownload } from "../core/download.js";
 import {
+  DEFAULTS,
   getDefaultsFromSettings,
   normalizeState as normalizeSettingsState,
   setDefaultsInSettings,
@@ -205,6 +206,11 @@ const STYLES = `
   gap: 8px;
 }
 
+.cwie-footer-left {
+  display: flex;
+  align-items: center;
+}
+
 .cwie-button {
   border-radius: 4px;
   border: 1px solid var(--border-color, #3a3a3a);
@@ -221,6 +227,12 @@ const STYLES = `
 .cwie-button.primary {
   background: var(--comfy-menu-bg, #1f1f1f);
   box-shadow: inset 0 0 0 1px var(--highlight-color, #4a90e2);
+}
+
+.cwie-button.reset {
+  font-size: 11px;
+  padding: 4px 8px;
+  opacity: 0.7;
 }
 
 .cwie-button:disabled {
@@ -384,8 +396,15 @@ function createRadioGroup(name, options) {
   return { group, inputs };
 }
 
+function isDebugEnabled() {
+  return (
+    localStorage.getItem("cwie.debug") === "1" ||
+    window.__cwie__?.debug === true
+  );
+}
+
 function buildInitialState() {
-  return { ...getDefaultsFromSettings(), debug: false };
+  return { ...getDefaultsFromSettings(), debug: isDebugEnabled() };
 }
 
 export function openExportDialog({ onExportStarted, onExportFinished, log } = {}) {
@@ -501,8 +520,6 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
     exceedSelect.appendChild(option);
   });
 
-  const debugToggle = createToggle();
-
   function syncEmbedAvailability(formatValue) {
     const v = String(formatValue || "png").toLowerCase();
     if (v === "png") {
@@ -534,7 +551,6 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
     outputResolutionSelect.value = nextState.outputResolution;
     maxLongEdgeInput.value = String(nextState.maxLongEdge);
     exceedSelect.value = nextState.exceedMode;
-    debugToggle.input.checked = nextState.debug;
     if (solidColorRow) {
       solidColorRow.style.display = nextState.background === "solid" ? "grid" : "none";
     }
@@ -551,7 +567,7 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
       maxLongEdge: maxLongEdgeInput.value,
       exceedMode: exceedSelect.value,
     });
-    state = { ...normalized, debug: debugToggle.input.checked };
+    state = { ...normalized, debug: isDebugEnabled() };
   }
 
   function handleChange() {
@@ -568,7 +584,6 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
   outputResolutionSelect.addEventListener("change", () => handleChange());
   maxLongEdgeInput.addEventListener("change", () => handleChange());
   exceedSelect.addEventListener("change", () => handleChange());
-  debugToggle.input.addEventListener("change", () => handleChange());
 
   for (const input of backgroundGroup.inputs.values()) {
     input.addEventListener("change", () => {
@@ -588,8 +603,20 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
   const footer = document.createElement("div");
   footer.className = "cwie-footer";
 
+  const footerLeft = document.createElement("div");
+  footerLeft.className = "cwie-footer-left";
+
   const footerRight = document.createElement("div");
   footerRight.className = "cwie-footer-right";
+
+  const resetButton = document.createElement("button");
+  resetButton.type = "button";
+  resetButton.className = "cwie-button reset";
+  resetButton.textContent = "Reset to defaults";
+  resetButton.addEventListener("click", () => {
+    state = normalizeSettingsState(DEFAULTS);
+    applyStateToControls(state);
+  });
 
   const cancelButton = document.createElement("button");
   cancelButton.type = "button";
@@ -644,6 +671,8 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
   footerRight.appendChild(cancelButton);
   footerRight.appendChild(exportButton);
 
+  footerLeft.appendChild(resetButton);
+  footer.appendChild(footerLeft);
   footer.appendChild(footerRight);
 
   dialog.appendChild(title);
@@ -660,7 +689,6 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
   advancedBody.appendChild(createRow("Output resolution", outputResolutionSelect));
   advancedBody.appendChild(createRow("Max long edge", maxLongEdgeInput));
   advancedBody.appendChild(createRow("If exceeded", exceedSelect));
-  advancedBody.appendChild(createRow("Debug logs", debugToggle.wrapper));
 
   advancedSection.appendChild(advancedToggle);
   advancedSection.appendChild(advancedBody);
