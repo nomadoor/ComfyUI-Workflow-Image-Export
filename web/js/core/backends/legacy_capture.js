@@ -175,12 +175,41 @@ function copyRenderSettings(fromCanvas, toCanvas) {
     "link_shadow_color",
     "link_brightness",
     "default_link_color",
-    "high_quality",
   ].forEach((key) => {
     if (Object.prototype.hasOwnProperty.call(fromCanvas, key)) {
       toCanvas[key] = fromCanvas[key];
     }
   });
+}
+
+function forceExportQuality(offscreen) {
+  const setProp = (key, value) => {
+    try {
+      const desc = Object.getOwnPropertyDescriptor(offscreen, key);
+      if (desc && desc.set) {
+        offscreen[key] = value;
+        return;
+      }
+      if (!desc || desc.writable) {
+        offscreen[key] = value;
+      }
+    } catch (_) {
+      // Some properties are getter-only in newer LiteGraph builds.
+    }
+  };
+
+  if ("high_quality" in offscreen) {
+    setProp("high_quality", true);
+  }
+  if ("low_quality" in offscreen) {
+    setProp("low_quality", false);
+  }
+  if ("render_shadows" in offscreen) {
+    setProp("render_shadows", true);
+  }
+  if ("disable_rendering" in offscreen) {
+    setProp("disable_rendering", false);
+  }
 }
 
 function applyBackgroundMode(offscreen, options) {
@@ -265,17 +294,16 @@ async function drawOffscreen(offscreen, options = {}) {
   offscreen.draw(true, true);
 }
 
-function collectVideoElementsFromDom() {
-  const selectors = [
-    ".dom-widget video",
-    "video.VHS_loopedvideo",
-    "video",
-  ];
+function collectVideoElementsFromDom(uiCanvas) {
+  const root = document;
+  const selectors = ["video.VHS_loopedvideo", "video"];
   const elements = new Set();
   for (const selector of selectors) {
-    for (const node of document.querySelectorAll(selector)) {
+    for (const node of root.querySelectorAll(selector)) {
       if (node instanceof HTMLVideoElement) {
-        elements.add(node);
+        if (isElementInGraphNode(node)) {
+          elements.add(node);
+        }
       }
     }
   }
@@ -309,7 +337,7 @@ function drawVideoOverlays({ exportCtx, uiCanvas, bounds, scale, nodeRects, debu
   const scaleX = canvasEl.width / rect.width;
   const scaleY = canvasEl.height / rect.height;
 
-  const videos = collectVideoElementsFromDom();
+  const videos = collectVideoElementsFromDom(uiCanvas);
   if (!videos.length) return;
 
   const invScale = 1 / ds.scale;
@@ -361,6 +389,505 @@ function drawVideoOverlays({ exportCtx, uiCanvas, bounds, scale, nodeRects, debu
     }
   }
 }
+
+function wrapText(ctx, text, x, y, maxWidth, lineHeight, maxLines = Infinity) {
+  const lines = [];
+  const rawLines = text.split("\n");
+
+  const pushWrappedWord = (word, currentLine) => {
+    let line = currentLine;
+    for (const ch of word) {
+      const test = line + ch;
+      if (ctx.measureText(test).width > maxWidth && line) {
+        lines.push(line);
+        line = ch;
+      } else {
+        line = test;
+      }
+    }
+    return line;
+  };
+
+  for (const raw of rawLines) {
+    if (!raw) {
+      lines.push("");
+      continue;
+    }
+
+    const words = raw.split(" ");
+    let line = "";
+    for (const word of words) {
+      if (!word) {
+        const spaced = line + " ";
+        if (ctx.measureText(spaced).width > maxWidth && line) {
+          lines.push(line);
+          line = "";
+        } else {
+          line = spaced;
+        }
+        continue;
+      }
+
+      const withSpace = line ? `${line} ${word}` : word;
+      if (ctx.measureText(withSpace).width <= maxWidth) {
+        line = withSpace;
+        continue;
+      }
+
+      if (line) {
+        lines.push(line);
+        line = "";
+      }
+
+      if (ctx.measureText(word).width <= maxWidth) {
+        line = word;
+      } else {
+        line = pushWrappedWord(word, line);
+      }
+    }
+    lines.push(line);
+  }
+
+  let offsetY = y;
+  for (const line of lines) {
+    if (offsetY > y + lineHeight * (maxLines - 1) + 0.5) {
+      break;
+    }
+    ctx.fillText(line, x, offsetY);
+    offsetY += lineHeight;
+  }
+}
+
+function parsePx(value, fallback = 0) {
+  if (!value) return fallback;
+  const num = Number.parseFloat(value);
+  return Number.isFinite(num) ? num : fallback;
+}
+
+function canvasPointToGraph(uiCanvas, x, y) {
+  if (typeof uiCanvas?.convertCanvasToOffset === "function") {
+    return uiCanvas.convertCanvasToOffset([x, y]);
+  }
+  const ds = uiCanvas?.ds;
+  if (!ds) return [x, y];
+  return [x / ds.scale - ds.offset[0], y / ds.scale - ds.offset[1]];
+}
+
+function getDomElementGraphRect(el, uiCanvas) {
+  const canvasEl = uiCanvas?.canvas;
+  const ds = uiCanvas?.ds;
+  if (!canvasEl || !ds) return null;
+
+  const rect = canvasEl.getBoundingClientRect();
+  if (!rect.width || !rect.height) return null;
+
+  const r = el.getBoundingClientRect();
+  if (!r.width || !r.height) return null;
+
+  const scaleX = canvasEl.width / rect.width;
+  const scaleY = canvasEl.height / rect.height;
+
+  const sx = (r.left - rect.left) * scaleX;
+  const sy = (r.top - rect.top) * scaleY;
+  const sw = r.width * scaleX;
+  const sh = r.height * scaleY;
+
+  const p0 = canvasPointToGraph(uiCanvas, sx, sy);
+  const p1 = canvasPointToGraph(uiCanvas, sx + sw, sy + sh);
+  return {
+    x: p0[0],
+    y: p0[1],
+    w: p1[0] - p0[0],
+    h: p1[1] - p0[1],
+  };
+}
+
+function getCanvasRoot(uiCanvas) {
+  const canvasEl = uiCanvas?.canvas;
+  if (!canvasEl) return document;
+  return canvasEl.closest?.(".graph-canvas-panel") || canvasEl.parentElement || document;
+}
+
+function isElementInGraphNode(element) {
+  return Boolean(
+    element?.closest?.(
+      ".comfy-node, .litegraph-node, .graph-node, .node, .dom-widget, [data-node-id], [data-nodeid]"
+    )
+  );
+}
+
+function getNodeIdFromElement(element) {
+  const nodeRoot = element?.closest?.(
+    ".comfy-node, .litegraph-node, .graph-node, .node, [data-node-id], [data-nodeid]"
+  );
+  if (!nodeRoot) return null;
+  const idAttr = nodeRoot.getAttribute?.("data-node-id") ?? nodeRoot.getAttribute?.("data-nodeid");
+  if (!idAttr) return null;
+  const id = Number.parseInt(idAttr, 10);
+  return Number.isFinite(id) ? id : null;
+}
+
+function collectTextElementsFromDom(uiCanvas) {
+  const root = document;
+  const selectors = [
+    ".dom-widget textarea",
+    ".dom-widget input[type='text']",
+    ".dom-widget .markdown",
+    ".dom-widget .markdown-body",
+    ".dom-widget .markdown-preview",
+    ".dom-widget pre",
+    "textarea",
+    "input[type='text']",
+    ".markdown",
+    ".markdown-body",
+    ".markdown-preview",
+    "pre",
+  ];
+  const elements = new Set();
+  for (const selector of selectors) {
+    for (const node of root.querySelectorAll(selector)) {
+      if (
+        node instanceof HTMLTextAreaElement ||
+        node instanceof HTMLInputElement ||
+        node instanceof HTMLElement
+      ) {
+        if (isElementInGraphNode(node)) {
+          elements.add(node);
+        }
+      }
+    }
+  }
+  return Array.from(elements);
+}
+
+function drawWidgetTextFallback({ exportCtx, graph, bounds, scale, coveredNodeIds, debugLog }) {
+  const nodes = graph?._nodes || graph?.nodes || [];
+  if (!nodes.length) {
+    return { drawn: 0, skippedCovered: 0, skippedEmpty: 0 };
+  }
+
+  const nodeWidgetHeight = window?.LiteGraph?.NODE_WIDGET_HEIGHT || 20;
+  let drawn = 0;
+  let skippedCovered = 0;
+  let skippedEmpty = 0;
+
+  const getNodeTextCandidate = (node) => {
+    const candidates = [];
+    if (Array.isArray(node.widgets_values)) {
+      for (const value of node.widgets_values) {
+        if (typeof value === "string" && value.trim()) {
+          candidates.push(value);
+        }
+      }
+    }
+    if (node.properties && typeof node.properties === "object") {
+      for (const [key, value] of Object.entries(node.properties)) {
+        if (typeof value === "string" && value.trim()) {
+          const lower = key.toLowerCase();
+          if (
+            lower.includes("text") ||
+            lower.includes("prompt") ||
+            lower.includes("note") ||
+            lower.includes("markdown")
+          ) {
+            candidates.push(value);
+          }
+        }
+      }
+    }
+    if (!candidates.length) return "";
+    const sorted = candidates.sort((a, b) => b.length - a.length);
+    return sorted[0];
+  };
+
+  for (const node of nodes) {
+    if (!node || !Array.isArray(node.widgets)) continue;
+    if (coveredNodeIds?.has?.(node.id)) {
+      skippedCovered += 1;
+      continue;
+    }
+    let drewForNode = false;
+    const widgetsValues = Array.isArray(node.widgets_values)
+      ? node.widgets_values
+      : null;
+    const nodePos = node.pos || node._pos || [0, 0];
+    const nodeSize = node.size || node._size || [0, 0];
+    const widgetBaseX = nodePos[0] + 15;
+    const widgetWidth = Math.max(1, (nodeSize[0] || 0) - 30);
+    const widgetsStartY =
+      Number.isFinite(node.widgets_start_y) ? node.widgets_start_y : 0;
+
+    for (let index = 0; index < node.widgets.length; index += 1) {
+      const widget = node.widgets[index];
+      if (!widget) continue;
+      const isMultiline =
+        widget?.options?.multiline ||
+        widget.type === "textarea" ||
+        widget.type === "text" ||
+        widget.type === "string" ||
+        widget.type === "markdown";
+      if (!isMultiline) continue;
+      const widgetValue =
+        typeof widget.value === "string" && widget.value.trim()
+          ? widget.value
+          : typeof widgetsValues?.[index] === "string"
+          ? widgetsValues[index]
+          : "";
+      if (!widgetValue.trim()) {
+        skippedEmpty += 1;
+        continue;
+      }
+
+      const widgetY = Number.isFinite(widget.y) ? widget.y : widgetsStartY;
+      const widgetHeight = Number.isFinite(widget.height)
+        ? widget.height
+        : nodeWidgetHeight;
+
+      const x = (widgetBaseX - bounds.left) * scale;
+      const y = (nodePos[1] + widgetY - bounds.top) * scale;
+      const w = widgetWidth * scale;
+      const h = widgetHeight * scale;
+
+      const fontSize = Math.max(10, Math.round(11 * scale));
+      const lineHeight = Math.max(fontSize * 1.2, 12 * scale);
+      const paddingX = 6 * scale;
+      const paddingY = 4 * scale;
+
+      exportCtx.save();
+      exportCtx.textBaseline = "top";
+      exportCtx.font = `${fontSize}px ${window?.LiteGraph?.NODE_FONT || "sans-serif"}`;
+      exportCtx.fillStyle = "#e6e6e6";
+      exportCtx.beginPath();
+      exportCtx.rect(x, y, w, h);
+      exportCtx.clip();
+
+      const innerX = x + paddingX;
+      const innerY = y + paddingY;
+      const innerW = Math.max(1, w - paddingX * 2);
+      const innerH = Math.max(1, h - paddingY * 2);
+      const maxLines = Math.max(1, Math.floor(innerH / lineHeight));
+      wrapText(exportCtx, widgetValue, innerX, innerY, innerW, lineHeight, maxLines);
+      exportCtx.restore();
+
+      drawn += 1;
+      drewForNode = true;
+      debugLog?.("widget.text.fallback", {
+        node: { id: node.id, title: node.title, type: node.type },
+        x,
+        y,
+        w,
+        h,
+      });
+    }
+
+    if (!drewForNode) {
+      const candidate = getNodeTextCandidate(node);
+      if (candidate && (candidate.length >= 20 || candidate.includes("\n"))) {
+        const titleHeight = window?.LiteGraph?.NODE_TITLE_HEIGHT || 30;
+        const x = (widgetBaseX - bounds.left) * scale;
+        const y = (nodePos[1] + titleHeight - bounds.top) * scale;
+        const w = widgetWidth * scale;
+        const h = Math.max(1, (nodeSize[1] - titleHeight - 6) * scale);
+        const fontSize = Math.max(10, Math.round(11 * scale));
+        const lineHeight = Math.max(fontSize * 1.2, 12 * scale);
+        const paddingX = 6 * scale;
+        const paddingY = 4 * scale;
+
+        exportCtx.save();
+        exportCtx.textBaseline = "top";
+        exportCtx.font = `${fontSize}px ${window?.LiteGraph?.NODE_FONT || "sans-serif"}`;
+        exportCtx.fillStyle = "#e6e6e6";
+        exportCtx.beginPath();
+        exportCtx.rect(x, y, w, h);
+        exportCtx.clip();
+
+        const innerX = x + paddingX;
+        const innerY = y + paddingY;
+        const innerW = Math.max(1, w - paddingX * 2);
+        const innerH = Math.max(1, h - paddingY * 2);
+        const maxLines = Math.max(1, Math.floor(innerH / lineHeight));
+        wrapText(exportCtx, candidate, innerX, innerY, innerW, lineHeight, maxLines);
+        exportCtx.restore();
+
+        drawn += 1;
+        debugLog?.("widget.text.generic", {
+          node: { id: node.id, title: node.title, type: node.type },
+          x,
+          y,
+          w,
+          h,
+        });
+      }
+    }
+  }
+  return { drawn, skippedCovered, skippedEmpty };
+}
+
+function drawTextOverlays({ exportCtx, uiCanvas, graph, bounds, scale, debugLog }) {
+  const elements = collectTextElementsFromDom(uiCanvas);
+  debugLog?.("dom.text.count", { count: elements.length });
+  debugLog?.("dom.widget.count", {
+    count: document.querySelectorAll(".dom-widget").length,
+  });
+  let visibleCount = 0;
+  let skippedNoRect = 0;
+  let skippedEmpty = 0;
+  const coveredNodeIds = new Set();
+
+  let loggedSkips = 0;
+  for (const el of elements) {
+    const nodeId = getNodeIdFromElement(el);
+    const rect = getDomElementGraphRect(el, uiCanvas);
+    if (!rect) {
+      skippedNoRect += 1;
+      if (debugLog && loggedSkips < 5) {
+        const r = el.getBoundingClientRect?.();
+        const canvasRect = uiCanvas?.canvas?.getBoundingClientRect?.();
+        debugLog("dom.text.skip", {
+          tag: el.tagName,
+          className: el.className,
+          nodeId,
+          rect: r
+            ? { left: r.left, top: r.top, width: r.width, height: r.height }
+            : null,
+          canvasRect: canvasRect
+            ? {
+                left: canvasRect.left,
+                top: canvasRect.top,
+                width: canvasRect.width,
+                height: canvasRect.height,
+              }
+            : null,
+        });
+        loggedSkips += 1;
+      }
+      continue;
+    }
+    if (Number.isFinite(nodeId)) {
+      coveredNodeIds.add(nodeId);
+    }
+
+    const x = (rect.x - bounds.left) * scale;
+    const y = (rect.y - bounds.top) * scale;
+    const w = rect.w * scale;
+    const h = rect.h * scale;
+
+    const style = window.getComputedStyle(el);
+    const fontSize = parsePx(style.fontSize, 12);
+    const lineHeight = parsePx(style.lineHeight, fontSize * 1.2);
+    const paddingLeft = parsePx(style.paddingLeft, 0);
+    const paddingTop = parsePx(style.paddingTop, 0);
+    const paddingRight = parsePx(style.paddingRight, 0);
+    const paddingBottom = parsePx(style.paddingBottom, 0);
+    const bg = style.backgroundColor;
+    const color = style.color || "#ffffff";
+
+    const text =
+      el instanceof HTMLTextAreaElement
+        ? el.value
+        : el instanceof HTMLInputElement
+        ? el.value
+        : el.innerText || el.textContent || "";
+
+    if (!text.trim()) {
+      skippedEmpty += 1;
+      continue;
+    }
+    visibleCount += 1;
+
+    exportCtx.save();
+    exportCtx.textBaseline = "top";
+    exportCtx.font = `${style.fontStyle || ""} ${style.fontVariant || ""} ${style.fontWeight || ""} ${fontSize}px ${style.fontFamily || "sans-serif"}`.trim();
+
+    if (bg && bg !== "rgba(0, 0, 0, 0)" && bg !== "transparent") {
+      exportCtx.fillStyle = bg;
+      exportCtx.fillRect(x, y, w, h);
+    }
+
+    exportCtx.beginPath();
+    exportCtx.rect(x, y, w, h);
+    exportCtx.clip();
+
+    exportCtx.fillStyle = color;
+    const innerX = x + paddingLeft;
+    const innerY = y + paddingTop;
+    const innerW = Math.max(1, w - paddingLeft - paddingRight);
+    const innerH = Math.max(1, h - paddingTop - paddingBottom);
+    const maxLines = Math.max(1, Math.floor(innerH / lineHeight));
+    wrapText(exportCtx, text, innerX, innerY, innerW, lineHeight, maxLines);
+    exportCtx.restore();
+
+    debugLog?.("dom.text.item", {
+      x,
+      y,
+      w,
+      h,
+      text: text.slice(0, 80),
+    });
+  }
+
+  if (visibleCount === 0) {
+    debugLog?.("dom.text.fallback", { reason: "no-visible-dom-text" });
+  }
+  const widgetStats = drawWidgetTextFallback({
+    exportCtx,
+    graph,
+    bounds,
+    scale,
+    coveredNodeIds,
+    debugLog,
+  });
+
+  debugLog?.("dom.text.summary", {
+    visible: visibleCount,
+    skippedNoRect,
+    skippedEmpty,
+    coveredNodes: coveredNodeIds.size,
+    widgetDrawn: widgetStats?.drawn ?? 0,
+    widgetSkippedCovered: widgetStats?.skippedCovered ?? 0,
+    widgetSkippedEmpty: widgetStats?.skippedEmpty ?? 0,
+  });
+}
+
+function collectImageElementsFromDom(uiCanvas) {
+  const root = document;
+  const selectors = ["img", "canvas"];
+  const elements = new Set();
+  for (const selector of selectors) {
+    for (const node of root.querySelectorAll(selector)) {
+      if (node instanceof HTMLImageElement || node instanceof HTMLCanvasElement) {
+        if (isElementInGraphNode(node)) {
+          elements.add(node);
+        }
+      }
+    }
+  }
+  return Array.from(elements);
+}
+
+function drawImageOverlays({ exportCtx, uiCanvas, bounds, scale, debugLog }) {
+  const elements = collectImageElementsFromDom(uiCanvas);
+  if (!elements.length) return;
+
+  debugLog?.("dom.image.count", { count: elements.length });
+
+  for (const el of elements) {
+    const rect = getDomElementGraphRect(el, uiCanvas);
+    if (!rect) continue;
+
+    const x = (rect.x - bounds.left) * scale;
+    const y = (rect.y - bounds.top) * scale;
+    const w = rect.w * scale;
+    const h = rect.h * scale;
+
+    try {
+      exportCtx.drawImage(el, x, y, w, h);
+      debugLog?.("dom.image.item", { x, y, w, h });
+    } catch (error) {
+      debugLog?.("dom.image.error", { message: error?.message || String(error) });
+    }
+  }
+}
 function resolveNodeTitleFromElement(element) {
   const nodeRoot = element.closest(
     ".comfy-node, .litegraph-node, .graph-node, .node, [data-node-id], [data-nodeid]"
@@ -373,21 +900,20 @@ function resolveNodeTitleFromElement(element) {
   return String(title).trim();
 }
 
-function collectDomMediaElements() {
-  const selectors = [
-    ".dom-widget video",
-    ".dom-widget canvas",
-    ".dom-widget img",
-  ];
+function collectDomMediaElements(uiCanvas) {
+  const root = document;
+  const selectors = ["video", "canvas", "img"];
   const elements = [];
   for (const selector of selectors) {
-    for (const node of document.querySelectorAll(selector)) {
+    for (const node of root.querySelectorAll(selector)) {
       if (
         node instanceof HTMLVideoElement ||
         node instanceof HTMLCanvasElement ||
         node instanceof HTMLImageElement
       ) {
-        elements.push(node);
+        if (isElementInGraphNode(node)) {
+          elements.push(node);
+        }
       }
     }
   }
@@ -396,7 +922,7 @@ function collectDomMediaElements() {
 
 function logDomMedia(debugLog, uiCanvas) {
   if (!debugLog) return;
-  const elements = collectDomMediaElements();
+  const elements = collectDomMediaElements(uiCanvas);
   const canvasEl = uiCanvas?.canvas;
   const rect = canvasEl?.getBoundingClientRect?.();
   debugLog("dom.media.count", { count: elements.length });
@@ -497,6 +1023,7 @@ export async function captureLegacy(options = {}) {
   offscreen.ctx = exportCtx;
 
   copyRenderSettings(uiCanvas, offscreen);
+  forceExportQuality(offscreen);
   const mode = applyBackgroundMode(offscreen, options);
   offscreen.render_canvas_border = false;
   if (typeof offscreen.resize === "function") {
@@ -565,7 +1092,9 @@ export async function captureLegacy(options = {}) {
     solidColor: options?.solidColor,
     resetTransform: () => configureTransform(offscreen, bounds, width, height, scale, debugLog),
   });
+  drawImageOverlays({ exportCtx, uiCanvas, bounds, scale, debugLog });
   drawVideoOverlays({ exportCtx, uiCanvas, bounds, scale, nodeRects, debugLog });
+  drawTextOverlays({ exportCtx, uiCanvas, graph, bounds, scale, debugLog });
 
   const blob = await toBlobAsync(exportCanvas, mime);
   return {

@@ -1,5 +1,4 @@
 import { app } from "/scripts/app.js";
-import { openExportDialog } from "./ui/dialog.js";
 import { installLegacyCanvasMenuItem } from "./core/menu.js";
 import { registerLegacySettings } from "./core/settings.js";
 
@@ -24,6 +23,23 @@ function buildMenuLabel() {
   return `${icon}<span>Export Workflow Image&hellip;</span>`;
 }
 
+async function openDialog(log) {
+  try {
+    const mod = await import("./ui/dialog.js");
+    const openExportDialog = mod?.openExportDialog;
+    if (typeof openExportDialog !== "function") {
+      throw new Error("workflow-image-export: openExportDialog not available");
+    }
+    openExportDialog({
+      onExportStarted: () => log("export started"),
+      onExportFinished: () => log("export finished"),
+      log,
+    });
+  } catch (error) {
+    console.error("[workflow-image-export] failed to open dialog", error);
+  }
+}
+
 app.registerExtension({
   name: "comfyui.workflowImageExport",
   setup() {
@@ -42,11 +58,7 @@ app.registerExtension({
         labelPlain: "Export Workflow Image...",
         onClick: () => {
           log("context menu click (legacy)");
-          openExportDialog({
-            onExportStarted: () => log("export started"),
-            onExportFinished: () => log("export finished"),
-            log,
-          });
+          openDialog(log);
         },
         log,
       });
@@ -58,11 +70,7 @@ app.registerExtension({
       content: buildMenuLabel(),
       callback: () => {
         log("context menu click");
-        openExportDialog({
-          onExportStarted: () => log("export started"),
-          onExportFinished: () => log("export finished"),
-          log,
-        });
+        openDialog(log);
       },
     };
 
