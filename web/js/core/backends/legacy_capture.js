@@ -159,7 +159,8 @@ function applyBackgroundFill(mode, width, height, exportCtx, bgctx, solidColor) 
 }
 
 function copyRenderSettings(fromCanvas, toCanvas) {
-  [
+  // Exhaustive list of known LiteGraph/ComfyUI rendering properties
+  const renderKeys = [
     "render_background",
     "clear_background",
     "clear_background_color",
@@ -172,9 +173,44 @@ function copyRenderSettings(fromCanvas, toCanvas) {
     "link_shadow_color",
     "link_brightness",
     "default_link_color",
-  ].forEach((key) => {
-    if (Object.prototype.hasOwnProperty.call(fromCanvas, key)) {
+    "link_type",
+    "render_connections_border",
+    "render_connections_shadows",
+    "render_curved_connections",
+    "always_render_background",
+    "use_slot_types_default_colors",
+    "use_slot_types_color",
+    "NODE_WIDGET_COLOR",
+    "NODE_TEXT_COLOR",
+    "NODE_DEFAULT_COLOR",
+    "NODE_SELECTED_COLOR",
+    "NODE_BOX_OUTLINE_COLOR",
+    "NODE_TITLE_COLOR",
+    "NODE_TEXT_SIZE",
+    "NODE_SLOT_RGB",
+  ];
+
+  // Also include any instance property that looks like a rendering setting
+  // The user log revealed several 'default_' prefixed properties in ComfyUI
+  for (const key in fromCanvas) {
+    if (
+      key.startsWith("NODE_") ||
+      key.startsWith("link_") ||
+      key.startsWith("render_") ||
+      key.startsWith("use_slot_") ||
+      key.startsWith("default_")
+    ) {
+      if (!renderKeys.includes(key)) {
+        renderKeys.push(key);
+      }
+    }
+  }
+
+  renderKeys.forEach((key) => {
+    if (fromCanvas[key] !== undefined) {
       toCanvas[key] = fromCanvas[key];
+    } else if (fromCanvas.constructor && fromCanvas.constructor[key] !== undefined) {
+      toCanvas[key] = fromCanvas.constructor[key];
     }
   });
 }
@@ -508,8 +544,6 @@ function drawWidgetTextFallback({ exportCtx, graph, bounds, scale, coveredNodeId
       const isMultiline =
         widget?.options?.multiline ||
         widget.type === "textarea" ||
-        widget.type === "text" ||
-        widget.type === "string" ||
         widget.type === "markdown";
       if (!isMultiline) continue;
       const widgetValue =
@@ -567,7 +601,10 @@ function drawWidgetTextFallback({ exportCtx, graph, bounds, scale, coveredNodeId
 
     if (!drewForNode) {
       const candidate = getNodeTextCandidate(node);
-      if (candidate && (candidate.length >= 20 || candidate.includes("\n"))) {
+      const isNoteNode = node.type === "Note" || node.type === "Notes";
+      const hasVisibleWidgets = node.widgets && node.widgets.length > 0;
+
+      if (candidate && (isNoteNode || !hasVisibleWidgets) && (candidate.length >= 20 || candidate.includes("\n"))) {
         const titleHeight = window?.LiteGraph?.NODE_TITLE_HEIGHT || 30;
         const x = (widgetBaseX - bounds.left) * scale;
         const y = (nodePos[1] + titleHeight - bounds.top) * scale;
@@ -871,12 +908,13 @@ export async function captureLegacy(options = {}) {
     throw new Error("Legacy capture: export context missing.");
   }
 
-  const LGraphCanvas = window?.LGraphCanvas || window?.LiteGraph?.LGraphCanvas;
-  if (!LGraphCanvas) {
-    throw new Error("Legacy capture: LGraphCanvas not available.");
+  // Use the exact same constructor as the UI canvas to ensure ComfyUI extensions/modifications are present
+  const LGraphCanvasRef = uiCanvas.constructor || window?.LGraphCanvas || window?.LiteGraph?.LGraphCanvas;
+  if (!LGraphCanvasRef) {
+    throw new Error("Legacy capture: LGraphCanvas constructor not available.");
   }
 
-  const offscreen = new LGraphCanvas(exportCanvas, graph);
+  const offscreen = new LGraphCanvasRef(exportCanvas, graph);
   offscreen.canvas = exportCanvas;
   offscreen.ctx = exportCtx;
 
