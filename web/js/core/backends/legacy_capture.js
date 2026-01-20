@@ -619,7 +619,7 @@ function drawWidgetTextFallback({ exportCtx, graph, bounds, scale, coveredNodeId
   return { drawn, skippedCovered, skippedEmpty };
 }
 
-function drawTextOverlays({ exportCtx, uiCanvas, graph, bounds, scale, debugLog }) {
+function drawTextOverlays({ exportCtx, uiCanvas, graph, bounds, scale, nodeRects, debugLog }) {
   const elements = collectTextElementsFromDom(uiCanvas);
   debugLog?.("dom.text.count", { count: elements.length });
   debugLog?.("dom.widget.count", {
@@ -629,6 +629,14 @@ function drawTextOverlays({ exportCtx, uiCanvas, graph, bounds, scale, debugLog 
   let skippedNoRect = 0;
   let skippedEmpty = 0;
   const coveredNodeIds = new Set();
+  const resolveNodeId = (rect, fallbackId) => {
+    if (Number.isFinite(fallbackId)) return fallbackId;
+    if (!rect || !nodeRects?.length) return null;
+    const cx = rect.x + rect.w / 2;
+    const cy = rect.y + rect.h / 2;
+    const node = findNodeForPoint(nodeRects, cx, cy);
+    return node?.id ?? null;
+  };
 
   let loggedSkips = 0;
   for (const el of elements) {
@@ -659,8 +667,9 @@ function drawTextOverlays({ exportCtx, uiCanvas, graph, bounds, scale, debugLog 
       }
       continue;
     }
-    if (Number.isFinite(nodeId)) {
-      coveredNodeIds.add(nodeId);
+    const resolvedId = resolveNodeId(rect, nodeId);
+    if (Number.isFinite(resolvedId)) {
+      coveredNodeIds.add(resolvedId);
     }
 
     const x = (rect.x - bounds.left) * scale;
@@ -954,7 +963,7 @@ export async function captureLegacy(options = {}) {
   });
   drawImageOverlays({ exportCtx, uiCanvas, bounds, scale, debugLog });
   drawVideoOverlays({ exportCtx, uiCanvas, bounds, scale, nodeRects, debugLog });
-  drawTextOverlays({ exportCtx, uiCanvas, graph, bounds, scale, debugLog });
+  drawTextOverlays({ exportCtx, uiCanvas, graph, bounds, scale, nodeRects, debugLog });
 
   const blob = await toBlobAsync(exportCanvas, mime);
   return {
