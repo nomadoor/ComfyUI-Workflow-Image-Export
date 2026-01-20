@@ -1,34 +1,35 @@
 # ComfyUI Workflow Image Export
 
-A ComfyUI extension to export high-quality images of your workflows with embedded JSON data.
+A simple ComfyUI extension to export images of your workflows with embedded JSON data.
 
 ## Features
-- **Full Workflow Capture**: Automatically calculates bounds to capture all nodes and groups in a single image.
-- **Workflow Embedding**: Embeds the workflow JSON data directly into the exported image (supported for PNG).
-- **Customizable Appearance**: Adjust background styles, padding, and more to create clean documentation or sharing-ready images.
+- **Workflow Capture**: Automatically calculates bounds to capture all nodes and groups in one image.
+- **Output Customization**: You can adjust the background, padding, and more to your liking.
+- **Workflow Embedding**: Embeds the workflow JSON data into the image (PNG only).
 
 ## Usage
 1. Right-click on the ComfyUI canvas.
-2. Select **Export Workflow Image...** from the context menu.
-3. Adjust the export settings in the dialog.
-4. Click **Export** to save your image.
+2. Select **Export Workflow Image...**.
+3. Tweak the settings in the dialog.
+4. Hit **Export**!
 
 ## Settings
-- **Format**: Choose between **PNG** or **WebP**.
+- **Format**: **PNG** or **WebP**.
+  - *Note: Workflow embedding is NOT supported for WebP.*
 - **Embed Workflow**: Toggle whether to include the workflow JSON data in the file.
 - **Background**:
   - **UI**: Uses the current ComfyUI theme background.
   - **Transparent**: Exports with a transparent background.
-  - **Solid**: Uses a custom solid color.
-- **Padding**: Adjust the margin around the workflow nodes.
+  - **Solid**: Uses a custom color.
+- **Padding**: Margin around your workflow.
 
 ## Compatibility
 > [!IMPORTANT]
-> **Node 2.0 (New Frontend) is not supported yet.** 
-> This extension currently works with the classic LiteGraph-based frontend.
+> **Node 2.0 (New Frontend) is not supported.** 
+> To be honest, I don't know how to implement this for the new frontend yet. Sorry! m(_ _)m
 
 ## Acknowledgments
-- Inspired by and references [ComfyUI-Custom-Scripts](https://github.com/pythongosssss/ComfyUI-Custom-Scripts) by **pythongosssss**. Special thanks for the great work!
+- This project references [ComfyUI-Custom-Scripts](https://github.com/pythongosssss/ComfyUI-Custom-Scripts) by **pythongosssss**. Thanks for the great reference!
 
 ## License
 MIT
