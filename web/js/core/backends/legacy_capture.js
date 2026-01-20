@@ -7,6 +7,7 @@ import {
   getDomElementGraphRect,
   getNodeIdFromElement,
 } from "../overlays/dom_utils.js";
+import { toBlobAsync } from "../utils.js";
 
 function collectNodeRects(graph, debugLog) {
   const rects = [];
@@ -116,18 +117,6 @@ function applyPadding(bounds, padding, debugLog) {
   };
   debugLog?.("bounds.padded", padded);
   return padded;
-}
-
-function toBlobAsync(canvas, type) {
-  return new Promise((resolve, reject) => {
-    canvas.toBlob((blob) => {
-      if (!blob) {
-        reject(new Error("Failed to create blob."));
-        return;
-      }
-      resolve(blob);
-    }, type);
-  });
 }
 
 function ensure2DContext(canvas) {
@@ -527,8 +516,8 @@ function drawWidgetTextFallback({ exportCtx, graph, bounds, scale, coveredNodeId
         typeof widget.value === "string" && widget.value.trim()
           ? widget.value
           : typeof widgetsValues?.[index] === "string"
-          ? widgetsValues[index]
-          : "";
+            ? widgetsValues[index]
+            : "";
       if (!widgetValue.trim()) {
         skippedEmpty += 1;
         continue;
@@ -656,11 +645,11 @@ function drawTextOverlays({ exportCtx, uiCanvas, graph, bounds, scale, nodeRects
             : null,
           canvasRect: canvasRect
             ? {
-                left: canvasRect.left,
-                top: canvasRect.top,
-                width: canvasRect.width,
-                height: canvasRect.height,
-              }
+              left: canvasRect.left,
+              top: canvasRect.top,
+              width: canvasRect.width,
+              height: canvasRect.height,
+            }
             : null,
         });
         loggedSkips += 1;
@@ -691,8 +680,8 @@ function drawTextOverlays({ exportCtx, uiCanvas, graph, bounds, scale, nodeRects
       el instanceof HTMLTextAreaElement
         ? el.value
         : el instanceof HTMLInputElement
-        ? el.value
-        : el.innerText || el.textContent || "";
+          ? el.value
+          : el.innerText || el.textContent || "";
 
     if (!text.trim()) {
       skippedEmpty += 1;
@@ -854,13 +843,13 @@ export async function captureLegacy(options = {}) {
 
   const debugLog = debug
     ? (label, payload) => {
-        console.log(`[CWIE][Legacy][dbg] ${label}`, payload);
-        try {
-          console.log(`[CWIE][Legacy][dbg:raw] ${label}`, JSON.stringify(payload));
-        } catch (e) {
-          console.log(`[CWIE][Legacy][dbg:raw] ${label}`, String(payload));
-        }
+      console.log(`[CWIE][Legacy][dbg] ${label}`, payload);
+      try {
+        console.log(`[CWIE][Legacy][dbg:raw] ${label}`, JSON.stringify(payload));
+      } catch (e) {
+        console.log(`[CWIE][Legacy][dbg:raw] ${label}`, String(payload));
       }
+    }
     : null;
 
   const { bounds: graphBounds, nodeRects } = collectGraphBounds(graph, debugLog);
@@ -922,10 +911,10 @@ export async function captureLegacy(options = {}) {
       "[CWIE][Legacy] export:bgcanvas",
       offscreen.bgcanvas
         ? {
-            width: offscreen.bgcanvas.width,
-            height: offscreen.bgcanvas.height,
-            alpha: offscreen.bgctx?.getContextAttributes?.()?.alpha,
-          }
+          width: offscreen.bgcanvas.width,
+          height: offscreen.bgcanvas.height,
+          alpha: offscreen.bgctx?.getContextAttributes?.()?.alpha,
+        }
         : null
     );
     console.log("[CWIE][Legacy] export:mode", mode);

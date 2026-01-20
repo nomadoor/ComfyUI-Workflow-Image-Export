@@ -120,7 +120,6 @@ const SETTINGS_DEFINITIONS = [
     options: [
       { text: "PNG", value: "png" },
       { text: "WebP", value: "webp" },
-      { text: "SVG", value: "svg" },
     ],
     defaultValue: "png",
     tooltip: "Output format used when opening the export dialog.",

@@ -1,4 +1,5 @@
 import { app } from "/scripts/app.js";
+import { toUint32, concatUint8, crc32 } from "../utils.js";
 
 function sanitizeWorkflow(raw) {
   if (!raw || typeof raw !== "object") {
@@ -61,47 +62,6 @@ function createPngChunk(type, data) {
   const lengthBytes = toUint32(data.length);
   const crcBytes = toUint32(crc32(concatUint8(typeBytes, data)));
   return concatUint8(lengthBytes, typeBytes, data, crcBytes);
-}
-
-function toUint32(value) {
-  return new Uint8Array([
-    (value >>> 24) & 0xff,
-    (value >>> 16) & 0xff,
-    (value >>> 8) & 0xff,
-    value & 0xff,
-  ]);
-}
-
-function concatUint8(...arrays) {
-  const total = arrays.reduce((sum, arr) => sum + arr.length, 0);
-  const result = new Uint8Array(total);
-  let offset = 0;
-  for (const arr of arrays) {
-    result.set(arr, offset);
-    offset += arr.length;
-  }
-  return result;
-}
-
-function crc32(data) {
-  const table = crc32.table || (crc32.table = buildCrc32Table());
-  let crc = 0xffffffff;
-  for (let i = 0; i < data.length; i += 1) {
-    crc = (crc >>> 8) ^ table[(crc ^ data[i]) & 0xff];
-  }
-  return (crc ^ 0xffffffff) >>> 0;
-}
-
-function buildCrc32Table() {
-  const table = new Uint32Array(256);
-  for (let i = 0; i < 256; i += 1) {
-    let c = i;
-    for (let k = 0; k < 8; k += 1) {
-      c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
-    }
-    table[i] = c >>> 0;
-  }
-  return table;
 }
 
 async function embedWorkflowInPng(blob, workflowJson) {

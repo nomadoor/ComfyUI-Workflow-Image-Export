@@ -43,7 +43,7 @@ export async function capture(options = {}) {
 
   let result;
   if (backend === "node2") {
-    const error = new Error("Node2.0‚Й‚Н‚Ь‚ѕ‘О‰ћ‚µ‚Д‚ў‚Ь‚№‚сЃB");
+    const error = new Error("Node2.0 is not supported yet.");
     error.code = NODE2_UNSUPPORTED_CODE;
     throw error;
   } else {
@@ -54,10 +54,6 @@ export async function capture(options = {}) {
     throw new Error("Capture failed: backend produced no result.");
   }
 
-  if (result.type === "svg") {
-    const embedded = await embedWorkflow(result, normalized);
-    return embedded?.blob || result.blob;
-  }
 
   const withBg = await applyBackground(result, normalized);
   const scaled = await downscaleIfNeeded(withBg, normalized);

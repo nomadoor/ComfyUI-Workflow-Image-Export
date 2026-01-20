@@ -1,7 +1,7 @@
 export const NODE2_UNSUPPORTED_CODE = "NODE2_UNSUPPORTED";
 
 export async function captureNode2() {
-  const error = new Error("Node2.0にはまだ対応していません。");
+  const error = new Error("Node2.0 is not supported yet.");
   error.code = NODE2_UNSUPPORTED_CODE;
   throw error;
 }

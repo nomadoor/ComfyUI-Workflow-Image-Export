@@ -1,30 +1,4 @@
-function toBlobAsync(canvas, type) {
-  return new Promise((resolve, reject) => {
-    canvas.toBlob((blob) => {
-      if (!blob) {
-        reject(new Error("Failed to create blob."));
-        return;
-      }
-      resolve(blob);
-    }, type);
-  });
-}
-
-function blobToImage(blob) {
-  return new Promise((resolve, reject) => {
-    const url = URL.createObjectURL(blob);
-    const image = new Image();
-    image.onload = () => {
-      URL.revokeObjectURL(url);
-      resolve(image);
-    };
-    image.onerror = (error) => {
-      URL.revokeObjectURL(url);
-      reject(error);
-    };
-    image.src = url;
-  });
-}
+import { toBlobAsync, blobToImage } from "../utils.js";
 
 function resolveBackgroundMode(options) {
   const mode = options?.background || "ui";
