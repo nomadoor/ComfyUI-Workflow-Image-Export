@@ -13,14 +13,19 @@ function log(...args) {
 
 function buildMenuLabel() {
   const icon = `
-    <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" focusable="false" style="margin-right:6px; vertical-align:-2px;">
+    <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" focusable="false" style="margin-right:8px; vertical-align:-2px;">
       <path d="M3 6h10v6H3z" fill="none" stroke="currentColor" stroke-width="1.2" />
       <path d="M8 2v7" stroke="currentColor" stroke-width="1.2" />
       <path d="M6 4l2-2 2 2" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" />
     </svg>
   `;
 
-  return `${icon}<span>Export Workflow Image&hellip;</span>`;
+  return `
+    <span style="display:inline-flex; align-items:center;">
+      ${icon}
+      <span>Export Workflow Image&hellip;</span>
+    </span>
+  `;
 }
 
 async function openDialog(log) {
@@ -74,12 +79,11 @@ app.registerExtension({
       },
     };
 
-    // Place near the top: prepend to existing items if possible.
     if (Array.isArray(existingItems)) {
       log("getCanvasMenuItems hook invoked");
-      return [item, null, ...existingItems];
+      return [...existingItems, null, item];
     }
 
-    return [item];
+    return [null, item];
   },
 });

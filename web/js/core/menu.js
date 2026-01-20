@@ -20,8 +20,8 @@ function patchLegacyCanvasMenu({ contentHtml, labelPlain, onClick, log }) {
     );
     if (!exists) {
       const entry = { id: MENU_ID, content: contentHtml, callback: onClick };
-      options.unshift(entry);
-      options.unshift(null);
+      options.push(null);
+      options.push(entry);
     }
     return options;
   };
