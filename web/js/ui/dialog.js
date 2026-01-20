@@ -253,10 +253,7 @@ function createSelect(name, options) {
 }
 
 function isDebugEnabled() {
-  return (
-    localStorage.getItem("cwie.debug") === "1" ||
-    window.__cwie__?.debug === true
-  );
+  return !!window.__cwie__?.debug;
 }
 
 function buildInitialState() {

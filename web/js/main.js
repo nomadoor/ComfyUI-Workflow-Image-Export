@@ -2,13 +2,22 @@ import { app } from "/scripts/app.js";
 import { installLegacyCanvasMenuItem } from "./core/menu.js";
 import { registerLegacySettings } from "./core/settings.js";
 
-const DEBUG = localStorage.getItem("cwie.debug") === "1";
+let debugEnabled = localStorage.getItem("cwie.debug") === "1";
 let usedOfficialMenu = false;
 
 function log(...args) {
-  if (DEBUG) {
+  if (debugEnabled) {
     console.log("[workflow-image-export]", ...args);
   }
+}
+
+function setDebug(enabled) {
+  debugEnabled = !!enabled;
+  localStorage.setItem("cwie.debug", debugEnabled ? "1" : "0");
+  if (window.__cwie__) {
+    window.__cwie__.debug = debugEnabled;
+  }
+  console.log(`[workflow-image-export] Debug logging ${debugEnabled ? "enabled" : "disabled"}.`);
 }
 
 function buildMenuLabel() {
@@ -50,7 +59,8 @@ app.registerExtension({
   setup() {
     window.__cwie__ = {
       loadedAt: new Date().toISOString(),
-      debug: DEBUG,
+      debug: debugEnabled,
+      setDebug,
     };
     log("extension loaded", window.__cwie__);
     registerLegacySettings(log);

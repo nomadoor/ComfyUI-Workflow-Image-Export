@@ -881,11 +881,6 @@ export async function captureLegacy(options = {}) {
   const debugLog = debug
     ? (label, payload) => {
       console.log(`[CWIE][Legacy][dbg] ${label}`, payload);
-      try {
-        console.log(`[CWIE][Legacy][dbg:raw] ${label}`, JSON.stringify(payload));
-      } catch (e) {
-        console.log(`[CWIE][Legacy][dbg:raw] ${label}`, String(payload));
-      }
     }
     : null;
 
@@ -991,6 +986,8 @@ export async function captureLegacy(options = {}) {
   drawImageOverlays({ exportCtx, uiCanvas, bounds, scale, debugLog });
   drawVideoOverlays({ exportCtx, uiCanvas, bounds, scale, nodeRects, debugLog });
   drawTextOverlays({ exportCtx, uiCanvas, graph, bounds, scale, nodeRects, debugLog });
+
+
 
   const blob = await toBlobAsync(exportCanvas, mime);
   return {
