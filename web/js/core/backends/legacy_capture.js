@@ -159,7 +159,8 @@ function applyBackgroundFill(mode, width, height, exportCtx, bgctx, solidColor) 
 }
 
 function copyRenderSettings(fromCanvas, toCanvas) {
-  [
+  // Exhaustive list of known LiteGraph/ComfyUI rendering properties
+  const renderKeys = [
     "render_background",
     "clear_background",
     "clear_background_color",
@@ -172,9 +173,44 @@ function copyRenderSettings(fromCanvas, toCanvas) {
     "link_shadow_color",
     "link_brightness",
     "default_link_color",
-  ].forEach((key) => {
-    if (Object.prototype.hasOwnProperty.call(fromCanvas, key)) {
+    "link_type",
+    "render_connections_border",
+    "render_connections_shadows",
+    "render_curved_connections",
+    "always_render_background",
+    "use_slot_types_default_colors",
+    "use_slot_types_color",
+    "NODE_WIDGET_COLOR",
+    "NODE_TEXT_COLOR",
+    "NODE_DEFAULT_COLOR",
+    "NODE_SELECTED_COLOR",
+    "NODE_BOX_OUTLINE_COLOR",
+    "NODE_TITLE_COLOR",
+    "NODE_TEXT_SIZE",
+    "NODE_SLOT_RGB",
+  ];
+
+  // Also include any instance property that looks like a rendering setting
+  // The user log revealed several 'default_' prefixed properties in ComfyUI
+  for (const key in fromCanvas) {
+    if (
+      key.startsWith("NODE_") ||
+      key.startsWith("link_") ||
+      key.startsWith("render_") ||
+      key.startsWith("use_slot_") ||
+      key.startsWith("default_")
+    ) {
+      if (!renderKeys.includes(key)) {
+        renderKeys.push(key);
+      }
+    }
+  }
+
+  renderKeys.forEach((key) => {
+    if (fromCanvas[key] !== undefined) {
       toCanvas[key] = fromCanvas[key];
+    } else if (fromCanvas.constructor && fromCanvas.constructor[key] !== undefined) {
+      toCanvas[key] = fromCanvas.constructor[key];
     }
   });
 }
@@ -502,41 +538,58 @@ function drawWidgetTextFallback({ exportCtx, graph, bounds, scale, coveredNodeId
     const widgetsStartY =
       Number.isFinite(node.widgets_start_y) ? node.widgets_start_y : 0;
 
+    const standardWidgetTypes = ["string", "combo", "number", "toggle", "button", "slider"];
+    const multilineWidgetTypes = ["textarea", "markdown", "customtext"];
+
     for (let index = 0; index < node.widgets.length; index += 1) {
       const widget = node.widgets[index];
       if (!widget) continue;
+
       const isMultiline =
-        widget?.options?.multiline ||
-        widget.type === "textarea" ||
-        widget.type === "text" ||
-        widget.type === "string" ||
-        widget.type === "markdown";
+        widget?.options?.multiline === true ||
+        multilineWidgetTypes.includes(widget.type);
+
       if (!isMultiline) continue;
+
       const widgetValue =
         typeof widget.value === "string" && widget.value.trim()
           ? widget.value
           : typeof widgetsValues?.[index] === "string"
             ? widgetsValues[index]
             : "";
+
       if (!widgetValue.trim()) {
         skippedEmpty += 1;
         continue;
       }
 
-      const widgetY = Number.isFinite(widget.y) ? widget.y : widgetsStartY;
-      const widgetHeight = Number.isFinite(widget.height)
+      const fontSize = Math.max(10, Math.round(11 * scale));
+      const lineHeight = Math.max(fontSize * 1.2, 12 * scale);
+      const paddingX = 6 * scale;
+      const paddingY = 4 * scale;
+
+      let widgetY = Number.isFinite(widget.y) ? widget.y : widgetsStartY;
+      let widgetHeight = Number.isFinite(widget.height) && widget.height > 0
         ? widget.height
-        : nodeWidgetHeight;
+        : 0;
+
+      // If height is missing or tiny for a multiline widget, it's likely a fallback case.
+      // Use the rest of the node height as a safer default.
+      if (widgetHeight < fontSize * 2) {
+        // Fallback: Use the space from the widget start to the bottom of the node minus some margin.
+        widgetHeight = Math.max(fontSize * 3, nodeSize[1] - widgetY - 5);
+      }
 
       const x = (widgetBaseX - bounds.left) * scale;
       const y = (nodePos[1] + widgetY - bounds.top) * scale;
       const w = widgetWidth * scale;
       const h = widgetHeight * scale;
 
-      const fontSize = Math.max(10, Math.round(11 * scale));
-      const lineHeight = Math.max(fontSize * 1.2, 12 * scale);
-      const paddingX = 6 * scale;
-      const paddingY = 4 * scale;
+      const innerX = x + paddingX;
+      const innerY = y + paddingY;
+      const innerW = Math.max(1, w - paddingX * 2);
+      const innerH = Math.max(1, h - paddingY * 2);
+      const maxLines = Math.max(1, Math.floor(innerH / lineHeight) + 1);
 
       exportCtx.save();
       exportCtx.textBaseline = "top";
@@ -546,11 +599,6 @@ function drawWidgetTextFallback({ exportCtx, graph, bounds, scale, coveredNodeId
       exportCtx.rect(x, y, w, h);
       exportCtx.clip();
 
-      const innerX = x + paddingX;
-      const innerY = y + paddingY;
-      const innerW = Math.max(1, w - paddingX * 2);
-      const innerH = Math.max(1, h - paddingY * 2);
-      const maxLines = Math.max(1, Math.floor(innerH / lineHeight));
       wrapText(exportCtx, widgetValue, innerX, innerY, innerW, lineHeight, maxLines);
       exportCtx.restore();
 
@@ -567,7 +615,15 @@ function drawWidgetTextFallback({ exportCtx, graph, bounds, scale, coveredNodeId
 
     if (!drewForNode) {
       const candidate = getNodeTextCandidate(node);
-      if (candidate && (candidate.length >= 20 || candidate.includes("\n"))) {
+      const isNoteNode = node.type === "Note" || node.type === "Notes" || node.type.includes("Note");
+
+      // Identify if the node has any standard widgets that we expect LiteGraph to draw.
+      // If it does, we skip the generic fallback to avoid double-rendering (overlap).
+      const hasStandardWidgets = node.widgets.some(w =>
+        w && standardWidgetTypes.includes(w.type) && !w.options?.multiline
+      );
+
+      if (candidate && (isNoteNode || !hasStandardWidgets) && (candidate.length >= 20 || candidate.includes("\n"))) {
         const titleHeight = window?.LiteGraph?.NODE_TITLE_HEIGHT || 30;
         const x = (widgetBaseX - bounds.left) * scale;
         const y = (nodePos[1] + titleHeight - bounds.top) * scale;
@@ -844,11 +900,6 @@ export async function captureLegacy(options = {}) {
   const debugLog = debug
     ? (label, payload) => {
       console.log(`[CWIE][Legacy][dbg] ${label}`, payload);
-      try {
-        console.log(`[CWIE][Legacy][dbg:raw] ${label}`, JSON.stringify(payload));
-      } catch (e) {
-        console.log(`[CWIE][Legacy][dbg:raw] ${label}`, String(payload));
-      }
     }
     : null;
 
@@ -871,12 +922,13 @@ export async function captureLegacy(options = {}) {
     throw new Error("Legacy capture: export context missing.");
   }
 
-  const LGraphCanvas = window?.LGraphCanvas || window?.LiteGraph?.LGraphCanvas;
-  if (!LGraphCanvas) {
-    throw new Error("Legacy capture: LGraphCanvas not available.");
+  // Use the exact same constructor as the UI canvas to ensure ComfyUI extensions/modifications are present
+  const LGraphCanvasRef = uiCanvas.constructor || window?.LGraphCanvas || window?.LiteGraph?.LGraphCanvas;
+  if (!LGraphCanvasRef) {
+    throw new Error("Legacy capture: LGraphCanvas constructor not available.");
   }
 
-  const offscreen = new LGraphCanvas(exportCanvas, graph);
+  const offscreen = new LGraphCanvasRef(exportCanvas, graph);
   offscreen.canvas = exportCanvas;
   offscreen.ctx = exportCtx;
 
@@ -953,6 +1005,8 @@ export async function captureLegacy(options = {}) {
   drawImageOverlays({ exportCtx, uiCanvas, bounds, scale, debugLog });
   drawVideoOverlays({ exportCtx, uiCanvas, bounds, scale, nodeRects, debugLog });
   drawTextOverlays({ exportCtx, uiCanvas, graph, bounds, scale, nodeRects, debugLog });
+
+
 
   const blob = await toBlobAsync(exportCanvas, mime);
   return {
