@@ -9,7 +9,7 @@ import {
 } from "../overlays/dom_utils.js";
 import { toBlobAsync } from "../utils.js";
 
-function collectNodeRects(graph, debugLog) {
+export function collectNodeRects(graph, debugLog) {
   const rects = [];
   const nodes = graph?._nodes || graph?.nodes || [];
 
@@ -343,7 +343,7 @@ function isVideoNodeTitle(title, type) {
   return text.includes("video");
 }
 
-function drawVideoOverlays({ exportCtx, uiCanvas, bounds, scale, nodeRects, debugLog }) {
+export function drawVideoOverlays({ exportCtx, uiCanvas, bounds, scale, nodeRects, debugLog }) {
   const canvasEl = uiCanvas?.canvas;
   const ds = uiCanvas?.ds;
   if (!canvasEl || !ds) return;
@@ -481,7 +481,7 @@ function parsePx(value, fallback = 0) {
   return Number.isFinite(num) ? num : fallback;
 }
 
-function drawWidgetTextFallback({ exportCtx, graph, bounds, scale, coveredNodeIds, debugLog }) {
+export function drawWidgetTextFallback({ exportCtx, graph, bounds, scale, coveredNodeIds, debugLog }) {
   const nodes = graph?._nodes || graph?.nodes || [];
   if (!nodes.length) {
     return { drawn: 0, skippedCovered: 0, skippedEmpty: 0 };
@@ -522,7 +522,7 @@ function drawWidgetTextFallback({ exportCtx, graph, bounds, scale, coveredNodeId
   };
 
   for (const node of nodes) {
-    if (!node || !Array.isArray(node.widgets)) continue;
+    if (!node) continue;
     if (coveredNodeIds?.has?.(node.id)) {
       skippedCovered += 1;
       continue;
@@ -530,7 +530,9 @@ function drawWidgetTextFallback({ exportCtx, graph, bounds, scale, coveredNodeId
     let drewForNode = false;
     const widgetsValues = Array.isArray(node.widgets_values)
       ? node.widgets_values
-      : null;
+      : node.widgets_values && typeof node.widgets_values === "object"
+        ? node.widgets_values
+        : null;
     const nodePos = node.pos || node._pos || [0, 0];
     const nodeSize = node.size || node._size || [0, 0];
     const widgetBaseX = nodePos[0] + 15;
@@ -538,16 +540,50 @@ function drawWidgetTextFallback({ exportCtx, graph, bounds, scale, coveredNodeId
     const widgetsStartY =
       Number.isFinite(node.widgets_start_y) ? node.widgets_start_y : 0;
 
+    const widgets = Array.isArray(node.widgets) ? node.widgets : [];
+    if (debugLog) {
+      debugLog("text.fallback.node", {
+        id: node.id,
+        type: node.type,
+        title: node.title,
+        pos: nodePos,
+        size: nodeSize,
+        widgets_len: widgets.length,
+        widgets_start_y: widgetsStartY,
+        widgets_values_type: Array.isArray(widgetsValues)
+          ? "array"
+          : widgetsValues && typeof widgetsValues === "object"
+            ? "object"
+            : typeof widgetsValues,
+        widgets_values_keys: widgetsValues && typeof widgetsValues === "object"
+          ? Object.keys(widgetsValues).slice(0, 20)
+          : null,
+        properties_keys: node.properties && typeof node.properties === "object"
+          ? Object.keys(node.properties).slice(0, 20)
+          : null,
+      });
+    }
     const standardWidgetTypes = ["string", "combo", "number", "toggle", "button", "slider"];
     const multilineWidgetTypes = ["textarea", "markdown", "customtext"];
-
-    for (let index = 0; index < node.widgets.length; index += 1) {
-      const widget = node.widgets[index];
+    for (let index = 0; index < widgets.length; index += 1) {
+      const widget = widgets[index];
       if (!widget) continue;
 
       const isMultiline =
         widget?.options?.multiline === true ||
-        multilineWidgetTypes.includes(widget.type);
+        (widget.type && multilineWidgetTypes.includes(widget.type.toLowerCase()));
+
+      // Debug specific text nodes to see why they might be skipped
+      if (debugLog && (node.type === "Note" || node.title?.includes("Note") || node.type?.includes("Markdown"))) {
+        debugLog("text.fallback.inspect", {
+          id: node.id,
+          type: node.type,
+          widgetType: widget.type,
+          isMultiline,
+          value: widget.value,
+          syncedValue: widgetsValues?.[index]
+        });
+      }
 
       if (!isMultiline) continue;
 
@@ -557,12 +593,6 @@ function drawWidgetTextFallback({ exportCtx, graph, bounds, scale, coveredNodeId
           : typeof widgetsValues?.[index] === "string"
             ? widgetsValues[index]
             : "";
-
-      if (!widgetValue.trim()) {
-        skippedEmpty += 1;
-        continue;
-      }
-
       const fontSize = Math.max(10, Math.round(11 * scale));
       const lineHeight = Math.max(fontSize * 1.2, 12 * scale);
       const paddingX = 6 * scale;
@@ -591,10 +621,20 @@ function drawWidgetTextFallback({ exportCtx, graph, bounds, scale, coveredNodeId
       const innerH = Math.max(1, h - paddingY * 2);
       const maxLines = Math.max(1, Math.floor(innerH / lineHeight) + 1);
 
+      if (debugLog) {
+        debugLog("widget.text.draw_attempt", {
+          value: widgetValue.slice(0, 50),
+          x: innerX, y: innerY, w: innerW, lines: maxLines,
+          font: exportCtx.font,
+          fill: exportCtx.fillStyle
+        });
+      }
+
       exportCtx.save();
       exportCtx.textBaseline = "top";
       exportCtx.font = `${fontSize}px ${window?.LiteGraph?.NODE_FONT || "sans-serif"}`;
-      exportCtx.fillStyle = "#e6e6e6";
+      exportCtx.fillStyle = "#FFFFFF"; // Force Pure White
+
       exportCtx.beginPath();
       exportCtx.rect(x, y, w, h);
       exportCtx.clip();
@@ -615,58 +655,137 @@ function drawWidgetTextFallback({ exportCtx, graph, bounds, scale, coveredNodeId
 
     if (!drewForNode) {
       const candidate = getNodeTextCandidate(node);
-      const isNoteNode = node.type === "Note" || node.type === "Notes" || node.type.includes("Note");
+      // Enhanced Note detection: check type AND title
+      const typeLower = (node.type || "").toLowerCase();
+      const titleLower = (node.title || "").toLowerCase();
+      const isNoteNode =
+        typeLower === "note" ||
+        typeLower === "notes" ||
+        typeLower.includes("note") ||
+        titleLower.includes("note") ||
+        titleLower.includes("comment");
 
       // Identify if the node has any standard widgets that we expect LiteGraph to draw.
       // If it does, we skip the generic fallback to avoid double-rendering (overlap).
-      const hasStandardWidgets = node.widgets.some(w =>
+      const hasStandardWidgets = widgets.some(w =>
         w && standardWidgetTypes.includes(w.type) && !w.options?.multiline
       );
 
-      if (candidate && (isNoteNode || !hasStandardWidgets) && (candidate.length >= 20 || candidate.includes("\n"))) {
-        const titleHeight = window?.LiteGraph?.NODE_TITLE_HEIGHT || 30;
-        const x = (widgetBaseX - bounds.left) * scale;
-        const y = (nodePos[1] + titleHeight - bounds.top) * scale;
-        const w = widgetWidth * scale;
-        const h = Math.max(1, (nodeSize[1] - titleHeight - 6) * scale);
-        const fontSize = Math.max(10, Math.round(11 * scale));
-        const lineHeight = Math.max(fontSize * 1.2, 12 * scale);
-        const paddingX = 6 * scale;
-        const paddingY = 4 * scale;
+      // Relaxed condition: Draw if it's a Note, OR if no standard widgets are handling it.
+      // Also removed the arbitrary "20 chars" limit to catch shorter notes.
+      if (candidate && (isNoteNode || !hasStandardWidgets || candidate.includes("\n") || candidate.length > 0)) {
+        // Double-check: if it has standard widgets but is NOT a note, we usually avoid drawing distinct short text
+        // unless it has a newline (multiline text often handled by custom logic).
+        // If it IS a note, always draw.
+        if (!isNoteNode && hasStandardWidgets && !candidate.includes("\n")) {
+          // It's a standard node with a short string -> Let LiteGraph draw the widget.
+          // Do nothing.
+        } else {
+          const titleHeight = window?.LiteGraph?.NODE_TITLE_HEIGHT || 30;
+          const x = (widgetBaseX - bounds.left) * scale;
+          const y = (nodePos[1] + titleHeight - bounds.top) * scale;
+          const w = widgetWidth * scale;
+          const h = Math.max(1, (nodeSize[1] - titleHeight - 6) * scale);
+          const fontSize = Math.max(10, Math.round(11 * scale));
+          const lineHeight = Math.max(fontSize * 1.2, 12 * scale);
+          const paddingX = 6 * scale;
+          const paddingY = 4 * scale;
 
-        exportCtx.save();
-        exportCtx.textBaseline = "top";
-        exportCtx.font = `${fontSize}px ${window?.LiteGraph?.NODE_FONT || "sans-serif"}`;
-        exportCtx.fillStyle = "#e6e6e6";
-        exportCtx.beginPath();
-        exportCtx.rect(x, y, w, h);
-        exportCtx.clip();
+          exportCtx.save();
+          exportCtx.textBaseline = "top";
+          exportCtx.font = `${fontSize}px ${window?.LiteGraph?.NODE_FONT || "sans-serif"}`;
+          exportCtx.fillStyle = "#e6e6e6";
+          exportCtx.beginPath();
+          exportCtx.rect(x, y, w, h);
+          exportCtx.clip();
 
-        const innerX = x + paddingX;
-        const innerY = y + paddingY;
-        const innerW = Math.max(1, w - paddingX * 2);
-        const innerH = Math.max(1, h - paddingY * 2);
-        const maxLines = Math.max(1, Math.floor(innerH / lineHeight));
-        wrapText(exportCtx, candidate, innerX, innerY, innerW, lineHeight, maxLines);
-        exportCtx.restore();
+          const innerX = x + paddingX;
+          const innerY = y + paddingY;
+          const innerW = Math.max(1, w - paddingX * 2);
+          const innerH = Math.max(1, h - paddingY * 2);
+          const maxLines = Math.max(1, Math.floor(innerH / lineHeight));
+          wrapText(exportCtx, candidate, innerX, innerY, innerW, lineHeight, maxLines);
+          exportCtx.restore();
 
-        drawn += 1;
-        debugLog?.("widget.text.generic", {
-          node: { id: node.id, title: node.title, type: node.type },
-          x,
-          y,
-          w,
-          h,
-        });
+          drawn += 1;
+          debugLog?.("widget.text.generic", {
+            node: { id: node.id, title: node.title, type: node.type },
+            x,
+            y,
+            w,
+            h,
+          });
+        }
       }
     }
   }
   return { drawn, skippedCovered, skippedEmpty };
 }
 
-function drawTextOverlays({ exportCtx, uiCanvas, graph, bounds, scale, nodeRects, debugLog }) {
+export function drawTextOverlays({ exportCtx, uiCanvas, graph, bounds, scale, nodeRects, debugLog }) {
   const elements = collectTextElementsFromDom(uiCanvas);
-  debugLog?.("dom.text.count", { count: elements.length });
+  const isRenderedMarkdown = (el) =>
+    el.classList?.contains("markdown") ||
+    el.classList?.contains("markdown-body") ||
+    el.classList?.contains("markdown-preview") ||
+    el.classList?.contains("markdown-rendered");
+  const isEditorMarkdown = (el) =>
+    el.classList?.contains("ProseMirror") ||
+    el.classList?.contains("cm-content") ||
+    el.classList?.contains("cm-line") ||
+    el.classList?.contains("markdown-editor") ||
+    el.getAttribute?.("contenteditable") === "true" ||
+    el instanceof HTMLTextAreaElement;
+
+  const elementsByGroup = new Map();
+  const noNode = [];
+  for (const el of elements) {
+    const nodeId = getNodeIdFromElement(el);
+    const domWidget = el.closest?.(".dom-widget");
+    if (!Number.isFinite(nodeId) && !domWidget) {
+      noNode.push(el);
+      continue;
+    }
+    const key = Number.isFinite(nodeId) ? nodeId : domWidget;
+    const list = elementsByGroup.get(key) || [];
+    list.push(el);
+    elementsByGroup.set(key, list);
+  }
+
+  const filtered = [];
+  let groupIndex = 0;
+  for (const [groupKey, list] of elementsByGroup.entries()) {
+    const hasRendered = list.some(isRenderedMarkdown);
+    const hasEditor = list.some(isEditorMarkdown);
+    if (hasEditor) {
+      // Prefer raw/editor text when available (markdown nodes -> raw text only).
+      list.forEach((el) => {
+        if (isEditorMarkdown(el)) {
+          filtered.push(el);
+        }
+      });
+    } else if (hasRendered) {
+      list.forEach((el) => {
+        if (isRenderedMarkdown(el)) {
+          filtered.push(el);
+        }
+      });
+    } else {
+      filtered.push(...list);
+    }
+    if (debugLog && groupIndex < 5) {
+      debugLog("dom.text.group", {
+        key: typeof groupKey === "number" ? `node:${groupKey}` : "dom-widget",
+        count: list.length,
+        hasRendered,
+        hasEditor,
+      });
+    }
+    groupIndex += 1;
+  }
+  filtered.push(...noNode);
+
+  debugLog?.("dom.text.count", { count: filtered.length });
   debugLog?.("dom.widget.count", {
     count: document.querySelectorAll(".dom-widget").length,
   });
@@ -682,9 +801,38 @@ function drawTextOverlays({ exportCtx, uiCanvas, graph, bounds, scale, nodeRects
     const node = findNodeForPoint(nodeRects, cx, cy);
     return node?.id ?? null;
   };
+  const findNodeRectById = (id) => {
+    if (!Number.isFinite(id) || !nodeRects?.length) return null;
+    return nodeRects.find((rect) => rect.id === id) || null;
+  };
+  const intersectRect = (a, b) => {
+    if (!a || !b) return null;
+    const x1 = Math.max(a.x, b.left);
+    const y1 = Math.max(a.y, b.top);
+    const x2 = Math.min(a.x + a.w, b.right);
+    const y2 = Math.min(a.y + a.h, b.bottom);
+    const w = x2 - x1;
+    const h = y2 - y1;
+    if (w <= 1 || h <= 1) return null;
+    return { x: x1, y: y1, w, h };
+  };
 
   let loggedSkips = 0;
-  for (const el of elements) {
+  const pickKey = (rect, nodeId) => {
+    const round = (v) => Math.round(v * 10) / 10;
+    const id = Number.isFinite(nodeId) ? nodeId : "none";
+    return `${id}:${round(rect.x)}:${round(rect.y)}:${round(rect.w)}:${round(rect.h)}`;
+  };
+
+  const scoreElement = (el) => {
+    if (isRenderedMarkdown(el)) return 3;
+    if (isEditorMarkdown(el)) return 1;
+    return 2;
+  };
+
+  const picks = new Map();
+
+  for (const el of filtered) {
     const nodeId = getNodeIdFromElement(el);
     const rect = getDomElementGraphRect(el, uiCanvas);
     if (!rect) {
@@ -717,6 +865,28 @@ function drawTextOverlays({ exportCtx, uiCanvas, graph, bounds, scale, nodeRects
       coveredNodeIds.add(resolvedId);
     }
 
+    const nodeRect = Number.isFinite(resolvedId)
+      ? findNodeRectById(resolvedId)
+      : null;
+    const clippedRect = nodeRect ? intersectRect(rect, nodeRect) : rect;
+    if (!clippedRect) {
+      skippedNoRect += 1;
+      continue;
+    }
+
+    if (clippedRect.w > bounds.width * 1.05 || clippedRect.h > bounds.height * 1.05) {
+      skippedNoRect += 1;
+      continue;
+    }
+    const key = pickKey(clippedRect, resolvedId ?? nodeId);
+    const score = scoreElement(el);
+    const existing = picks.get(key);
+    if (!existing || score > existing.score) {
+      picks.set(key, { el, rect: clippedRect, score });
+    }
+  }
+
+  for (const { el, rect } of picks.values()) {
     const x = (rect.x - bounds.left) * scale;
     const y = (rect.y - bounds.top) * scale;
     const w = rect.w * scale;
@@ -799,7 +969,7 @@ function drawTextOverlays({ exportCtx, uiCanvas, graph, bounds, scale, nodeRects
   });
 }
 
-function drawImageOverlays({ exportCtx, uiCanvas, bounds, scale, debugLog }) {
+export function drawImageOverlays({ exportCtx, uiCanvas, bounds, scale, debugLog }) {
   const elements = collectImageElementsFromDom(uiCanvas);
   if (!elements.length) return;
 

@@ -536,6 +536,18 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
   advancedBody.appendChild(createRow("Max long edge", maxLongEdgeInput));
   advancedBody.appendChild(createRow("If exceeded", exceedSelect.root));
 
+  // Debug Toggle
+  const debugToggle = createToggle();
+  debugToggle.input.checked = isDebugEnabled();
+  debugToggle.input.addEventListener("change", () => {
+    state.debug = debugToggle.input.checked;
+    // Also update global debug state for persistence if desired, or just session
+    if (window.__cwie__) {
+      window.__cwie__.setDebug(debugToggle.input.checked);
+    }
+  });
+  advancedBody.appendChild(createRow("Enable Debug Log", debugToggle.wrapper));
+
   advancedHeader.appendChild(advancedTitle);
   advancedHeader.appendChild(advancedToggle);
   advancedSection.appendChild(advancedHeader);
