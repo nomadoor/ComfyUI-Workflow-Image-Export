@@ -9,8 +9,8 @@
 }
 
 .cwie-dialog {
-  width: 26.25rem;
-  max-width: calc(100vw - 2rem);
+  width: min(68rem, calc(100vw - 2rem));
+  height: min(42rem, calc(100vh - 2rem));
   background: var(--comfy-menu-bg, #1f1f1f);
   color: var(--fg-color, #e5e5e5);
   border: none;
@@ -20,12 +20,115 @@
     0 0.25rem 0.875rem rgba(0, 0, 0, 0.35);
   padding: 1.25rem;
   font-family: var(--font-family, system-ui, sans-serif);
+  display: flex;
+  flex-direction: column;
+}
+
+.cwie-dialog-grid {
+  display: grid;
+  grid-template-columns: minmax(18rem, 1fr) minmax(20rem, 24rem);
+  gap: 1.25rem;
+  align-items: center;
+  flex: 1;
+  min-height: 0;
+}
+
+.cwie-preview-pane {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  min-height: 0;
+  justify-content: center;
+}
+
+.cwie-preview-frame {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  background: #0f0f0f;
+  border-radius: 0.5rem;
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.06),
+    0 0.5rem 1.2rem rgba(0, 0, 0, 0.35);
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.cwie-preview-image {
+  display: block;
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+
+.cwie-preview-frame.is-transparent {
+  background-color: #1a1a1a;
+  background-image:
+    linear-gradient(45deg, rgba(255, 255, 255, 0.08) 25%, transparent 25%),
+    linear-gradient(-45deg, rgba(255, 255, 255, 0.08) 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, rgba(255, 255, 255, 0.08) 75%),
+    linear-gradient(-45deg, transparent 75%, rgba(255, 255, 255, 0.08) 75%);
+  background-size: 16px 16px;
+  background-position: 0 0, 0 8px, 8px -8px, -8px 0px;
+}
+
+.cwie-preview-frame.is-loading {
+  background-color: #121212;
+}
+
+.cwie-preview-loading {
+  position: absolute;
+  inset: 0;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 0.5rem;
+  color: rgba(229, 229, 229, 0.8);
+  background: rgba(15, 15, 15, 0.6);
+  backdrop-filter: blur(1px);
+}
+
+.cwie-preview-loading-icon {
+  width: 2rem;
+  height: 2rem;
+  border-radius: 50%;
+  border: 0.2rem solid rgba(255, 255, 255, 0.2);
+  border-top-color: rgba(255, 255, 255, 0.8);
+  animation: cwie-spin 0.9s linear infinite;
+}
+
+.cwie-preview-loading-text {
+  font-size: 0.75rem;
+  letter-spacing: 0.02em;
+}
+
+.cwie-preview-frame.is-loading .cwie-preview-loading {
+  display: flex;
+}
+
+
+.cwie-controls-pane {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+}
+
+.cwie-controls-scroll {
+  flex: 1;
+  overflow: auto;
+  padding-right: 0.25rem;
 }
 
 .cwie-dialog h3 {
-  margin: 0 0 1.5rem 0;
+  margin: 0;
   font-size: 0.95rem;
   font-weight: 600;
+  text-align: center;
 }
 
 .cwie-message {
@@ -61,6 +164,10 @@
   margin-bottom: 0.75rem;
 }
 
+.cwie-row.is-hidden {
+  display: none;
+}
+
 .cwie-row label {
   font-size: 0.75rem;
   color: var(--fg-color, #e5e5e5);
@@ -76,16 +183,15 @@
   padding: 0.4rem 0.6rem;
   min-height: 2rem;
   line-height: 1.2;
-  box-shadow:
-    inset 0 0 0 1px rgba(255, 255, 255, 0.05),
-    0 0.375rem 0.75rem rgba(0, 0, 0, 0.25);
 }
 
 .cwie-input:focus {
   outline: none;
-  box-shadow:
-    inset 0 0 0 1px rgba(255, 255, 255, 0.12),
-    0 0.5rem 0.85rem rgba(0, 0, 0, 0.3);
+}
+
+.cwie-input:focus-visible {
+  outline: 2px solid var(--highlight-color, #4a90e2);
+  outline-offset: 2px;
 }
 
 .cwie-select {
@@ -113,9 +219,6 @@
   padding: 0.4rem 0.6rem;
   min-height: 2rem;
   line-height: 1.2;
-  box-shadow:
-    inset 0 0 0 1px rgba(255, 255, 255, 0.05),
-    0 0.375rem 0.75rem rgba(0, 0, 0, 0.25);
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -124,9 +227,7 @@
 }
 
 .cwie-select-summary:hover {
-  box-shadow:
-    inset 0 0 0 1px rgba(255, 255, 255, 0.08),
-    0 0.45rem 0.8rem rgba(0, 0, 0, 0.3);
+  box-shadow: none;
 }
 
 .cwie-select-options {
@@ -138,9 +239,6 @@
   border-radius: 0.35rem;
   padding: 0.4rem;
   display: none;
-  box-shadow:
-    0 0.75rem 1.5rem rgba(0, 0, 0, 0.4),
-    0 0.2rem 0.5rem rgba(0, 0, 0, 0.3);
 }
 
 .cwie-select[open] .cwie-select-options {
@@ -235,13 +333,10 @@
   position: absolute;
   cursor: pointer;
   inset: 0;
-  background: var(--input-bg, #2b2b2b);
+  background: rgba(255, 255, 255, 0.14);
   border: none;
   border-radius: 0.75rem;
   transition: 0.2s ease;
-  box-shadow:
-    inset 0 0 0 1px rgba(255, 255, 255, 0.08),
-    0 0.25rem 0.625rem rgba(0, 0, 0, 0.35);
 }
 
 .cwie-toggle-slider::before {
@@ -250,8 +345,9 @@
   height: 0.875rem;
   width: 0.875rem;
   left: 0.125rem;
-  top: 0.1875rem;
-  background: var(--fg-color, #e5e5e5);
+  top: 50%;
+  transform: translate(0, -50%);
+  background: #f2f2f2;
   border-radius: 50%;
   transition: 0.2s ease;
 }
@@ -261,7 +357,7 @@
 }
 
 .cwie-toggle input:checked + .cwie-toggle-slider::before {
-  transform: translateX(1.125rem);
+  transform: translate(1.125rem, -50%);
 }
 
 .cwie-toggle input:disabled + .cwie-toggle-slider {
@@ -289,9 +385,6 @@
   background: var(--input-bg, #2b2b2b);
   font-size: 0.75rem;
   cursor: pointer;
-  box-shadow:
-    inset 0 0 0 1px rgba(255, 255, 255, 0.06),
-    0 0.25rem 0.625rem rgba(0, 0, 0, 0.25);
 }
 
 .cwie-radio input {
@@ -336,7 +429,10 @@
   justify-content: space-between;
   align-items: center;
   gap: 0.75rem;
-  margin-top: 1.5rem;
+  margin-top: 0.75rem;
+  flex-shrink: 0;
+  padding-top: 0.75rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
 }
 
 .cwie-footer-right {
@@ -360,9 +456,6 @@
   display: inline-flex;
   align-items: center;
   gap: 0.375rem;
-  box-shadow:
-    inset 0 0 0 1px rgba(255, 255, 255, 0.06),
-    0 0.375rem 0.875rem rgba(0, 0, 0, 0.28);
 }
 
 .cwie-button.primary {
@@ -375,6 +468,7 @@
   padding: 0.3rem 0.5rem;
   opacity: 0.7;
 }
+
 
 .cwie-button:disabled {
   opacity: 0.6;
@@ -398,6 +492,33 @@
   border: 0.125rem solid rgba(255, 255, 255, 0.3);
   border-top-color: rgba(255, 255, 255, 0.9);
   animation: cwie-spin 0.8s linear infinite;
+}
+
+.cwie-range-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.cwie-range {
+  width: 100%;
+  accent-color: var(--highlight-color, #4a90e2);
+}
+
+.cwie-range-value {
+  min-width: 2.5rem;
+  text-align: right;
+  font-size: 0.7rem;
+  opacity: 0.7;
+}
+
+@media (max-width: 840px) {
+  .cwie-dialog-grid {
+    grid-template-columns: 1fr;
+  }
+  .cwie-preview-frame {
+    min-height: 14rem;
+  }
 }
 
 .cwie-button.is-busy .cwie-spinner {

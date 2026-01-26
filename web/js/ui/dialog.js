@@ -1,3 +1,4 @@
+import { app } from "/scripts/app.js";
 import {
   capture,
   detectBackendType,
@@ -257,7 +258,35 @@ function isDebugEnabled() {
 }
 
 function buildInitialState() {
-  return { ...getDefaultsFromSettings(), debug: isDebugEnabled() };
+  return {
+    ...getDefaultsFromSettings(),
+    debug: false,
+    scopeSelected: false,
+    scopeOpacity: 40,
+  };
+}
+
+function getSelectedNodeIds() {
+  const selected =
+    app?.canvas?.selected_nodes ||
+    app?.canvas?.selectedNodes ||
+    app?.graph?.selected_nodes ||
+    null;
+  if (!selected) return [];
+  if (selected instanceof Map) {
+    return Array.from(selected.keys()).map((id) => Number(id)).filter(Number.isFinite);
+  }
+  if (Array.isArray(selected)) {
+    return selected
+      .map((node) => node?.id)
+      .filter((id) => Number.isFinite(id));
+  }
+  if (typeof selected === "object") {
+    return Object.keys(selected)
+      .map((id) => Number(id))
+      .filter(Number.isFinite);
+  }
+  return [];
 }
 
 export function openExportDialog({ onExportStarted, onExportFinished, log } = {}) {
@@ -291,6 +320,36 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
   const title = document.createElement("h3");
   title.textContent = "Export Workflow Image";
 
+  const content = document.createElement("div");
+  content.className = "cwie-dialog-grid";
+
+  const previewPane = document.createElement("div");
+  previewPane.className = "cwie-preview-pane";
+
+  const previewFrame = document.createElement("div");
+  previewFrame.className = "cwie-preview-frame is-fit";
+
+  const previewImg = document.createElement("img");
+  previewImg.className = "cwie-preview-image";
+  previewImg.alt = "Export preview";
+
+  const previewLoading = document.createElement("div");
+  previewLoading.className = "cwie-preview-loading";
+  previewLoading.innerHTML = `
+    <div class="cwie-preview-loading-icon" aria-hidden="true"></div>
+    <div class="cwie-preview-loading-text">Loading preview…</div>
+  `;
+
+  previewFrame.appendChild(previewImg);
+  previewFrame.appendChild(previewLoading);
+  previewPane.appendChild(previewFrame);
+
+  const controlsPane = document.createElement("div");
+  controlsPane.className = "cwie-controls-pane";
+
+  const controlsScroll = document.createElement("div");
+  controlsScroll.className = "cwie-controls-scroll";
+
   const basicTitle = document.createElement("div");
   basicTitle.className = "cwie-section-title";
   basicTitle.textContent = "Basic";
@@ -315,10 +374,37 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
   solidColorInput.className = "cwie-input";
 
   const paddingInput = document.createElement("input");
-  paddingInput.type = "number";
+  paddingInput.type = "range";
   paddingInput.min = "0";
+  paddingInput.max = "400";
   paddingInput.step = "1";
-  paddingInput.className = "cwie-input";
+  paddingInput.className = "cwie-range";
+
+  const paddingValue = document.createElement("span");
+  paddingValue.className = "cwie-range-value";
+  paddingValue.textContent = "0";
+
+  const paddingWrapper = document.createElement("div");
+  paddingWrapper.className = "cwie-range-wrapper";
+  paddingWrapper.appendChild(paddingInput);
+  paddingWrapper.appendChild(paddingValue);
+
+  const scopeToggle = createToggle();
+  const scopeOpacityInput = document.createElement("input");
+  scopeOpacityInput.type = "range";
+  scopeOpacityInput.min = "0";
+  scopeOpacityInput.max = "100";
+  scopeOpacityInput.step = "1";
+  scopeOpacityInput.className = "cwie-range";
+
+  const scopeOpacityValue = document.createElement("span");
+  scopeOpacityValue.className = "cwie-range-value";
+  scopeOpacityValue.textContent = "40";
+
+  const scopeOpacityWrapper = document.createElement("div");
+  scopeOpacityWrapper.className = "cwie-range-wrapper";
+  scopeOpacityWrapper.appendChild(scopeOpacityInput);
+  scopeOpacityWrapper.appendChild(scopeOpacityValue);
 
   const advancedSection = document.createElement("div");
   advancedSection.className = "cwie-advanced";
@@ -393,12 +479,18 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
     }
     solidColorInput.value = nextState.solidColor;
     paddingInput.value = String(nextState.padding);
+    paddingValue.textContent = String(nextState.padding);
     outputResolutionSelect.setValue(nextState.outputResolution);
     maxLongEdgeInput.value = String(nextState.maxLongEdge);
     exceedSelect.setValue(nextState.exceedMode);
     if (solidColorRow) {
-      solidColorRow.style.display = nextState.background === "solid" ? "grid" : "none";
+      solidColorRow.classList.toggle("is-hidden", nextState.background !== "solid");
     }
+    scopeToggle.input.checked = Boolean(nextState.scopeSelected);
+    const opacityValue = Number.isFinite(Number(nextState.scopeOpacity)) ? nextState.scopeOpacity : 40;
+    scopeOpacityInput.value = String(opacityValue);
+    scopeOpacityValue.textContent = String(opacityValue);
+    previewFrame.classList.toggle("is-transparent", nextState.background === "transparent");
   }
 
   function updateStateFromControls() {
@@ -412,11 +504,95 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
       maxLongEdge: maxLongEdgeInput.value,
       exceedMode: exceedSelect.getValue(),
     });
-    state = { ...normalized, debug: isDebugEnabled() };
+    state = {
+      ...normalized,
+      debug: isDebugEnabled(),
+      scopeSelected: Boolean(scopeToggle.input.checked),
+      scopeOpacity: Number.parseInt(scopeOpacityInput.value, 10) || 0,
+    };
+  }
+
+  let scopeInitialized = false;
+
+  function updateScopeAvailability(forceDefault = false) {
+    const selectedIds = getSelectedNodeIds();
+    const hasSelection = selectedIds.length > 0;
+    scopeToggle.input.disabled = !hasSelection;
+    scopeOpacityInput.disabled = !hasSelection || !scopeToggle.input.checked;
+    if (!hasSelection) {
+      scopeToggle.input.checked = false;
+      scopeOpacityInput.value = "40";
+      scopeOpacityValue.textContent = "40";
+    } else if ((forceDefault || !scopeInitialized) && state.scopeSelected === false) {
+      scopeToggle.input.checked = true;
+    }
+    scopeInitialized = true;
+  }
+
+  let previewUrl = null;
+  let previewTimer = null;
+  let previewBusy = false;
+  let previewQueued = false;
+
+  async function renderPreview() {
+    if (previewBusy) {
+      previewQueued = true;
+      return;
+    }
+    updateStateFromControls();
+    updateScopeAvailability();
+    const selectedIds = getSelectedNodeIds();
+    const previewState = {
+      ...state,
+      format: "png",
+      embedWorkflow: false,
+      outputResolution: "100%",
+      maxLongEdge: 0,
+      selectedNodeIds: selectedIds,
+      previewFast: true,
+    };
+    try {
+      previewBusy = true;
+      if (!previewImg.src) {
+        previewFrame.classList.add("is-loading");
+      }
+      const blob = await capture(previewState);
+      if (!blob) {
+        previewFrame.classList.remove("is-loading");
+        previewBusy = false;
+        return;
+      }
+      if (previewUrl) {
+        URL.revokeObjectURL(previewUrl);
+      }
+      previewUrl = URL.createObjectURL(blob);
+      previewImg.src = previewUrl;
+    } catch (error) {
+      log?.("preview:error", { message: error?.message || String(error) });
+      previewFrame.classList.remove("is-loading");
+    } finally {
+      previewBusy = false;
+      if (previewQueued) {
+        previewQueued = false;
+        renderPreview();
+      }
+    }
+  }
+
+  function schedulePreview() {
+    if (previewTimer) {
+      clearTimeout(previewTimer);
+    }
+    previewTimer = setTimeout(() => {
+      previewTimer = null;
+      renderPreview();
+    }, 450);
   }
 
   function handleChange() {
     updateStateFromControls();
+    previewFrame.classList.toggle("is-transparent", state.background === "transparent");
+    schedulePreview();
   }
 
   formatSelect.onChange((value) => {
@@ -425,15 +601,26 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
   });
   embedToggle.input.addEventListener("change", () => handleChange());
   solidColorInput.addEventListener("change", () => handleChange());
-  paddingInput.addEventListener("change", () => handleChange());
+  paddingInput.addEventListener("input", () => {
+    paddingValue.textContent = paddingInput.value;
+    handleChange();
+  });
   outputResolutionSelect.onChange(() => handleChange());
   maxLongEdgeInput.addEventListener("change", () => handleChange());
   exceedSelect.onChange(() => handleChange());
+  scopeToggle.input.addEventListener("change", () => {
+    updateScopeAvailability();
+    handleChange();
+  });
+  scopeOpacityInput.addEventListener("input", () => {
+    scopeOpacityValue.textContent = scopeOpacityInput.value;
+    handleChange();
+  });
 
   for (const input of backgroundGroup.inputs.values()) {
     input.addEventListener("change", () => {
       handleChange();
-      solidColorRow.style.display = state.background === "solid" ? "grid" : "none";
+      solidColorRow.classList.toggle("is-hidden", state.background !== "solid");
     });
   }
 
@@ -460,8 +647,9 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
   resetButton.className = "cwie-button reset";
   resetButton.textContent = "Reset to defaults";
   resetButton.addEventListener("click", () => {
-    state = normalizeSettingsState(DEFAULTS);
+    state = { ...normalizeSettingsState(DEFAULTS), scopeSelected: false, scopeOpacity: 40 };
     applyStateToControls(state);
+    schedulePreview();
   });
 
   const cancelButton = document.createElement("button");
@@ -486,6 +674,7 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
     exportButton.classList.add("is-busy");
     onExportStarted?.();
     updateStateFromControls();
+    updateScopeAvailability();
     let messageDialogPayload = null;
     try {
       const blob = await capture(state);
@@ -521,31 +710,58 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
   footer.appendChild(footerLeft);
   footer.appendChild(footerRight);
 
-  dialog.appendChild(title);
-  dialog.appendChild(basicTitle);
-  dialog.appendChild(createRow("Format", formatSelect.root));
-  dialog.appendChild(createRow("Embed workflow", embedToggle.wrapper));
-  dialog.appendChild(embedNote);
-  dialog.appendChild(createRow("Background", backgroundGroup.group));
+  controlsScroll.appendChild(basicTitle);
+  controlsScroll.appendChild(createRow("Format", formatSelect.root));
+  controlsScroll.appendChild(createRow("Embed workflow", embedToggle.wrapper));
+  controlsScroll.appendChild(embedNote);
+  controlsScroll.appendChild(createRow("Background", backgroundGroup.group));
 
   solidColorRow = createRow("Solid color", solidColorInput);
-  dialog.appendChild(solidColorRow);
-  dialog.appendChild(createRow("Padding", paddingInput));
+  controlsScroll.appendChild(solidColorRow);
+  controlsScroll.appendChild(createRow("Padding", paddingWrapper));
+  controlsScroll.appendChild(createRow("Scope", scopeToggle.wrapper));
+  controlsScroll.appendChild(createRow("Opacity", scopeOpacityWrapper));
 
   advancedBody.appendChild(createRow("Output resolution", outputResolutionSelect.root));
   advancedBody.appendChild(createRow("Max long edge", maxLongEdgeInput));
   advancedBody.appendChild(createRow("If exceeded", exceedSelect.root));
+
+  // Debug Toggle
+  const debugToggle = createToggle();
+  debugToggle.input.checked = false;
+  debugToggle.input.addEventListener("change", () => {
+    state.debug = debugToggle.input.checked;
+    if (window.__cwie__) {
+      window.__cwie__.setDebug(debugToggle.input.checked);
+    }
+  });
+  advancedBody.appendChild(createRow("Enable Debug Log", debugToggle.wrapper));
 
   advancedHeader.appendChild(advancedTitle);
   advancedHeader.appendChild(advancedToggle);
   advancedSection.appendChild(advancedHeader);
   advancedSection.appendChild(advancedBody);
 
-  dialog.appendChild(advancedSection);
-  dialog.appendChild(footer);
+  controlsScroll.appendChild(advancedSection);
+  controlsPane.appendChild(controlsScroll);
+  controlsPane.appendChild(footer);
+
+  content.appendChild(previewPane);
+  content.appendChild(controlsPane);
+
+  dialog.appendChild(title);
+  dialog.appendChild(content);
   backdrop.appendChild(dialog);
   document.body.appendChild(backdrop);
   activeDialog = backdrop;
 
   applyStateToControls(state);
+  updateScopeAvailability(true);
+  previewFrame.classList.toggle("is-transparent", state.background === "transparent");
+  solidColorRow.classList.toggle("is-hidden", state.background !== "solid");
+  renderPreview();
+
+  previewImg.addEventListener("load", () => {
+    previewFrame.classList.remove("is-loading");
+  });
 }

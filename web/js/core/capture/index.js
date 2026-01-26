@@ -1,7 +1,9 @@
+import { app } from "/scripts/app.js";
 import { detectBackend } from "../detect.js";
 import { captureLegacy } from "../backends/legacy_capture.js";
 import { applyBackground, downscaleIfNeeded } from "../postprocess/raster.js";
-import { embedWorkflow } from "../postprocess/embed.js";
+import { exportWorkflowPng } from "../../export/index.js";
+import { embedWorkflowInPngBlob } from "../../export/png_embed_workflow.js";
 
 export const NODE2_UNSUPPORTED_CODE = "NODE2_UNSUPPORTED";
 
@@ -37,6 +39,53 @@ export async function getPreviewInfo(options = {}) {
   };
 }
 
+function resolveOutputScale(options) {
+  return options?.outputResolution === "200%" ? 2 : 1;
+}
+
+function getWorkflowJson() {
+  const graph = app?.graph;
+  if (!graph || typeof graph.serialize !== "function") {
+    return null;
+  }
+  return graph.serialize();
+}
+
+function getSelectedNodeIds() {
+  const selected =
+    app?.canvas?.selected_nodes ||
+    app?.canvas?.selectedNodes ||
+    app?.graph?.selected_nodes ||
+    null;
+  if (!selected) return [];
+  if (selected instanceof Map) {
+    return Array.from(selected.keys()).map((id) => Number(id)).filter(Number.isFinite);
+  }
+  if (Array.isArray(selected)) {
+    return selected
+      .map((node) => node?.id)
+      .filter((id) => Number.isFinite(id));
+  }
+  if (typeof selected === "object") {
+    return Object.keys(selected)
+      .map((id) => Number(id))
+      .filter(Number.isFinite);
+  }
+  return [];
+}
+
+function toWorkflowJsonString(workflowJson) {
+  if (!workflowJson) return null;
+  if (typeof workflowJson === "string") {
+    return workflowJson;
+  }
+  try {
+    return JSON.stringify(workflowJson);
+  } catch (_) {
+    return null;
+  }
+}
+
 export async function capture(options = {}) {
   const normalized = normalizeExportOptions(options);
   const backend = detectBackend();
@@ -46,6 +95,36 @@ export async function capture(options = {}) {
     const error = new Error("Node2.0 is not supported yet.");
     error.code = NODE2_UNSUPPORTED_CODE;
     throw error;
+  } else if (normalized.format === "png") {
+    const workflowJson = getWorkflowJson();
+    if (!workflowJson) {
+      throw new Error("Capture failed: workflow JSON unavailable.");
+    }
+    const scale = resolveOutputScale(normalized);
+    const selectedNodeIds = Array.isArray(normalized.selectedNodeIds)
+      ? normalized.selectedNodeIds
+      : getSelectedNodeIds();
+    const blob = await exportWorkflowPng(workflowJson, {
+      backgroundMode: normalized.background,
+      backgroundColor: normalized.solidColor,
+      padding: normalized.padding,
+      scale,
+      includeGrid: true,
+      includeDomOverlays: false,
+      debug: normalized.debug,
+      embedWorkflow: false,
+      scopeSelected: Boolean(normalized.scopeSelected),
+      scopeOpacity: normalized.scopeOpacity,
+      selectedNodeIds,
+    });
+    if (blob?.cwieWarnings?.length) {
+      console.warn("[workflow-image-export] export warnings", blob.cwieWarnings);
+    }
+    result = {
+      type: "raster",
+      mime: "image/png",
+      blob,
+    };
   } else {
     result = await captureLegacy(normalized);
   }
@@ -55,10 +134,22 @@ export async function capture(options = {}) {
   }
 
 
+  if (normalized.format === "png") {
+    const scaled = await downscaleIfNeeded(result, normalized);
+    if (normalized.embedWorkflow) {
+      const workflowJson = getWorkflowJson();
+      const workflowText = toWorkflowJsonString(workflowJson);
+      if (workflowText) {
+        const blob = await embedWorkflowInPngBlob(scaled.blob, workflowText);
+        return blob || scaled.blob;
+      }
+    }
+    return scaled.blob;
+  }
+
   const withBg = await applyBackground(result, normalized);
   const scaled = await downscaleIfNeeded(withBg, normalized);
-  const embedded = await embedWorkflow(scaled, normalized);
-  return embedded?.blob || scaled.blob;
+  return scaled.blob;
 }
 
 export function isNode2UnsupportedError(error) {

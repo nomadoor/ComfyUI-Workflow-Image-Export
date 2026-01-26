@@ -1,3 +1,12 @@
+const NODE_SELECTORS = [
+  ".comfy-node",
+  ".litegraph-node",
+  ".graph-node",
+  ".dom-widget",
+  "[data-node-id]",
+  "[data-nodeid]",
+].join(", ");
+
 export function getCanvasRoot(uiCanvas) {
   const canvasEl = uiCanvas?.canvas;
   if (!canvasEl) return document;
@@ -5,17 +14,11 @@ export function getCanvasRoot(uiCanvas) {
 }
 
 export function isElementInGraphNode(element) {
-  return Boolean(
-    element?.closest?.(
-      ".comfy-node, .litegraph-node, .graph-node, .node, .dom-widget, [data-node-id], [data-nodeid]"
-    )
-  );
+  return Boolean(element?.closest?.(NODE_SELECTORS));
 }
 
 export function getNodeIdFromElement(element) {
-  const nodeRoot = element?.closest?.(
-    ".comfy-node, .litegraph-node, .graph-node, .node, [data-node-id], [data-nodeid]"
-  );
+  const nodeRoot = element?.closest?.(NODE_SELECTORS);
   if (!nodeRoot) return null;
   const idAttr = nodeRoot.getAttribute?.("data-node-id") ?? nodeRoot.getAttribute?.("data-nodeid");
   if (!idAttr) return null;
@@ -35,16 +38,29 @@ function collectElements({ selectors, filter, root = document }) {
   return elements;
 }
 
-export function collectTextElementsFromDom() {
+export function collectTextElementsFromDom(uiCanvas) {
+  const root = getCanvasRoot(uiCanvas);
   const selectors = [
     ".dom-widget textarea",
     ".dom-widget input[type='text']",
+    ".dom-widget [contenteditable='true']",
+    ".dom-widget .ProseMirror",
+    ".dom-widget .cm-content",
+    ".dom-widget .cm-line",
+    ".dom-widget .markdown-editor",
+    ".dom-widget .markdown-rendered",
     ".dom-widget .markdown",
     ".dom-widget .markdown-body",
     ".dom-widget .markdown-preview",
     ".dom-widget pre",
     "textarea",
     "input[type='text']",
+    "[contenteditable='true']",
+    ".ProseMirror",
+    ".cm-content",
+    ".cm-line",
+    ".markdown-editor",
+    ".markdown-rendered",
     ".markdown",
     ".markdown-body",
     ".markdown-preview",
@@ -52,6 +68,7 @@ export function collectTextElementsFromDom() {
   ];
   const elements = collectElements({
     selectors,
+    root,
     filter: (node) =>
       (node instanceof HTMLTextAreaElement ||
         node instanceof HTMLInputElement ||
@@ -61,10 +78,12 @@ export function collectTextElementsFromDom() {
   return elements;
 }
 
-export function collectImageElementsFromDom() {
+export function collectImageElementsFromDom(uiCanvas) {
+  const root = getCanvasRoot(uiCanvas);
   const selectors = ["img", "canvas"];
   const elements = collectElements({
     selectors,
+    root,
     filter: (node) =>
       (node instanceof HTMLImageElement || node instanceof HTMLCanvasElement) &&
       isElementInGraphNode(node),
@@ -72,19 +91,23 @@ export function collectImageElementsFromDom() {
   return elements;
 }
 
-export function collectVideoElementsFromDom() {
+export function collectVideoElementsFromDom(uiCanvas) {
+  const root = getCanvasRoot(uiCanvas);
   const selectors = ["video.VHS_loopedvideo", "video"];
   const elements = collectElements({
     selectors,
+    root,
     filter: (node) => node instanceof HTMLVideoElement && isElementInGraphNode(node),
   });
   return elements;
 }
 
-export function collectDomMediaElements() {
+export function collectDomMediaElements(uiCanvas) {
+  const root = getCanvasRoot(uiCanvas);
   const selectors = ["video", "canvas", "img"];
   const elements = collectElements({
     selectors,
+    root,
     filter: (node) =>
       (node instanceof HTMLVideoElement ||
         node instanceof HTMLCanvasElement ||
