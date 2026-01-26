@@ -237,24 +237,36 @@ export async function exportWorkflowPng(workflowJson, options = {}) {
 
   if (scopeSelected) {
     const dimAlpha = scopeOpacity / 100;
-    if (dimAlpha < 0.999) {
-      const selectedCanvas = await renderOnce(workflowJson, {
-        ...renderOptions,
-        backgroundMode: "transparent",
-        includeGrid: false,
-        renderFilter: "selected",
-      });
-      const output = document.createElement("canvas");
-      output.width = canvas.width;
-      output.height = canvas.height;
-      const ctx = output.getContext("2d", { alpha: true });
-      if (ctx) {
+    const backgroundCanvas = await renderOnce(workflowJson, {
+      ...renderOptions,
+      renderFilter: "none",
+      linkFilter: "none",
+    });
+    const dimCanvas = await renderOnce(workflowJson, {
+      ...renderOptions,
+      backgroundMode: "transparent",
+      includeGrid: false,
+    });
+    const selectedCanvas = await renderOnce(workflowJson, {
+      ...renderOptions,
+      backgroundMode: "transparent",
+      includeGrid: false,
+      renderFilter: "selected",
+      linkFilter: "selected",
+    });
+    const output = document.createElement("canvas");
+    output.width = backgroundCanvas.width;
+    output.height = backgroundCanvas.height;
+    const ctx = output.getContext("2d", { alpha: true });
+    if (ctx) {
+      ctx.drawImage(backgroundCanvas, 0, 0);
+      if (dimAlpha > 0) {
         ctx.globalAlpha = dimAlpha;
-        ctx.drawImage(canvas, 0, 0);
+        ctx.drawImage(dimCanvas, 0, 0);
         ctx.globalAlpha = 1;
-        ctx.drawImage(selectedCanvas, 0, 0);
-        canvas = output;
       }
+      ctx.drawImage(selectedCanvas, 0, 0);
+      canvas = output;
     }
   }
 
