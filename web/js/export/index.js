@@ -55,12 +55,19 @@ function parseColorToRgb(color) {
 }
 
 function isCanvasTransparent(canvas) {
-  const ctx = canvas.getContext("2d", { alpha: true });
-  if (!ctx) return false;
+  if (!canvas) return false;
+  const sampleSize = 16;
+  const sample = document.createElement("canvas");
+  sample.width = sampleSize;
+  sample.height = sampleSize;
+  const sampleCtx = sample.getContext("2d", { alpha: true });
+  if (!sampleCtx) return false;
   try {
-    const data = ctx.getImageData(0, 0, 4, 4).data;
+    sampleCtx.clearRect(0, 0, sampleSize, sampleSize);
+    sampleCtx.drawImage(canvas, 0, 0, sampleSize, sampleSize);
+    const data = sampleCtx.getImageData(0, 0, sampleSize, sampleSize).data;
     for (let i = 3; i < data.length; i += 4) {
-      if (data[i] === 0) {
+      if (data[i] < 255) {
         return true;
       }
     }
