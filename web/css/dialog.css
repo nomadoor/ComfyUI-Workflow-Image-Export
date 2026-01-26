@@ -138,7 +138,7 @@
 }
 
 .cwie-section-title {
-  margin: 1.5rem 0 0.75rem 0;
+  margin: 1rem 0 0.5rem 0;
   font-size: 0.9rem;
   letter-spacing: 0.03em;
   text-transform: none;
@@ -149,7 +149,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin: 1.5rem 0 0.75rem 0;
+  margin: 1rem 0 0.5rem 0;
 }
 
 .cwie-section-header .cwie-section-title {
@@ -395,11 +395,11 @@
   font-size: 0.7rem;
   opacity: 0.6;
   line-height: 1.4;
-  margin-bottom: 0.5rem;
+  margin-bottom: 0.25rem;
 }
 
 .cwie-advanced {
-  margin-top: 1.5rem;
+  margin-top: 2rem;
 }
 
 .cwie-advanced-toggle {
