@@ -85,7 +85,7 @@ function isCanvasTransparent(canvas) {
 
 function scaleCanvas(baseCanvas, scale) {
   const s = Number(scale) || 1;
-  if (s <= 1) {
+  if (!Number.isFinite(s) || s <= 0 || s === 1) {
     return baseCanvas;
   }
   const out = document.createElement("canvas");
