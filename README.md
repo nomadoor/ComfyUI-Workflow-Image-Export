@@ -1,35 +1,36 @@
 # ComfyUI Workflow Image Export
 
-A simple ComfyUI extension to export images of your workflows with embedded JSON data.
+Export clean workflow images from **ComfyUI Classic (LiteGraph)** with optional embedded JSON metadata.
 
 ## Features
-- **Workflow Capture**: Automatically calculates bounds to capture all nodes and groups in one image.
-- **Output Customization**: You can adjust the background, padding, and more to your liking.
-- **Workflow Embedding**: Embeds the workflow JSON data into the image.
+- Export workflow image (PNG/WebP)
+- Background + padding controls
+- Optional JSON embedding (PNG only)
 
 ## Usage
-1. Right-click on the ComfyUI canvas.
-2. Select **Export Workflow Image...**.
-3. Tweak the settings in the dialog.
-4. Hit **Export**!
+1. Right-click the ComfyUI canvas.
+2. Choose **Export Workflow Image...**.
+3. Adjust options.
+4. Click **Export**.
 
-## Settings
-- **Format**: **PNG** or **WebP**.
-  - *Note: Workflow embedding is NOT supported for WebP.*
-- **Embed Workflow**: Toggle whether to include the workflow JSON data in the file.
-- **Background**:
-  - **UI**: Uses the current ComfyUI theme background.
-  - **Transparent**: Exports with a transparent background.
-  - **Solid**: Uses a custom color.
-- **Padding**: Margin around your workflow.
+## Options (Dialog)
+- **Format**: PNG / WebP  
+  - Workflow embedding is **PNG only**.
+- **Embed workflow**: include workflow JSON in PNG.
+- **Background**: UI / Transparent / Solid.
+- **Padding**: margin around the captured bounds (slider).
+- **Scope** (when nodes are selected):
+  - **Scope** toggle: crop to selection.
+  - **Opacity**: dim unselected nodes (0–100).
+- **Advanced**:
+  - Output resolution, max long edge, exceed behavior.
 
-## Compatibility
-> [!IMPORTANT]
-> **Node 2.0 (New Frontend) is not supported.** 
-> To be honest, I don't know how to implement this for the new frontend yet. Sorry! m(_ _)m
+## Notes
+- Classic only. Node 2.0 / new frontend is not supported. I tried, I failed. Sorry.
+- Preview is a faster render path and may skip heavy things (like video thumbnails).
 
 ## Acknowledgments
-- This project references [ComfyUI-Custom-Scripts](https://github.com/pythongosssss/ComfyUI-Custom-Scripts) by **pythongosssss**. Thanks for the great reference!
+- References [ComfyUI-Custom-Scripts](https://github.com/pythongosssss/ComfyUI-Custom-Scripts) by **pythongosssss**.
 
 ## License
 MIT
