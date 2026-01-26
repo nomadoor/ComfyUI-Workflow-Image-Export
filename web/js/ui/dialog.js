@@ -600,6 +600,7 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
     handleChange();
   });
   embedToggle.input.addEventListener("change", () => handleChange());
+  solidColorInput.addEventListener("input", () => handleChange());
   solidColorInput.addEventListener("change", () => handleChange());
   paddingInput.addEventListener("input", () => {
     paddingValue.textContent = paddingInput.value;

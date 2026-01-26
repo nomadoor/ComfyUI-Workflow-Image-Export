@@ -9,48 +9,12 @@ function createPngChunk(type, data) {
 
 function createPngTextChunk(keyword, text) {
   const keywordBytes = new TextEncoder().encode(keyword);
-  for (const byte of keywordBytes) {
-    if (byte > 0x7f) {
-      throw new Error("iTXt keyword must be Latin-1/ASCII");
-    }
-  }
   const textBytes = new TextEncoder().encode(text);
-  const languageTagBytes = new Uint8Array(0);
-  const translatedKeywordBytes = new Uint8Array(0);
-  const data = new Uint8Array(
-    keywordBytes.length +
-      1 +
-      1 +
-      1 +
-      languageTagBytes.length +
-      1 +
-      translatedKeywordBytes.length +
-      1 +
-      textBytes.length
-  );
-  let offset = 0;
-  data.set(keywordBytes, offset);
-  offset += keywordBytes.length;
-  data[offset] = 0;
-  offset += 1;
-  data[offset] = 0;
-  offset += 1;
-  data[offset] = 0;
-  offset += 1;
-  if (languageTagBytes.length) {
-    data.set(languageTagBytes, offset);
-    offset += languageTagBytes.length;
-  }
-  data[offset] = 0;
-  offset += 1;
-  if (translatedKeywordBytes.length) {
-    data.set(translatedKeywordBytes, offset);
-    offset += translatedKeywordBytes.length;
-  }
-  data[offset] = 0;
-  offset += 1;
-  data.set(textBytes, offset);
-  return createPngChunk("iTXt", data);
+  const data = new Uint8Array(keywordBytes.length + 1 + textBytes.length);
+  data.set(keywordBytes, 0);
+  data[keywordBytes.length] = 0;
+  data.set(textBytes, keywordBytes.length + 1);
+  return createPngChunk("tEXt", data);
 }
 
 export async function embedWorkflowInPngBlob(blob, workflowJson) {
@@ -66,7 +30,7 @@ export async function embedWorkflowInPngBlob(blob, workflowJson) {
     }
   }
 
-  const chunk = createPngTextChunk("workflow", workflowJson);
+  const textChunk = createPngTextChunk("workflow", workflowJson);
   let offset = 8;
   while (offset + 8 <= data.length) {
     const length =
@@ -83,7 +47,7 @@ export async function embedWorkflowInPngBlob(blob, workflowJson) {
     if (type === "IEND") {
       const before = data.subarray(0, offset);
       const after = data.subarray(offset);
-      const merged = concatUint8(before, chunk, after);
+      const merged = concatUint8(before, textChunk, after);
       return new Blob([merged], { type: "image/png" });
     }
     offset += 12 + length;

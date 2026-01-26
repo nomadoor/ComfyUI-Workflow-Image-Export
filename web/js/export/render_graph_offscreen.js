@@ -451,7 +451,10 @@ function applyRenderFilter(graph, selectedNodeIds, mode) {
   const shouldKeep = (node) => {
     if (!node || !Number.isFinite(node.id)) return false;
     const isSelected = ids.has(node.id);
-    return mode === "selected" ? isSelected : !isSelected;
+    if (mode === "none") return false;
+    if (mode === "selected") return isSelected;
+    if (mode === "unselected") return !isSelected;
+    return true;
   };
   const remove = nodes.filter((node) => !shouldKeep(node));
   if (typeof graph.remove === "function") {
@@ -464,6 +467,53 @@ function applyRenderFilter(graph, selectedNodeIds, mode) {
     });
   } else if (Array.isArray(graph._nodes)) {
     graph._nodes = nodes.filter((node) => shouldKeep(node));
+  }
+}
+
+function applyLinkFilter(graph, selectedNodeIds, mode) {
+  if (!graph || !mode || mode === "all") return;
+  const ids = Array.isArray(selectedNodeIds)
+    ? new Set(selectedNodeIds.map((id) => Number(id)).filter(Number.isFinite))
+    : null;
+  if (!ids || !ids.size) return;
+
+  const getEndpoints = (link) => {
+    if (!link || typeof link !== "object") return [null, null];
+    const a = link.origin_id ?? link.from_id ?? link.originId ?? link.fromId;
+    const b = link.target_id ?? link.to_id ?? link.targetId ?? link.toId;
+    return [Number(a), Number(b)];
+  };
+
+  const keepLink = (link) => {
+    if (mode === "none") return false;
+    const [a, b] = getEndpoints(link);
+    const aSel = Number.isFinite(a) && ids.has(a);
+    const bSel = Number.isFinite(b) && ids.has(b);
+    const bothSelected = aSel && bSel;
+    if (mode === "selected") return bothSelected;
+    if (mode === "unselected") return !bothSelected;
+    return true;
+  };
+
+  if (graph.links instanceof Map) {
+    const next = new Map();
+    for (const [key, link] of graph.links.entries()) {
+      if (keepLink(link)) {
+        next.set(key, link);
+      }
+    }
+    graph.links = next;
+    return;
+  }
+
+  if (graph.links && typeof graph.links === "object") {
+    const next = {};
+    for (const [key, link] of Object.entries(graph.links)) {
+      if (keepLink(link)) {
+        next[key] = link;
+      }
+    }
+    graph.links = next;
   }
 }
 
@@ -486,7 +536,6 @@ export async function renderGraphOffscreen(workflowJson, options = {}) {
   syncLiveNodeMedia(graph, app?.graph, debugLog);
   syncLiveNodeText(graph, app?.graph);
   syncLiveGroups(graph, app?.graph);
-  applyRenderFilter(graph, options.selectedNodeIds, options.renderFilter);
   if (debug) {
     const nodes = graph?._nodes || graph?.nodes || [];
     const liveNodes = app?.graph?._nodes || app?.graph?.nodes || [];
@@ -531,6 +580,8 @@ export async function renderGraphOffscreen(workflowJson, options = {}) {
     selectedNodeIds: options.selectedNodeIds,
     useSelectionOnly: options.cropToSelection,
   });
+  applyRenderFilter(graph, options.selectedNodeIds, options.renderFilter);
+  applyLinkFilter(graph, options.selectedNodeIds, options.linkFilter);
   const width = Math.max(1, Math.ceil(bbox.width));
   const height = Math.max(1, Math.ceil(bbox.height));
   if (debug) {
