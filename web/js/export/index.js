@@ -281,7 +281,18 @@ export async function exportWorkflowPng(workflowJson, options = {}) {
   if (options.embedWorkflow !== false) {
     const json = toWorkflowJsonString(workflowJson);
     if (json) {
-      blob = await embedWorkflowInPngBlob(blob, json);
+      try {
+        const embedded = await embedWorkflowInPngBlob(blob, json);
+        if (embedded) {
+          blob = embedded;
+        } else {
+          warnings.push("embed:failed");
+        }
+      } catch (error) {
+        warnings.push(
+          `embed:failed${error?.message ? `:${error.message}` : ""}`
+        );
+      }
     } else {
       warnings.push("embed:failed");
     }

@@ -557,7 +557,11 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
         previewFrame.classList.add("is-loading");
       }
       const blob = await capture(previewState);
-      if (!blob) return;
+      if (!blob) {
+        previewFrame.classList.remove("is-loading");
+        previewBusy = false;
+        return;
+      }
       if (previewUrl) {
         URL.revokeObjectURL(previewUrl);
       }
@@ -565,6 +569,7 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
       previewImg.src = previewUrl;
     } catch (error) {
       log?.("preview:error", { message: error?.message || String(error) });
+      previewFrame.classList.remove("is-loading");
     } finally {
       previewBusy = false;
       if (previewQueued) {
