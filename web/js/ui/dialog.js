@@ -260,7 +260,7 @@ function isDebugEnabled() {
 function buildInitialState() {
   return {
     ...getDefaultsFromSettings(),
-    debug: isDebugEnabled(),
+    debug: false,
     scopeSelected: false,
     scopeOpacity: 40,
   };
@@ -347,6 +347,9 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
   const controlsPane = document.createElement("div");
   controlsPane.className = "cwie-controls-pane";
 
+  const controlsScroll = document.createElement("div");
+  controlsScroll.className = "cwie-controls-scroll";
+
   const basicTitle = document.createElement("div");
   basicTitle.className = "cwie-section-title";
   basicTitle.textContent = "Basic";
@@ -371,10 +374,20 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
   solidColorInput.className = "cwie-input";
 
   const paddingInput = document.createElement("input");
-  paddingInput.type = "number";
+  paddingInput.type = "range";
   paddingInput.min = "0";
+  paddingInput.max = "400";
   paddingInput.step = "1";
-  paddingInput.className = "cwie-input";
+  paddingInput.className = "cwie-range";
+
+  const paddingValue = document.createElement("span");
+  paddingValue.className = "cwie-range-value";
+  paddingValue.textContent = "0";
+
+  const paddingWrapper = document.createElement("div");
+  paddingWrapper.className = "cwie-range-wrapper";
+  paddingWrapper.appendChild(paddingInput);
+  paddingWrapper.appendChild(paddingValue);
 
   const scopeToggle = createToggle();
   const scopeOpacityInput = document.createElement("input");
@@ -466,11 +479,12 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
     }
     solidColorInput.value = nextState.solidColor;
     paddingInput.value = String(nextState.padding);
+    paddingValue.textContent = String(nextState.padding);
     outputResolutionSelect.setValue(nextState.outputResolution);
     maxLongEdgeInput.value = String(nextState.maxLongEdge);
     exceedSelect.setValue(nextState.exceedMode);
     if (solidColorRow) {
-      solidColorRow.style.display = nextState.background === "solid" ? "grid" : "none";
+      solidColorRow.classList.toggle("is-hidden", nextState.background !== "solid");
     }
     scopeToggle.input.checked = Boolean(nextState.scopeSelected);
     const opacityValue = Number.isFinite(Number(nextState.scopeOpacity)) ? nextState.scopeOpacity : 40;
@@ -517,8 +531,14 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
 
   let previewUrl = null;
   let previewTimer = null;
+  let previewBusy = false;
+  let previewQueued = false;
 
   async function renderPreview() {
+    if (previewBusy) {
+      previewQueued = true;
+      return;
+    }
     updateStateFromControls();
     updateScopeAvailability();
     const selectedIds = getSelectedNodeIds();
@@ -529,10 +549,13 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
       outputResolution: "100%",
       maxLongEdge: 0,
       selectedNodeIds: selectedIds,
+      previewFast: true,
     };
     try {
-      previewFrame.classList.add("is-loading");
-      previewFrame.classList.remove("has-preview");
+      previewBusy = true;
+      if (!previewImg.src) {
+        previewFrame.classList.add("is-loading");
+      }
       const blob = await capture(previewState);
       if (!blob) return;
       if (previewUrl) {
@@ -542,6 +565,12 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
       previewImg.src = previewUrl;
     } catch (error) {
       log?.("preview:error", { message: error?.message || String(error) });
+    } finally {
+      previewBusy = false;
+      if (previewQueued) {
+        previewQueued = false;
+        renderPreview();
+      }
     }
   }
 
@@ -552,11 +581,12 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
     previewTimer = setTimeout(() => {
       previewTimer = null;
       renderPreview();
-    }, 200);
+    }, 450);
   }
 
   function handleChange() {
     updateStateFromControls();
+    previewFrame.classList.toggle("is-transparent", state.background === "transparent");
     schedulePreview();
   }
 
@@ -566,7 +596,10 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
   });
   embedToggle.input.addEventListener("change", () => handleChange());
   solidColorInput.addEventListener("change", () => handleChange());
-  paddingInput.addEventListener("change", () => handleChange());
+  paddingInput.addEventListener("input", () => {
+    paddingValue.textContent = paddingInput.value;
+    handleChange();
+  });
   outputResolutionSelect.onChange(() => handleChange());
   maxLongEdgeInput.addEventListener("change", () => handleChange());
   exceedSelect.onChange(() => handleChange());
@@ -582,7 +615,7 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
   for (const input of backgroundGroup.inputs.values()) {
     input.addEventListener("change", () => {
       handleChange();
-      solidColorRow.style.display = state.background === "solid" ? "grid" : "none";
+      solidColorRow.classList.toggle("is-hidden", state.background !== "solid");
     });
   }
 
@@ -672,17 +705,17 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
   footer.appendChild(footerLeft);
   footer.appendChild(footerRight);
 
-  controlsPane.appendChild(basicTitle);
-  controlsPane.appendChild(createRow("Format", formatSelect.root));
-  controlsPane.appendChild(createRow("Embed workflow", embedToggle.wrapper));
-  controlsPane.appendChild(embedNote);
-  controlsPane.appendChild(createRow("Background", backgroundGroup.group));
+  controlsScroll.appendChild(basicTitle);
+  controlsScroll.appendChild(createRow("Format", formatSelect.root));
+  controlsScroll.appendChild(createRow("Embed workflow", embedToggle.wrapper));
+  controlsScroll.appendChild(embedNote);
+  controlsScroll.appendChild(createRow("Background", backgroundGroup.group));
 
   solidColorRow = createRow("Solid color", solidColorInput);
-  controlsPane.appendChild(solidColorRow);
-  controlsPane.appendChild(createRow("Padding", paddingInput));
-  controlsPane.appendChild(createRow("Scope", scopeToggle.wrapper));
-  controlsPane.appendChild(createRow("Opacity", scopeOpacityWrapper));
+  controlsScroll.appendChild(solidColorRow);
+  controlsScroll.appendChild(createRow("Padding", paddingWrapper));
+  controlsScroll.appendChild(createRow("Scope", scopeToggle.wrapper));
+  controlsScroll.appendChild(createRow("Opacity", scopeOpacityWrapper));
 
   advancedBody.appendChild(createRow("Output resolution", outputResolutionSelect.root));
   advancedBody.appendChild(createRow("Max long edge", maxLongEdgeInput));
@@ -690,10 +723,9 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
 
   // Debug Toggle
   const debugToggle = createToggle();
-  debugToggle.input.checked = isDebugEnabled();
+  debugToggle.input.checked = false;
   debugToggle.input.addEventListener("change", () => {
     state.debug = debugToggle.input.checked;
-    // Also update global debug state for persistence if desired, or just session
     if (window.__cwie__) {
       window.__cwie__.setDebug(debugToggle.input.checked);
     }
@@ -705,7 +737,8 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
   advancedSection.appendChild(advancedHeader);
   advancedSection.appendChild(advancedBody);
 
-  controlsPane.appendChild(advancedSection);
+  controlsScroll.appendChild(advancedSection);
+  controlsPane.appendChild(controlsScroll);
   controlsPane.appendChild(footer);
 
   content.appendChild(previewPane);
@@ -719,10 +752,11 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
 
   applyStateToControls(state);
   updateScopeAvailability(true);
+  previewFrame.classList.toggle("is-transparent", state.background === "transparent");
+  solidColorRow.classList.toggle("is-hidden", state.background !== "solid");
   renderPreview();
 
   previewImg.addEventListener("load", () => {
     previewFrame.classList.remove("is-loading");
-    previewFrame.classList.add("has-preview");
   });
 }

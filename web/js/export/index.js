@@ -206,6 +206,7 @@ export async function exportWorkflowPng(workflowJson, options = {}) {
   const scopeOpacity = Number.isFinite(scopeOpacityRaw)
     ? Math.min(100, Math.max(0, scopeOpacityRaw))
     : 30;
+  const previewFast = Boolean(options.previewFast);
 
   let renderOptions = {
     backgroundMode,
@@ -216,6 +217,7 @@ export async function exportWorkflowPng(workflowJson, options = {}) {
     debug,
     selectedNodeIds,
     cropToSelection: scopeSelected,
+    previewFast,
   };
 
   let canvas = await renderOnce(workflowJson, renderOptions);
@@ -248,7 +250,7 @@ export async function exportWorkflowPng(workflowJson, options = {}) {
     if (debug) {
       console.log("[CWIE][Offscreen] transparent check", { ok: transparent });
     }
-    if (!transparent) {
+    if (!transparent && !previewFast) {
       warnings.push("transparent:failed");
       const recovered = await renderTransparentFallback(workflowJson, renderOptions, warnings);
       if (recovered) {

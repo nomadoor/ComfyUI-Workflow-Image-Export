@@ -47,11 +47,16 @@ export function applyBackgroundMode(offscreen, options = {}) {
 
   if (includeGrid === false) {
     setIfPresent(offscreen, "show_grid", false);
-    setIfPresent(offscreen, "render_background", true);
+  } else {
+    setIfPresent(offscreen, "show_grid", true);
   }
+  setIfPresent(offscreen, "render_background", true);
 
   setIfPresent(offscreen, "clear_background", true);
-  setIfPresent(offscreen, "background_image", null);
+  // Preserve background_image in UI mode so any UI grid/pattern remains visible.
+  if (!(mode === "ui" && includeGrid)) {
+    setIfPresent(offscreen, "background_image", null);
+  }
 
   if (mode === "transparent") {
     setIfPresent(offscreen, "clear_background_color", "rgba(0, 0, 0, 0)");

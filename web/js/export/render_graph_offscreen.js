@@ -664,14 +664,16 @@ export async function renderGraphOffscreen(workflowJson, options = {}) {
       scale: 1,
       debugLog,
     });
-    await drawVideoThumbnails({
-      exportCtx: outputCtx,
-      graph,
-      nodeRects,
-      bounds,
-      scale: 1,
-      debugLog,
-    });
+    if (!options.previewFast) {
+      await drawVideoThumbnails({
+        exportCtx: outputCtx,
+        graph,
+        nodeRects,
+        bounds,
+        scale: 1,
+        debugLog,
+      });
+    }
   }
 
   return {
