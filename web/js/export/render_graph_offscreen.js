@@ -307,20 +307,72 @@ function syncLiveGroups(exportGraph, liveGraph) {
   const liveGroups = liveGraph?._groups || liveGraph?.groups || [];
   if (!exportGroups.length || !liveGroups.length) return;
 
-  const count = Math.min(exportGroups.length, liveGroups.length);
-  for (let i = 0; i < count; i += 1) {
-    const exportGroup = exportGroups[i];
-    const liveGroup = liveGroups[i];
-    if (!exportGroup || !liveGroup) continue;
-    if (Array.isArray(liveGroup.pos)) {
-      exportGroup.pos = [...liveGroup.pos];
-    } else if (Array.isArray(liveGroup._pos)) {
-      exportGroup.pos = [...liveGroup._pos];
+  const normalizePos = (pos) => {
+    if (Array.isArray(pos) && pos.length >= 2) return [pos[0], pos[1]];
+    return null;
+  };
+  const normalizeSize = (size) => {
+    if (Array.isArray(size) && size.length >= 2) return [size[0], size[1]];
+    return null;
+  };
+  const distanceSq = (a, b) => {
+    if (!a || !b) return Number.POSITIVE_INFINITY;
+    const dx = a[0] - b[0];
+    const dy = a[1] - b[1];
+    return dx * dx + dy * dy;
+  };
+
+  const liveById = new Map();
+  for (const group of liveGroups) {
+    if (!group) continue;
+    if (group.id !== undefined && group.id !== null) {
+      liveById.set(group.id, group);
     }
-    if (Array.isArray(liveGroup.size)) {
-      exportGroup.size = [...liveGroup.size];
-    } else if (Array.isArray(liveGroup._size)) {
-      exportGroup.size = [...liveGroup._size];
+  }
+
+  for (const exportGroup of exportGroups) {
+    if (!exportGroup) continue;
+    let liveGroup = null;
+
+    if (exportGroup.id !== undefined && exportGroup.id !== null) {
+      liveGroup = liveById.get(exportGroup.id) || null;
+    }
+
+    if (!liveGroup && exportGroup.title) {
+      const sameTitle = liveGroups.filter((g) => g?.title === exportGroup.title);
+      if (sameTitle.length === 1) {
+        liveGroup = sameTitle[0];
+      } else if (sameTitle.length > 1) {
+        const exportPos = normalizePos(exportGroup.pos || exportGroup._pos);
+        let best = null;
+        let bestDist = Number.POSITIVE_INFINITY;
+        for (const candidate of sameTitle) {
+          const candPos = normalizePos(candidate.pos || candidate._pos);
+          const dist = distanceSq(exportPos, candPos);
+          if (dist < bestDist) {
+            bestDist = dist;
+            best = candidate;
+          }
+        }
+        liveGroup = best;
+      }
+    }
+
+    if (!liveGroup) {
+      // fallback to same index if nothing else matches
+      const idx = exportGroups.indexOf(exportGroup);
+      liveGroup = liveGroups[idx] || null;
+    }
+
+    if (!liveGroup) continue;
+
+    const livePos = normalizePos(liveGroup.pos || liveGroup._pos);
+    const liveSize = normalizeSize(liveGroup.size || liveGroup._size);
+    if (livePos) {
+      exportGroup.pos = [...livePos];
+    }
+    if (liveSize) {
+      exportGroup.size = [...liveSize];
     }
   }
 }
@@ -389,6 +441,32 @@ function safeCleanup(offscreen, graph) {
   }
 }
 
+function applyRenderFilter(graph, selectedNodeIds, mode) {
+  if (!graph || !mode || mode === "all") return;
+  const ids = Array.isArray(selectedNodeIds)
+    ? new Set(selectedNodeIds.map((id) => Number(id)).filter(Number.isFinite))
+    : null;
+  if (!ids || !ids.size) return;
+  const nodes = graph?._nodes || graph?.nodes || [];
+  const shouldKeep = (node) => {
+    if (!node || !Number.isFinite(node.id)) return false;
+    const isSelected = ids.has(node.id);
+    return mode === "selected" ? isSelected : !isSelected;
+  };
+  const remove = nodes.filter((node) => !shouldKeep(node));
+  if (typeof graph.remove === "function") {
+    remove.forEach((node) => {
+      try {
+        graph.remove(node);
+      } catch (_) {
+        // ignore
+      }
+    });
+  } else if (Array.isArray(graph._nodes)) {
+    graph._nodes = nodes.filter((node) => shouldKeep(node));
+  }
+}
+
 export async function renderGraphOffscreen(workflowJson, options = {}) {
   const debug = Boolean(options.debug);
   const debugLog = debug
@@ -408,6 +486,7 @@ export async function renderGraphOffscreen(workflowJson, options = {}) {
   syncLiveNodeMedia(graph, app?.graph, debugLog);
   syncLiveNodeText(graph, app?.graph);
   syncLiveGroups(graph, app?.graph);
+  applyRenderFilter(graph, options.selectedNodeIds, options.renderFilter);
   if (debug) {
     const nodes = graph?._nodes || graph?.nodes || [];
     const liveNodes = app?.graph?._nodes || app?.graph?.nodes || [];
@@ -446,7 +525,12 @@ export async function renderGraphOffscreen(workflowJson, options = {}) {
     });
   }
 
-  const bbox = computeGraphBBox(graph, { padding, debug });
+  const bbox = computeGraphBBox(graph, {
+    padding,
+    debug,
+    selectedNodeIds: options.selectedNodeIds,
+    useSelectionOnly: options.cropToSelection,
+  });
   const width = Math.max(1, Math.ceil(bbox.width));
   const height = Math.max(1, Math.ceil(bbox.height));
   if (debug) {

@@ -51,6 +51,29 @@ function getWorkflowJson() {
   return graph.serialize();
 }
 
+function getSelectedNodeIds() {
+  const selected =
+    app?.canvas?.selected_nodes ||
+    app?.canvas?.selectedNodes ||
+    app?.graph?.selected_nodes ||
+    null;
+  if (!selected) return [];
+  if (selected instanceof Map) {
+    return Array.from(selected.keys()).map((id) => Number(id)).filter(Number.isFinite);
+  }
+  if (Array.isArray(selected)) {
+    return selected
+      .map((node) => node?.id)
+      .filter((id) => Number.isFinite(id));
+  }
+  if (typeof selected === "object") {
+    return Object.keys(selected)
+      .map((id) => Number(id))
+      .filter(Number.isFinite);
+  }
+  return [];
+}
+
 function toWorkflowJsonString(workflowJson) {
   if (!workflowJson) return null;
   if (typeof workflowJson === "string") {
@@ -78,6 +101,9 @@ export async function capture(options = {}) {
       throw new Error("Capture failed: workflow JSON unavailable.");
     }
     const scale = resolveOutputScale(normalized);
+    const selectedNodeIds = Array.isArray(normalized.selectedNodeIds)
+      ? normalized.selectedNodeIds
+      : getSelectedNodeIds();
     const blob = await exportWorkflowPng(workflowJson, {
       backgroundMode: normalized.background,
       backgroundColor: normalized.solidColor,
@@ -87,6 +113,9 @@ export async function capture(options = {}) {
       includeDomOverlays: false,
       debug: normalized.debug,
       embedWorkflow: false,
+      scopeSelected: Boolean(normalized.scopeSelected),
+      scopeOpacity: normalized.scopeOpacity,
+      selectedNodeIds,
     });
     if (blob?.cwieWarnings?.length) {
       console.warn("[workflow-image-export] export warnings", blob.cwieWarnings);

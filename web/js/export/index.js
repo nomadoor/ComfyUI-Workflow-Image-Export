@@ -87,6 +87,11 @@ function scaleCanvas(baseCanvas, scale) {
   return out;
 }
 
+function normalizeSelectedIds(value) {
+  if (!Array.isArray(value)) return [];
+  return value.map((id) => Number(id)).filter(Number.isFinite);
+}
+
 async function renderOnce(workflowJson, options) {
   const rendered = await renderGraphOffscreen(workflowJson, options);
   try {
@@ -195,6 +200,12 @@ export async function exportWorkflowPng(workflowJson, options = {}) {
   const includeGrid = options.includeGrid !== false;
   const scale = Number(options.scale) || 1;
   const debug = Boolean(options.debug);
+  const selectedNodeIds = normalizeSelectedIds(options.selectedNodeIds);
+  const scopeSelected = Boolean(options.scopeSelected) && selectedNodeIds.length > 0;
+  const scopeOpacityRaw = Number(options.scopeOpacity);
+  const scopeOpacity = Number.isFinite(scopeOpacityRaw)
+    ? Math.min(100, Math.max(0, scopeOpacityRaw))
+    : 30;
 
   let renderOptions = {
     backgroundMode,
@@ -203,9 +214,34 @@ export async function exportWorkflowPng(workflowJson, options = {}) {
     padding,
     includeDomOverlays: options.includeDomOverlays !== false,
     debug,
+    selectedNodeIds,
+    cropToSelection: scopeSelected,
   };
 
   let canvas = await renderOnce(workflowJson, renderOptions);
+
+  if (scopeSelected) {
+    const dimAlpha = scopeOpacity / 100;
+    if (dimAlpha < 0.999) {
+      const selectedCanvas = await renderOnce(workflowJson, {
+        ...renderOptions,
+        backgroundMode: "transparent",
+        includeGrid: false,
+        renderFilter: "selected",
+      });
+      const output = document.createElement("canvas");
+      output.width = canvas.width;
+      output.height = canvas.height;
+      const ctx = output.getContext("2d", { alpha: true });
+      if (ctx) {
+        ctx.globalAlpha = dimAlpha;
+        ctx.drawImage(canvas, 0, 0);
+        ctx.globalAlpha = 1;
+        ctx.drawImage(selectedCanvas, 0, 0);
+        canvas = output;
+      }
+    }
+  }
 
   if (backgroundMode === "transparent") {
     const transparent = isCanvasTransparent(canvas);

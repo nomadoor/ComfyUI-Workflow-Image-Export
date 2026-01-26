@@ -42,6 +42,10 @@ export function computeGraphBBox(graph, options = {}) {
   const pad = Number(options.padding) || 0;
   const fallbackSize = normalizeSize(options.defaultSize, DEFAULT_NODE_SIZE);
   const debug = options.debug === true;
+  const selectedIds = Array.isArray(options.selectedNodeIds)
+    ? new Set(options.selectedNodeIds.map((id) => Number(id)).filter(Number.isFinite))
+    : null;
+  const useSelectionOnly = Boolean(options.useSelectionOnly) && selectedIds && selectedIds.size > 0;
 
   if (!nodes.length && !groups.length) {
     const width = Math.max(1, fallbackSize[0]);
@@ -65,6 +69,9 @@ export function computeGraphBBox(graph, options = {}) {
 
   nodes.forEach((node, index) => {
     if (!node) return;
+    if (useSelectionOnly && !selectedIds.has(node.id)) {
+      return;
+    }
     const bounding =
       (typeof node.getBounding === "function" && node.getBounding()) ||
       node.bounding ||
@@ -110,6 +117,9 @@ export function computeGraphBBox(graph, options = {}) {
 
   groups.forEach((group, index) => {
     if (!group) return;
+    if (useSelectionOnly) {
+      return;
+    }
     const pos = normalizePos(group.pos || group._pos);
     const size = normalizeSize(group.size || group._size, fallbackSize);
     const x = pos[0];
