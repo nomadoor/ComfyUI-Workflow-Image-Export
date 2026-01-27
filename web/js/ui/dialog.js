@@ -260,7 +260,7 @@ function isDebugEnabled() {
 function buildInitialState() {
   return {
     ...getDefaultsFromSettings(),
-    debug: false,
+    debug: isDebugEnabled(),
     scopeSelected: false,
     scopeOpacity: 40,
   };
@@ -491,9 +491,13 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
     scopeOpacityInput.value = String(opacityValue);
     scopeOpacityValue.textContent = String(opacityValue);
     previewFrame.classList.toggle("is-transparent", nextState.background === "transparent");
+    if (debugToggle?.input) {
+      debugToggle.input.checked = Boolean(nextState.debug);
+    }
   }
 
   function updateStateFromControls() {
+    const prevDebug = Boolean(state.debug);
     const normalized = normalizeSettingsState({
       format: formatSelect.getValue(),
       embedWorkflow: embedToggle.input.checked,
@@ -506,7 +510,7 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
     });
     state = {
       ...normalized,
-      debug: isDebugEnabled(),
+      debug: prevDebug,
       scopeSelected: Boolean(scopeToggle.input.checked),
       scopeOpacity: Number.parseInt(scopeOpacityInput.value, 10) || 0,
     };
@@ -729,11 +733,11 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
 
   // Debug Toggle
   const debugToggle = createToggle();
-  debugToggle.input.checked = false;
+  debugToggle.input.checked = Boolean(state.debug);
   debugToggle.input.addEventListener("change", () => {
-    state.debug = debugToggle.input.checked;
+    state.debug = Boolean(debugToggle.input.checked);
     if (window.__cwie__) {
-      window.__cwie__.setDebug(debugToggle.input.checked);
+      window.__cwie__.setDebug(state.debug);
     }
   });
   advancedBody.appendChild(createRow("Enable Debug Log", debugToggle.wrapper));

@@ -785,11 +785,22 @@ function loadVideoThumbnail(url) {
       resolve(result);
     };
 
+    // Fast-fail missing resources before spinning up a <video>.
+    fetch(url, { method: "HEAD" })
+      .then((resp) => {
+        if (!resp.ok) {
+          finish(null);
+        }
+      })
+      .catch(() => {
+        // Ignore fetch errors; the video element may still load.
+      });
+
     // Safety timeout
     const timeout = setTimeout(() => {
       if (window.__cwie__?.debug) console.warn(`[CWIE] Video load timeout: ${url}`);
       finish(null);
-    }, 3000);
+    }, 1200);
 
     video.addEventListener("loadeddata", () => {
       // Seek to a little bit in to avoid black start frames
@@ -852,6 +863,15 @@ function looksLikeImageUrl(value) {
   return /\.(png|jpg|jpeg|webp|bmp|gif)$/i.test(value);
 }
 
+function looksLikeFilename(value) {
+  if (typeof value !== "string") return false;
+  const trimmed = value.trim();
+  if (!trimmed || /\s/.test(trimmed)) return false;
+  if (!trimmed.includes(".")) return false;
+  if (/^\d+(\.\d+)?$/.test(trimmed)) return false;
+  return trimmed.length > 4;
+}
+
 function buildViewUrl(ref) {
   if (!ref?.filename) return null;
   const url = new URL("/view", window.location.origin);
@@ -870,13 +890,22 @@ function buildViewUrl(ref) {
 function extractFileRefFromNode(node) {
   if (!node) return null;
   const debug = window.__cwie__?.debug;
+  const videoLike = (() => {
+    const text = `${node?.title || ""} ${node?.type || ""}`.toLowerCase();
+    return text.includes("video") || text.includes("vhs");
+  })();
 
   // Helper to deep check for filename/video keys
-  const tryObject = (obj, path) => {
+  const tryObject = (obj, path, depth = 0) => {
     if (!obj || typeof obj !== "object") return null;
 
     // VHS often uses 'video' or 'filenames' keys
-    const filename = obj.filename || obj.file || obj.name || obj.video || (Array.isArray(obj.filenames) ? obj.filenames[0] : null);
+    const filename =
+      obj.filename ||
+      obj.file ||
+      obj.name ||
+      obj.video ||
+      (Array.isArray(obj.filenames) ? obj.filenames[0] : null);
 
     if (filename && typeof filename === "string") {
       if (debug) console.log(`[CWIE] Found ref in ${path}:`, filename);
@@ -885,6 +914,13 @@ function extractFileRefFromNode(node) {
         subfolder: obj.subfolder || obj.folder,
         type: obj.type,
       };
+    }
+
+    if (depth >= 2) return null;
+    for (const [key, value] of Object.entries(obj)) {
+      if (!value || typeof value !== "object") continue;
+      const nested = tryObject(value, `${path}.${key}`, depth + 1);
+      if (nested) return nested;
     }
     return null;
   };
@@ -914,7 +950,7 @@ function extractFileRefFromNode(node) {
       if (!value) continue;
 
       // Direct string video path?
-      if (typeof value === "string" && looksLikeVideoUrl(value)) {
+      if (typeof value === "string" && (looksLikeVideoUrl(value) || looksLikeFilename(value))) {
         if (debug) console.log(`[CWIE] Found string ref in widgets_values[${i}]:`, value);
         return { filename: value, subfolder: props?.subfolder, type: props?.type };
       }
@@ -926,7 +962,7 @@ function extractFileRefFromNode(node) {
 
         // VHS sometimes nests in "video_info" or similar
         for (const [k, sub] of Object.entries(value)) {
-          if (looksLikeVideoUrl(sub)) {
+          if (typeof sub === "string" && (looksLikeVideoUrl(sub) || looksLikeFilename(sub))) {
             if (debug) console.log(`[CWIE] Found deep ref in widgets_values[${i}].${k}:`, sub);
             return { filename: sub, subfolder: props?.subfolder, type: props?.type };
           }
@@ -940,7 +976,11 @@ function extractFileRefFromNode(node) {
     for (const [k, value] of Object.entries(widgetsValues)) {
       const nested = tryObject(value, `widgets_values.${k}`);
       if (nested) return nested;
-      if (looksLikeVideoUrl(value)) {
+      if (
+        typeof value === "string" &&
+        (looksLikeVideoUrl(value) ||
+          (videoLike && /video|file|name|preview/i.test(k) && looksLikeFilename(value)))
+      ) {
         if (debug) console.log(`[CWIE] Found dict ref in widgets_values.${k}:`, value);
         return { filename: value, subfolder: props?.subfolder, type: props?.type };
       }
