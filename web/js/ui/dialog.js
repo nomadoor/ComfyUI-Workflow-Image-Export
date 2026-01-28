@@ -14,6 +14,7 @@ import {
 
 let activeDialog = null;
 let activeMessageDialog = null;
+let activeDialogCleanup = null;
 
 function ensureStyles() {
   if (document.getElementById("cwie-styles")) {
@@ -27,6 +28,13 @@ function ensureStyles() {
 }
 
 function closeDialog() {
+  try {
+    activeDialogCleanup?.();
+  } catch (_) {
+    // ignore cleanup failures
+  } finally {
+    activeDialogCleanup = null;
+  }
   if (activeDialog) {
     activeDialog.remove();
     activeDialog = null;
@@ -260,7 +268,7 @@ function isDebugEnabled() {
 function buildInitialState() {
   return {
     ...getDefaultsFromSettings(),
-    debug: false,
+    debug: isDebugEnabled(),
     scopeSelected: false,
     scopeOpacity: 40,
   };
@@ -491,9 +499,13 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
     scopeOpacityInput.value = String(opacityValue);
     scopeOpacityValue.textContent = String(opacityValue);
     previewFrame.classList.toggle("is-transparent", nextState.background === "transparent");
+    if (debugToggle?.input) {
+      debugToggle.input.checked = Boolean(nextState.debug);
+    }
   }
 
   function updateStateFromControls() {
+    const prevDebug = Boolean(state.debug);
     const normalized = normalizeSettingsState({
       format: formatSelect.getValue(),
       embedWorkflow: embedToggle.input.checked,
@@ -506,7 +518,7 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
     });
     state = {
       ...normalized,
-      debug: isDebugEnabled(),
+      debug: prevDebug,
       scopeSelected: Boolean(scopeToggle.input.checked),
       scopeOpacity: Number.parseInt(scopeOpacityInput.value, 10) || 0,
     };
@@ -533,8 +545,34 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
   let previewTimer = null;
   let previewBusy = false;
   let previewQueued = false;
+  let dialogClosed = false;
+
+  const cleanupDialog = () => {
+    if (dialogClosed) return;
+    dialogClosed = true;
+    if (previewTimer) {
+      clearTimeout(previewTimer);
+      previewTimer = null;
+    }
+    previewQueued = false;
+    previewBusy = false;
+    if (previewUrl) {
+      try {
+        URL.revokeObjectURL(previewUrl);
+      } catch (_) {
+        // ignore revoke errors
+      }
+      previewUrl = null;
+    }
+    if (previewImg) {
+      previewImg.src = "";
+    }
+  };
+
+  activeDialogCleanup = cleanupDialog;
 
   async function renderPreview() {
+    if (dialogClosed) return;
     if (previewBusy) {
       previewQueued = true;
       return;
@@ -557,6 +595,10 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
         previewFrame.classList.add("is-loading");
       }
       const blob = await capture(previewState);
+      if (dialogClosed) {
+        previewFrame.classList.remove("is-loading");
+        return;
+      }
       if (!blob) {
         previewFrame.classList.remove("is-loading");
         previewBusy = false;
@@ -572,7 +614,7 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
       previewFrame.classList.remove("is-loading");
     } finally {
       previewBusy = false;
-      if (previewQueued) {
+      if (!dialogClosed && previewQueued) {
         previewQueued = false;
         renderPreview();
       }
@@ -580,12 +622,15 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
   }
 
   function schedulePreview() {
+    if (dialogClosed) return;
     if (previewTimer) {
       clearTimeout(previewTimer);
     }
     previewTimer = setTimeout(() => {
       previewTimer = null;
-      renderPreview();
+      if (!dialogClosed) {
+        renderPreview();
+      }
     }, 450);
   }
 
@@ -729,11 +774,11 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
 
   // Debug Toggle
   const debugToggle = createToggle();
-  debugToggle.input.checked = false;
+  debugToggle.input.checked = Boolean(state.debug);
   debugToggle.input.addEventListener("change", () => {
-    state.debug = debugToggle.input.checked;
+    state.debug = Boolean(debugToggle.input.checked);
     if (window.__cwie__) {
-      window.__cwie__.setDebug(debugToggle.input.checked);
+      window.__cwie__.setDebug(state.debug);
     }
   });
   advancedBody.appendChild(createRow("Enable Debug Log", debugToggle.wrapper));
@@ -763,6 +808,8 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
   renderPreview();
 
   previewImg.addEventListener("load", () => {
-    previewFrame.classList.remove("is-loading");
+    if (!dialogClosed) {
+      previewFrame.classList.remove("is-loading");
+    }
   });
 }
