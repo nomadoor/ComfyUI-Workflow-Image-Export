@@ -37,6 +37,15 @@ function buildMenuLabel() {
   `;
 }
 
+let dialogPreloaded = false;
+function preloadDialogModule() {
+  if (dialogPreloaded) return;
+  dialogPreloaded = true;
+  import("./ui/dialog.js").catch(() => {
+    // ignore preload errors
+  });
+}
+
 async function openDialog(log) {
   try {
     const mod = await import("./ui/dialog.js");
@@ -64,6 +73,12 @@ app.registerExtension({
     };
     log("extension loaded", window.__cwie__);
     registerLegacySettings(log);
+    // Preload dialog module on idle to reduce first-open latency.
+    if ("requestIdleCallback" in window) {
+      window.requestIdleCallback(() => preloadDialogModule(), { timeout: 2000 });
+    } else {
+      setTimeout(() => preloadDialogModule(), 800);
+    }
     setTimeout(() => {
       if (usedOfficialMenu) {
         return;

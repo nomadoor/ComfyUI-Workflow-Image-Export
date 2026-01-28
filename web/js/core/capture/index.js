@@ -113,6 +113,8 @@ export async function capture(options = {}) {
       includeDomOverlays: false,
       debug: normalized.debug,
       embedWorkflow: false,
+      previewFast: Boolean(normalized.previewFast),
+      maxPixels: normalized.previewMaxPixels,
       scopeSelected: Boolean(normalized.scopeSelected),
       scopeOpacity: normalized.scopeOpacity,
       selectedNodeIds,

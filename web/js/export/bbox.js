@@ -67,32 +67,35 @@ export function computeGraphBBox(graph, options = {}) {
   let maxX = -Infinity;
   let maxY = -Infinity;
 
+  const useBounding = options.useBounding !== false;
   nodes.forEach((node, index) => {
     if (!node) return;
     if (useSelectionOnly && !selectedIds.has(node.id)) {
       return;
     }
-    const bounding =
-      (typeof node.getBounding === "function" && node.getBounding()) ||
-      node.bounding ||
-      node._bounding;
-    if (Array.isArray(bounding) && bounding.length >= 4) {
-      const bw = Number(bounding[2]);
-      const bh = Number(bounding[3]);
-      if (Number.isFinite(bw) && Number.isFinite(bh) && (bw > 0 || bh > 0)) {
-        minX = Math.min(minX, bounding[0]);
-        minY = Math.min(minY, bounding[1]);
-        maxX = Math.max(maxX, bounding[0] + bw);
-        maxY = Math.max(maxY, bounding[1] + bh);
-        if (debug && index < 5) {
-          console.log("[CWIE][Offscreen] node.bounding", {
-            index,
-            id: node.id,
-            title: node.title,
-            bounding: [...bounding],
-          });
+    if (useBounding) {
+      const bounding =
+        (typeof node.getBounding === "function" && node.getBounding()) ||
+        node.bounding ||
+        node._bounding;
+      if (Array.isArray(bounding) && bounding.length >= 4) {
+        const bw = Number(bounding[2]);
+        const bh = Number(bounding[3]);
+        if (Number.isFinite(bw) && Number.isFinite(bh) && (bw > 0 || bh > 0)) {
+          minX = Math.min(minX, bounding[0]);
+          minY = Math.min(minY, bounding[1]);
+          maxX = Math.max(maxX, bounding[0] + bw);
+          maxY = Math.max(maxY, bounding[1] + bh);
+          if (debug && index < 5) {
+            console.log("[CWIE][Offscreen] node.bounding", {
+              index,
+              id: node.id,
+              title: node.title,
+              bounding: [...bounding],
+            });
+          }
+          return;
         }
-        return;
       }
     }
 

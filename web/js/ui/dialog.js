@@ -16,6 +16,8 @@ let activeDialog = null;
 let activeMessageDialog = null;
 let activeDialogCleanup = null;
 
+const PREVIEW_MAX_PIXELS = 1024 * 1024;
+
 function ensureStyles() {
   if (document.getElementById("cwie-styles")) {
     return;
@@ -543,16 +545,24 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
 
   let previewUrl = null;
   let previewTimer = null;
+  let previewIdle = null;
   let previewBusy = false;
   let previewQueued = false;
   let dialogClosed = false;
+  let previewToken = 0;
+  let previewPaused = false;
 
   const cleanupDialog = () => {
     if (dialogClosed) return;
     dialogClosed = true;
+    previewToken += 1;
     if (previewTimer) {
       clearTimeout(previewTimer);
       previewTimer = null;
+    }
+    if (previewIdle && "cancelIdleCallback" in window) {
+      window.cancelIdleCallback(previewIdle);
+      previewIdle = null;
     }
     previewQueued = false;
     previewBusy = false;
@@ -573,10 +583,15 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
 
   async function renderPreview() {
     if (dialogClosed) return;
+    if (previewPaused) {
+      previewQueued = true;
+      return;
+    }
     if (previewBusy) {
       previewQueued = true;
       return;
     }
+    const token = previewToken;
     updateStateFromControls();
     updateScopeAvailability();
     const selectedIds = getSelectedNodeIds();
@@ -588,6 +603,7 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
       maxLongEdge: 0,
       selectedNodeIds: selectedIds,
       previewFast: true,
+      previewMaxPixels: PREVIEW_MAX_PIXELS,
     };
     try {
       previewBusy = true;
@@ -595,7 +611,7 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
         previewFrame.classList.add("is-loading");
       }
       const blob = await capture(previewState);
-      if (dialogClosed) {
+      if (dialogClosed || token !== previewToken) {
         previewFrame.classList.remove("is-loading");
         return;
       }
@@ -621,24 +637,58 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
     }
   }
 
-  function schedulePreview() {
+  function schedulePreview(delay = 450) {
     if (dialogClosed) return;
+    if (previewPaused) {
+      previewQueued = true;
+      return;
+    }
     if (previewTimer) {
       clearTimeout(previewTimer);
     }
-    previewTimer = setTimeout(() => {
-      previewTimer = null;
+    if (previewIdle && "cancelIdleCallback" in window) {
+      window.cancelIdleCallback(previewIdle);
+      previewIdle = null;
+    }
+    const run = () => {
       if (!dialogClosed) {
         renderPreview();
       }
-    }, 450);
+    };
+    previewTimer = setTimeout(() => {
+      previewTimer = null;
+      if (dialogClosed) return;
+      if ("requestIdleCallback" in window) {
+        previewIdle = window.requestIdleCallback(() => {
+          previewIdle = null;
+          run();
+        }, { timeout: 1500 });
+        return;
+      }
+      run();
+    }, delay);
   }
 
   function handleChange() {
+    previewToken += 1;
     updateStateFromControls();
     previewFrame.classList.toggle("is-transparent", state.background === "transparent");
     schedulePreview();
   }
+
+  const pausePreview = () => {
+    previewPaused = true;
+  };
+
+  const resumePreview = (delay = 200) => {
+    if (dialogClosed) return;
+    if (!previewPaused) return;
+    previewPaused = false;
+    if (previewQueued) {
+      previewQueued = false;
+      schedulePreview(delay);
+    }
+  };
 
   formatSelect.onChange((value) => {
     syncEmbedAvailability(value);
@@ -805,11 +855,20 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
   updateScopeAvailability(true);
   previewFrame.classList.toggle("is-transparent", state.background === "transparent");
   solidColorRow.classList.toggle("is-hidden", state.background !== "solid");
-  renderPreview();
+  // Defer first preview so the dialog paints immediately.
+  setTimeout(() => {
+    if (!dialogClosed) {
+      schedulePreview(0);
+    }
+  }, 0);
 
   previewImg.addEventListener("load", () => {
     if (!dialogClosed) {
       previewFrame.classList.remove("is-loading");
     }
   });
+
+  controlsPane.addEventListener("pointerdown", pausePreview);
+  controlsPane.addEventListener("pointerup", () => resumePreview(150));
+  controlsPane.addEventListener("pointercancel", () => resumePreview(150));
 }

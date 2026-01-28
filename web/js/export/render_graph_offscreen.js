@@ -313,6 +313,40 @@ function syncLiveNodeText(exportGraph, liveGraph) {
   }
 }
 
+function syncLiveNodeGeometry(exportGraph, liveGraph) {
+  const liveNodes = liveGraph?._nodes || liveGraph?.nodes || [];
+  const exportNodes = exportGraph?._nodes || exportGraph?.nodes || [];
+  if (!liveNodes.length || !exportNodes.length) return;
+
+  const liveById = new Map();
+  for (const node of liveNodes) {
+    if (node && Number.isFinite(node.id)) {
+      liveById.set(node.id, node);
+    }
+  }
+
+  const isValidPair = (pair) => Array.isArray(pair) && pair.length >= 2
+    && Number.isFinite(Number(pair[0]))
+    && Number.isFinite(Number(pair[1]));
+
+  for (const node of exportNodes) {
+    if (!node || !Number.isFinite(node.id)) continue;
+    const liveNode = liveById.get(node.id);
+    if (!liveNode) continue;
+
+    const livePos = liveNode.pos || liveNode._pos;
+    if (isValidPair(livePos)) {
+      node.pos = [Number(livePos[0]), Number(livePos[1])];
+    }
+
+    const liveSize = liveNode.size || liveNode._size;
+    if (isValidPair(liveSize)) {
+      node.size = [Number(liveSize[0]), Number(liveSize[1])];
+    }
+
+  }
+}
+
 function syncLiveGroups(exportGraph, liveGraph) {
   const exportGroups = exportGraph?._groups || exportGraph?.groups || [];
   const liveGroups = liveGraph?._groups || liveGraph?.groups || [];
@@ -399,9 +433,12 @@ function configureTransform(offscreen, bbox, padding) {
   const scaleFactor = Number(offscreen._cwieScaleFactor) || 1;
   const tileOffsetX = Number(offscreen._cwieTileOffsetX) || 0;
   const tileOffsetY = Number(offscreen._cwieTileOffsetY) || 0;
+  // DragAndScale.toCanvasContext does: scale() then translate().
+  // That means screen = (world + offset) * scale.
+  // Therefore offset must be in unscaled world units.
   ds.scale = scaleFactor;
-  ds.offset[0] = (-bbox.minX + padding) * scaleFactor - tileOffsetX * scaleFactor;
-  ds.offset[1] = (-bbox.minY + padding) * scaleFactor - tileOffsetY * scaleFactor;
+  ds.offset[0] = -bbox.minX + padding - tileOffsetX;
+  ds.offset[1] = -bbox.minY + padding - tileOffsetY;
 }
 
 function configureVisibleArea(offscreen, bbox, visibleBounds = null) {
@@ -572,6 +609,7 @@ async function prepareGraph(workflowJson, debugLog) {
   }
   const graph = new LGraphRef();
   configureGraph(graph, workflowJson);
+  syncLiveNodeGeometry(graph, app?.graph);
   syncLiveNodeMedia(graph, app?.graph, debugLog);
   syncLiveNodeText(graph, app?.graph);
   syncLiveGroups(graph, app?.graph);
@@ -647,6 +685,7 @@ export async function renderGraphOffscreen(workflowJson, options = {}) {
       debug,
       selectedNodeIds: options.selectedNodeIds,
       useSelectionOnly: options.cropToSelection,
+      useBounding: options.previewFast ? false : undefined,
     });
   applyRenderFilter(graph, options.selectedNodeIds, options.renderFilter);
   applyLinkFilter(graph, options.selectedNodeIds, options.linkFilter);
