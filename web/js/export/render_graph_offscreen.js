@@ -11,8 +11,12 @@ import {
 import {
   getCanvasRoot,
   getDomElementGraphRect,
+  getNodeIdFromElement,
   isElementInGraphNode,
+  collectDomMediaElements,
 } from "../core/overlays/dom_utils.js";
+
+const PREVIEW_MAX_PIXELS = 2048 * 2048;
 
 function resolveGraphConstructor() {
   if (app?.graph?.constructor) {
@@ -136,10 +140,6 @@ function copyNodeMedia(fromNode, toNode) {
     "previewMediaType",
     "canvas",
     "previewCanvas",
-    "video",
-    "videos",
-    "videoEl",
-    "videoElement",
     "images",
     "animatedImages",
     "frames",
@@ -159,6 +159,17 @@ function copyNodeMedia(fromNode, toNode) {
   let copied = false;
   for (const key of mediaKeys) {
     if (fromNode[key] !== undefined && fromNode[key] !== null) {
+      // Never copy live HTML video elements into the export graph.
+      if (
+        key === "video" ||
+        key === "videos" ||
+        key === "videoEl" ||
+        key === "videoElement" ||
+        key === "media_el" ||
+        key === "mediaEl"
+      ) {
+        continue;
+      }
       toNode[key] = fromNode[key];
       copied = true;
     }
@@ -385,19 +396,26 @@ function configureTransform(offscreen, bbox, padding) {
   if (!Array.isArray(ds.offset)) {
     ds.offset = [0, 0];
   }
-  ds.scale = 1;
-  ds.offset[0] = -bbox.minX + padding;
-  ds.offset[1] = -bbox.minY + padding;
+  const scaleFactor = Number(offscreen._cwieScaleFactor) || 1;
+  const tileOffsetX = Number(offscreen._cwieTileOffsetX) || 0;
+  const tileOffsetY = Number(offscreen._cwieTileOffsetY) || 0;
+  ds.scale = scaleFactor;
+  ds.offset[0] = (-bbox.minX + padding) * scaleFactor - tileOffsetX * scaleFactor;
+  ds.offset[1] = (-bbox.minY + padding) * scaleFactor - tileOffsetY * scaleFactor;
 }
 
-function configureVisibleArea(offscreen, bbox) {
+function configureVisibleArea(offscreen, bbox, visibleBounds = null) {
   if (!offscreen) return;
   // Let LiteGraph compute visible area from ds + canvas size when possible.
   if (typeof offscreen.computeVisibleArea === "function") {
-    offscreen.computeVisibleArea();
-    return;
+    try {
+      offscreen.computeVisibleArea();
+    } catch (_) {
+      // fall back to manual visible area below
+    }
   }
-  const visibleArea = [bbox.paddedMinX, bbox.paddedMinY, bbox.width, bbox.height];
+  const source = visibleBounds || bbox;
+  const visibleArea = [source.paddedMinX, source.paddedMinY, source.width, source.height];
   if (offscreen.visible_area && typeof offscreen.visible_area.set === "function") {
     offscreen.visible_area.set(visibleArea);
   } else {
@@ -517,6 +535,70 @@ function applyLinkFilter(graph, selectedNodeIds, mode) {
   }
 }
 
+function computeScaleToFit(width, height, maxPixels) {
+  const w = Math.max(1, Math.ceil(width));
+  const h = Math.max(1, Math.ceil(height));
+  const current = w * h;
+  if (current <= maxPixels) return 1;
+  return Math.sqrt(maxPixels / current);
+}
+
+function computeTileBounds(bbox, tileRect, baseWidth, baseHeight) {
+  if (!tileRect) {
+    return {
+      paddedMinX: bbox.paddedMinX,
+      paddedMinY: bbox.paddedMinY,
+      width: bbox.width,
+      height: bbox.height,
+    };
+  }
+  const x = Math.max(0, Math.min(baseWidth, Number(tileRect.x) || 0));
+  const y = Math.max(0, Math.min(baseHeight, Number(tileRect.y) || 0));
+  const w = Math.max(1, Math.min(baseWidth - x, Number(tileRect.width) || baseWidth));
+  const h = Math.max(1, Math.min(baseHeight - y, Number(tileRect.height) || baseHeight));
+  return {
+    paddedMinX: bbox.paddedMinX + x,
+    paddedMinY: bbox.paddedMinY + y,
+    width: w,
+    height: h,
+  };
+}
+
+async function prepareGraph(workflowJson, debugLog) {
+  const LGraphRef = resolveGraphConstructor();
+  const LGraphCanvasRef = resolveCanvasConstructor();
+  if (!LGraphRef || !LGraphCanvasRef) {
+    throw new Error("Offscreen render: LiteGraph constructors not available.");
+  }
+  const graph = new LGraphRef();
+  configureGraph(graph, workflowJson);
+  syncLiveNodeMedia(graph, app?.graph, debugLog);
+  syncLiveNodeText(graph, app?.graph);
+  syncLiveGroups(graph, app?.graph);
+  return { graph, LGraphCanvasRef };
+}
+
+export async function computeOffscreenBBox(workflowJson, options = {}) {
+  const debug = Boolean(options.debug);
+  const debugLog = debug
+    ? (label, payload) => {
+      console.log(`[CWIE][Offscreen][dom] ${label}`, payload);
+    }
+    : null;
+  const padding = Number(options.padding) || 0;
+  const { graph } = await prepareGraph(workflowJson, debugLog);
+  try {
+    return computeGraphBBox(graph, {
+      padding,
+      debug,
+      selectedNodeIds: options.selectedNodeIds,
+      useSelectionOnly: options.cropToSelection,
+    });
+  } finally {
+    safeCleanup(null, graph);
+  }
+}
+
 export async function renderGraphOffscreen(workflowJson, options = {}) {
   const debug = Boolean(options.debug);
   const debugLog = debug
@@ -524,18 +606,9 @@ export async function renderGraphOffscreen(workflowJson, options = {}) {
       console.log(`[CWIE][Offscreen][dom] ${label}`, payload);
     }
     : null;
-  const LGraphRef = resolveGraphConstructor();
-  const LGraphCanvasRef = resolveCanvasConstructor();
-  if (!LGraphRef || !LGraphCanvasRef) {
-    throw new Error("Offscreen render: LiteGraph constructors not available.");
-  }
 
   const padding = Number(options.padding) || 0;
-  const graph = new LGraphRef();
-  configureGraph(graph, workflowJson);
-  syncLiveNodeMedia(graph, app?.graph, debugLog);
-  syncLiveNodeText(graph, app?.graph);
-  syncLiveGroups(graph, app?.graph);
+  const { graph, LGraphCanvasRef } = await prepareGraph(workflowJson, debugLog);
   if (debug) {
     const nodes = graph?._nodes || graph?.nodes || [];
     const liveNodes = app?.graph?._nodes || app?.graph?.nodes || [];
@@ -563,35 +636,45 @@ export async function renderGraphOffscreen(workflowJson, options = {}) {
           ? Object.keys(n.properties).slice(0, 20)
           : null,
       });
-      if (n.type === "VHS_LoadVideo") {
-        console.log("[CWIE][Offscreen] vhs.widgets", {
-          id: n.id,
-          widget_names: Array.isArray(n.widgets) ? n.widgets.map((w) => w?.name || w?.options?.name) : [],
-          widget_values: Array.isArray(n.widgets) ? n.widgets.map((w) => w?.value ?? w?._value) : [],
-          widgets_values: n.widgets_values,
-        });
-      }
+      // VHS debug removed: VHS support disabled for now.
     });
   }
 
-  const bbox = computeGraphBBox(graph, {
-    padding,
-    debug,
-    selectedNodeIds: options.selectedNodeIds,
-    useSelectionOnly: options.cropToSelection,
-  });
+  const bbox =
+    options.bboxOverride ||
+    computeGraphBBox(graph, {
+      padding,
+      debug,
+      selectedNodeIds: options.selectedNodeIds,
+      useSelectionOnly: options.cropToSelection,
+    });
   applyRenderFilter(graph, options.selectedNodeIds, options.renderFilter);
   applyLinkFilter(graph, options.selectedNodeIds, options.linkFilter);
-  const width = Math.max(1, Math.ceil(bbox.width));
-  const height = Math.max(1, Math.ceil(bbox.height));
+  const baseWidth = Math.max(1, Math.ceil(bbox.width));
+  const baseHeight = Math.max(1, Math.ceil(bbox.height));
+  const tileRect = options.tileRect || null;
+  const maxPixels =
+    Number(options.maxPixels) ||
+    (options.previewFast ? PREVIEW_MAX_PIXELS : 0);
+  const previewScale = maxPixels > 0 ? Math.min(1, computeScaleToFit(baseWidth, baseHeight, maxPixels)) : 1;
+  const renderScale = Number(options.renderScaleFactor);
+  const scaleFactor = Number.isFinite(renderScale) && renderScale > 0 ? renderScale : previewScale;
+  const tileBounds = computeTileBounds(bbox, tileRect, baseWidth, baseHeight);
+  const tileWidth = Math.max(1, Math.ceil(tileBounds.width * scaleFactor));
+  const tileHeight = Math.max(1, Math.ceil(tileBounds.height * scaleFactor));
   if (debug) {
     console.log("[CWIE][Offscreen] bbox", bbox);
-    console.log("[CWIE][Offscreen] canvas", { width, height, padding });
+    console.log("[CWIE][Offscreen] canvas", {
+      width: tileWidth,
+      height: tileHeight,
+      scaleFactor,
+      tileRect,
+    });
   }
 
   const canvas = document.createElement("canvas");
-  canvas.width = width;
-  canvas.height = height;
+  canvas.width = tileWidth;
+  canvas.height = tileHeight;
   const ctx = canvas.getContext("2d", { alpha: true });
   if (!ctx) {
     throw new Error("Offscreen render: 2d context not available.");
@@ -601,15 +684,18 @@ export async function renderGraphOffscreen(workflowJson, options = {}) {
   offscreen.canvas = canvas;
   offscreen.ctx = ctx;
   offscreen.render_canvas_border = false;
+  offscreen._cwieScaleFactor = scaleFactor;
+  offscreen._cwieTileOffsetX = tileRect?.x || 0;
+  offscreen._cwieTileOffsetY = tileRect?.y || 0;
 
   if (typeof offscreen.resize === "function") {
-    offscreen.resize(width, height);
+    offscreen.resize(tileWidth, tileHeight);
   }
 
   copyRenderSettings(app?.canvas, offscreen);
   applyBackgroundMode(offscreen, options);
   configureTransform(offscreen, bbox, padding);
-  configureVisibleArea(offscreen, bbox);
+  configureVisibleArea(offscreen, bbox, tileBounds);
   if (debug) {
     console.log("[CWIE][Offscreen] ds", {
       scale: offscreen?.ds?.scale,
@@ -624,7 +710,6 @@ export async function renderGraphOffscreen(workflowJson, options = {}) {
     offscreen.dirty_canvas = true;
     offscreen.dirty_bg = true;
   }
-
   if ("pause_rendering" in offscreen) {
     offscreen.pause_rendering = true;
   }
@@ -633,6 +718,7 @@ export async function renderGraphOffscreen(workflowJson, options = {}) {
     await document.fonts.ready;
   }
 
+  // --- Revert Single Buffer: Use original Multi-Canvas approach for safety ---
   offscreen.draw(true, true);
 
   // Composite on a fresh canvas so overlays are not affected by LiteGraph
@@ -648,36 +734,43 @@ export async function renderGraphOffscreen(workflowJson, options = {}) {
 
   if (options.includeDomOverlays !== false) {
     const bounds = {
-      left: bbox.paddedMinX,
-      top: bbox.paddedMinY,
-      right: bbox.paddedMinX + bbox.width,
-      bottom: bbox.paddedMinY + bbox.height,
-      width: bbox.width,
-      height: bbox.height,
+      left: tileBounds.paddedMinX,
+      top: tileBounds.paddedMinY,
+      right: tileBounds.paddedMinX + tileBounds.width,
+      bottom: tileBounds.paddedMinY + tileBounds.height,
+      width: tileBounds.width,
+      height: tileBounds.height,
     };
     const nodeRects = collectNodeRects(graph);
-    await drawBackgroundImageOverlays({ exportCtx: outputCtx, uiCanvas: app?.canvas, bounds, scale: 1 });
-    drawImageOverlays({ exportCtx: outputCtx, uiCanvas: app?.canvas, bounds, scale: 1, debugLog });
-    drawVideoOverlays({ exportCtx: outputCtx, uiCanvas: app?.canvas, bounds, scale: 1, nodeRects, debugLog });
+    await drawBackgroundImageOverlays({
+      exportCtx: outputCtx,
+      uiCanvas: app?.canvas,
+      bounds,
+      scale: scaleFactor,
+    });
+    drawImageOverlays({ exportCtx: outputCtx, uiCanvas: app?.canvas, bounds, scale: scaleFactor, debugLog });
+    drawVideoOverlays({ exportCtx: outputCtx, uiCanvas: app?.canvas, bounds, scale: scaleFactor, nodeRects, debugLog });
     drawTextOverlays({
       exportCtx: outputCtx,
       uiCanvas: app?.canvas,
       graph,
       bounds,
-      scale: 1,
+      scale: scaleFactor,
       nodeRects,
       debugLog,
     });
   } else {
+    // Standard mode (Legacy Capture fallback logic)
     const bounds = {
-      left: bbox.paddedMinX,
-      top: bbox.paddedMinY,
-      right: bbox.paddedMinX + bbox.width,
-      bottom: bbox.paddedMinY + bbox.height,
-      width: bbox.width,
-      height: bbox.height,
+      left: tileBounds.paddedMinX,
+      top: tileBounds.paddedMinY,
+      right: tileBounds.paddedMinX + tileBounds.width,
+      bottom: tileBounds.paddedMinY + tileBounds.height,
+      width: tileBounds.width,
+      height: tileBounds.height,
     };
     const nodeRects = collectNodeRects(graph);
+
     // Draw text overlays on a fresh canvas to avoid any lingering clip state.
     // Ensure output ctx has a clean state before compositing overlays.
     if (outputCtx?.setTransform) {
@@ -701,7 +794,7 @@ export async function renderGraphOffscreen(workflowJson, options = {}) {
         exportCtx: textCtx,
         graph,
         bounds,
-        scale: 1,
+        scale: scaleFactor,
         coveredNodeIds: null,
         debugLog,
       });
@@ -712,31 +805,76 @@ export async function renderGraphOffscreen(workflowJson, options = {}) {
       graph,
       nodeRects,
       bounds,
-      scale: 1,
+      scale: scaleFactor,
       debugLog,
     });
-    if (!options.previewFast) {
-      await drawVideoThumbnails({
-        exportCtx: outputCtx,
-        graph,
-        nodeRects,
-        bounds,
-        scale: 1,
-        debugLog,
-      });
-    }
+
+    // Always run drawVideoThumbnails (it handles Preview/Export logic internally)
+    await drawVideoThumbnails({
+      exportCtx: outputCtx,
+      graph,
+      nodeRects,
+      bounds,
+      scale: scaleFactor,
+      debugLog,
+      isPreview: !!options.previewFast,
+    });
   }
 
   return {
     canvas: outputCanvas,
     ctx: outputCtx,
     bbox,
+    scaleFactor,
+    tileRect,
     cleanup: () => safeCleanup(offscreen, graph),
   };
 }
 
+// --- Helper Classes & Functions ---
+
+function drawVideoPlaceholder(ctx, x, y, w, h) {
+  ctx.save();
+  ctx.fillStyle = "rgba(0, 0, 0, 0.2)";
+  ctx.fillRect(x, y, w, h);
+
+  // Draw Play Triangle
+  ctx.fillStyle = "rgba(255, 255, 255, 0.6)";
+  ctx.beginPath();
+  const cx = x + w / 2;
+  const cy = y + h / 2;
+  const size = Math.min(w, h) * 0.2;
+  ctx.moveTo(cx - size / 2, cy - size / 2);
+  ctx.lineTo(cx + size, cy);
+  ctx.lineTo(cx - size / 2, cy + size / 2);
+  ctx.closePath();
+  ctx.fill();
+  ctx.restore();
+}
+
 const bgImageCache = new Map();
-const videoThumbCache = new Map();
+
+// VHS support disabled for now.
+const lastVideoSrcByNodeId = new Map();
+
+function sanitizeMediaUrl(url) {
+  if (!url) return url;
+  try {
+    const parsed = new URL(url, window.location.origin);
+    // These params change every render and defeat caching/backoff.
+    parsed.searchParams.delete("rand");
+    parsed.searchParams.delete("timestamp");
+    parsed.searchParams.delete("deadline");
+    // VHS sometimes emits "force_size=123x?" which breaks some servers.
+    const forceSize = parsed.searchParams.get("force_size");
+    if (forceSize && forceSize.includes("?")) {
+      parsed.searchParams.delete("force_size");
+    }
+    return parsed.toString();
+  } catch (_) {
+    return url;
+  }
+}
 
 function extractBackgroundImageUrl(value) {
   if (!value || value === "none") return "";
@@ -760,87 +898,9 @@ function loadImageCached(url) {
   return promise;
 }
 
-function loadVideoThumbnail(url) {
-  if (!url) return Promise.resolve(null);
-  if (videoThumbCache.has(url)) {
-    return videoThumbCache.get(url);
-  }
-  const promise = new Promise((resolve) => {
-    const video = document.createElement("video");
-    video.crossOrigin = "anonymous";
-    video.muted = true;
-    video.playsInline = true;
-    video.preload = "auto"; // Force load
-
-    let resolved = false;
-    const cleanup = () => {
-      video.removeAttribute("src");
-      video.load();
-    };
-
-    const finish = (result) => {
-      if (resolved) return;
-      resolved = true;
-      cleanup();
-      resolve(result);
-    };
-
-    // Fast-fail missing resources before spinning up a <video>.
-    fetch(url, { method: "HEAD" })
-      .then((resp) => {
-        if (!resp.ok) {
-          finish(null);
-        }
-      })
-      .catch(() => {
-        // Ignore fetch errors; the video element may still load.
-      });
-
-    // Safety timeout
-    const timeout = setTimeout(() => {
-      if (window.__cwie__?.debug) console.warn(`[CWIE] Video load timeout: ${url}`);
-      finish(null);
-    }, 1200);
-
-    video.addEventListener("loadeddata", () => {
-      // Seek to a little bit in to avoid black start frames
-      video.currentTime = 0.5;
-    }, { once: true });
-
-    video.addEventListener("seeked", () => {
-      clearTimeout(timeout);
-      try {
-        const canvas = document.createElement("canvas");
-        canvas.width = video.videoWidth || 1;
-        canvas.height = video.videoHeight || 1;
-        const ctx = canvas.getContext("2d");
-        if (!ctx) {
-          finish(null);
-          return;
-        }
-        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-        finish(canvas);
-      } catch (e) {
-        if (window.__cwie__?.debug) console.error(`[CWIE] Video draw failed:`, e);
-        finish(null);
-      }
-    }, { once: true });
-
-    video.addEventListener("error", (e) => {
-      clearTimeout(timeout);
-      if (window.__cwie__?.debug) console.error(`[CWIE] Video load error: ${url}`, e);
-      finish(null);
-    }, { once: true });
-
-    video.src = url;
-  });
-  videoThumbCache.set(url, promise);
-  return promise;
-}
-
 function isVideoNode(node) {
   const text = `${node?.title || ""} ${node?.type || ""}`.toLowerCase();
-  return text.includes("video") || text.includes("vhs");
+  return text.includes("video") && !text.includes("vhs");
 }
 
 function isImageNode(node) {
@@ -872,19 +932,22 @@ function looksLikeFilename(value) {
   return trimmed.length > 4;
 }
 
-function buildViewUrl(ref) {
+// VHS helpers removed.
+
+function buildApiViewUrl(ref) {
   if (!ref?.filename) return null;
-  const url = new URL("/view", window.location.origin);
+  const url = new URL("/api/view", window.location.origin);
   url.searchParams.set("filename", ref.filename);
   if (ref.subfolder) {
     url.searchParams.set("subfolder", ref.subfolder);
   }
-  if (ref.type) {
-    url.searchParams.set("type", ref.type);
-  } else {
-    url.searchParams.set("type", "input");
-  }
+  url.searchParams.set("type", ref.type || "input");
   return url.toString();
+}
+
+function buildViewUrl(ref, node) {
+  if (!ref?.filename) return null;
+  return buildApiViewUrl(ref);
 }
 
 function extractFileRefFromNode(node) {
@@ -892,14 +955,14 @@ function extractFileRefFromNode(node) {
   const debug = window.__cwie__?.debug;
   const videoLike = (() => {
     const text = `${node?.title || ""} ${node?.type || ""}`.toLowerCase();
-    return text.includes("video") || text.includes("vhs");
+    return text.includes("video") && !text.includes("vhs");
   })();
 
   // Helper to deep check for filename/video keys
   const tryObject = (obj, path, depth = 0) => {
     if (!obj || typeof obj !== "object") return null;
 
-    // VHS often uses 'video' or 'filenames' keys
+    // Common filename keys
     const filename =
       obj.filename ||
       obj.file ||
@@ -986,7 +1049,6 @@ function extractFileRefFromNode(node) {
       }
     }
   }
-
   if (debug) console.log(`[CWIE] No file ref found for node ${node.id}`);
   return null;
 }
@@ -996,22 +1058,109 @@ function findLiveNodeById(id) {
   return nodes.find((node) => node && Number.isFinite(node.id) && node.id === id) || null;
 }
 
-function resolveVideoDrawable(node) {
-  const toMediaUrl = (item) => {
-    if (!item || typeof item !== "object") return null;
-    const filename = item.filename || item.file || item.name;
-    if (!filename) return null;
-    const url = new URL("/view", window.location.origin);
-    url.searchParams.set("filename", filename);
-    if (item.subfolder) {
-      url.searchParams.set("subfolder", item.subfolder);
+function buildDomMediaByNodeId(uiCanvas) {
+  const media = collectDomMediaElements(uiCanvas);
+  const byId = new Map();
+  for (const el of media) {
+    const nodeId = getNodeIdFromElement(el);
+    if (!Number.isFinite(nodeId)) continue;
+    const prev = byId.get(nodeId);
+    if (!prev) {
+      byId.set(nodeId, el);
+      continue;
     }
-    if (item.type) {
-      url.searchParams.set("type", item.type);
+    const prevIsVideo = prev instanceof HTMLVideoElement;
+    const nextIsVideo = el instanceof HTMLVideoElement;
+    if (prevIsVideo && !nextIsVideo) {
+      byId.set(nodeId, el);
+      continue;
     }
-    return url.toString();
-  };
+    if (!prevIsVideo && nextIsVideo) {
+      continue;
+    }
+    if (prevIsVideo && nextIsVideo) {
+      const prevReady = prev.readyState || 0;
+      const nextReady = el.readyState || 0;
+      if (nextReady > prevReady) {
+        byId.set(nodeId, el);
+      }
+    }
+  }
+  return byId;
+}
 
+function buildDomMediaByOverlap(nodeRects, uiCanvas) {
+  const media = collectDomMediaElements(uiCanvas);
+  const byId = new Map();
+  if (!nodeRects?.length || !media.length) return byId;
+  for (const el of media) {
+    const rect = getDomElementGraphRect(el, uiCanvas);
+    if (!rect) continue;
+    let best = null;
+    let bestArea = 0;
+    for (const nodeRect of nodeRects) {
+      if (!Number.isFinite(nodeRect?.id)) continue;
+      const left = Math.max(rect.left, nodeRect.left);
+      const right = Math.min(rect.right, nodeRect.right);
+      const top = Math.max(rect.top, nodeRect.top);
+      const bottom = Math.min(rect.bottom, nodeRect.bottom);
+      const w = Math.max(0, right - left);
+      const h = Math.max(0, bottom - top);
+      const area = w * h;
+      if (area > bestArea) {
+        bestArea = area;
+        best = nodeRect.id;
+      }
+    }
+    if (best !== null && bestArea > 0) {
+      const prev = byId.get(best);
+      if (!prev) {
+        byId.set(best, el);
+      } else {
+        // Prefer concrete image/canvas over video; otherwise prefer higher readiness.
+        const prevIsVideo = prev instanceof HTMLVideoElement;
+        const nextIsVideo = el instanceof HTMLVideoElement;
+        if (prevIsVideo && !nextIsVideo) {
+          byId.set(best, el);
+        } else if (prevIsVideo && nextIsVideo) {
+          const prevReady = prev.readyState || 0;
+          const nextReady = el.readyState || 0;
+          if (nextReady > prevReady) {
+            byId.set(best, el);
+          }
+        }
+      }
+    }
+  }
+  return byId;
+}
+
+function selectDomMedia(nodeId, domMediaById, domMediaByOverlap) {
+  if (!Number.isFinite(nodeId)) return null;
+  return domMediaById.get(nodeId) || domMediaByOverlap.get(nodeId) || null;
+}
+
+async function captureFromDomMedia(domMedia) {
+  if (!domMedia) return null;
+  if (domMedia instanceof HTMLCanvasElement || domMedia instanceof HTMLImageElement) {
+    return domMedia;
+  }
+  if (domMedia instanceof HTMLVideoElement) {
+    const captured = captureVideoFrame(domMedia);
+    if (captured) return captured;
+    if (domMedia.poster) {
+      return loadImageCached(domMedia.poster);
+    }
+  }
+  return null;
+}
+
+function resolveVideoDrawable(node) {
+  const pickBestVideo = (videos) => {
+    if (!videos?.length) return null;
+    const sorted = [...videos].sort((a, b) => (b?.readyState || 0) - (a?.readyState || 0));
+    return sorted[0] || null;
+  };
   const fromImageLike = (value) => {
     if (!value) return null;
     if (value instanceof HTMLCanvasElement || value instanceof HTMLImageElement) {
@@ -1032,11 +1181,40 @@ function resolveVideoDrawable(node) {
           item.canvas || item.image || item.img || item.bitmap || item.preview
         );
         if (inner) return inner;
-        const url = toMediaUrl(item);
-        if (url) return url;
-        if (item.url && typeof item.url === "string") {
-          return item.url;
+      }
+    }
+    return null;
+  };
+  const fromWidget = (widget) => {
+    if (!widget) return null;
+    const candidates = [
+      widget.videoEl,
+      widget.video,
+      widget.element,
+      widget.el,
+      widget.inputEl,
+      widget.domEl,
+      widget.canvas,
+      widget.previewCanvas,
+      widget.image,
+      widget.img,
+    ];
+    for (const candidate of candidates) {
+      if (
+        candidate instanceof HTMLVideoElement ||
+        candidate instanceof HTMLCanvasElement ||
+        candidate instanceof HTMLImageElement
+      ) {
+        return candidate;
+      }
+      if (candidate instanceof HTMLElement) {
+        const media = candidate.querySelector?.("canvas,img") || null;
+        if (media instanceof HTMLCanvasElement || media instanceof HTMLImageElement) {
+          return media;
         }
+        const videos = Array.from(candidate.querySelectorAll?.("video") || []);
+        const bestVideo = pickBestVideo(videos);
+        if (bestVideo) return bestVideo;
       }
     }
     return null;
@@ -1074,7 +1252,31 @@ function resolveVideoDrawable(node) {
       return arrayPick;
     }
   }
+  const widgets = Array.isArray(node?.widgets) ? node.widgets : [];
+  for (const widget of widgets) {
+    const media = fromWidget(widget);
+    if (media) return media;
+  }
   return null;
+}
+
+function captureVideoFrame(video) {
+  if (!(video instanceof HTMLVideoElement)) return null;
+  if ((video.readyState || 0) < 2) return null;
+  const w = Math.max(1, video.videoWidth || 0);
+  const h = Math.max(1, video.videoHeight || 0);
+  if (w <= 1 || h <= 1) return null;
+  try {
+    const canvas = document.createElement("canvas");
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext("2d", { alpha: true });
+    if (!ctx) return null;
+    ctx.drawImage(video, 0, 0, w, h);
+    return canvas;
+  } catch (_) {
+    return null;
+  }
 }
 
 function resolveImageDrawable(node) {
@@ -1209,7 +1411,7 @@ function computePreviewRect({ rect, node, bounds, scale }) {
   };
 }
 
-async function drawVideoThumbnails({ exportCtx, graph, nodeRects, bounds, scale, debugLog }) {
+async function drawVideoThumbnails({ exportCtx, graph, nodeRects, bounds, scale, debugLog, isPreview }) {
   const nodes = graph?._nodes || graph?.nodes || [];
   if (!nodes.length) return;
   const rectById = new Map();
@@ -1224,6 +1426,17 @@ async function drawVideoThumbnails({ exportCtx, graph, nodeRects, bounds, scale,
   let skippedNoRect = 0;
   let skippedEmptyRect = 0;
   let logged = 0;
+  const domMediaById = buildDomMediaByNodeId(app?.canvas);
+  const domMediaByOverlap = buildDomMediaByOverlap(nodeRects || [], app?.canvas);
+  const allVideos = Array.from(document.querySelectorAll("video"));
+  if (debugLog && logged < 1) {
+    debugLog("video.thumbnail.dom_index", {
+      domMedia: domMediaById.size,
+      videos: allVideos.length,
+    });
+    logged += 1;
+  }
+
   for (const node of nodes) {
     if (!node || !isVideoNode(node)) continue;
     const rect = rectById.get(node.id);
@@ -1232,67 +1445,116 @@ async function drawVideoThumbnails({ exportCtx, graph, nodeRects, bounds, scale,
       continue;
     }
 
-    let drawable = resolveVideoDrawable(node);
+    // Step 1: The Heist (Steal live assets)
+    // Always attempt to steal first, as it's the fastest and most accurate.
+    let drawable = resolveVideoDrawable(node); // Check exported node props (unlikely to have video el)
     if (!drawable) {
       const liveNode = findLiveNodeById(node.id);
       if (liveNode) {
-        drawable = resolveVideoDrawable(liveNode);
+        drawable = resolveVideoDrawable(liveNode); // Check live node (High probability)
+        if (drawable && debugLog && logged < 5) debugLog(`video.thumbnail.steal`, { id: node.id, type: "direct" });
       }
     }
-    if (!drawable && debugLog && logged < 5) {
-      const images = node?.images;
-      const animated = node?.animatedImages;
-      debugLog("video.thumbnail.inspect", {
-        id: node.id,
-        title: node.title,
-        type: node.type,
-        previewMediaType: node?.previewMediaType,
-        imagesType: Array.isArray(images) ? "array" : typeof images,
-        imagesLen: Array.isArray(images) ? images.length : 0,
-        images0: images?.[0] ? Object.keys(images[0]) : null,
-        animatedType: Array.isArray(animated) ? "array" : typeof animated,
-        animatedLen: Array.isArray(animated) ? animated.length : 0,
-        animated0: animated?.[0] ? Object.keys(animated[0]) : null,
-      });
-    }
+
+    // Evaluate stolen asset validity
+    let directUrl = null;
     if (drawable instanceof HTMLVideoElement) {
-      if (drawable.readyState < 2 && drawable.poster) {
-        drawable = await loadImageCached(drawable.poster);
+      directUrl = sanitizeMediaUrl(drawable.currentSrc || drawable.src || null);
+      const prevSrc = lastVideoSrcByNodeId.get(node.id);
+      const ready = (drawable.readyState || 0) >= 2;
+      const hasSize = (drawable.videoWidth || 0) > 1 && (drawable.videoHeight || 0) > 1;
+      if (prevSrc && directUrl && prevSrc !== directUrl && !ready) {
+        drawable = null;
       }
-    }
-    if (typeof drawable === "string") {
-      if (looksLikeVideoUrl(drawable)) {
-        drawable = await loadVideoThumbnail(drawable);
-      } else {
-        drawable = await loadImageCached(drawable);
-      }
-    }
-    if (!drawable) {
-      const liveNode = findLiveNodeById(node.id);
-      const ref = extractFileRefFromNode(liveNode || node);
-      const url = buildViewUrl(ref);
-      if (url) {
-        if (looksLikeVideoUrl(ref?.filename)) {
-          drawable = await loadVideoThumbnail(url);
+      if (drawable instanceof HTMLVideoElement) {
+        const hasPoster = Boolean(drawable.poster);
+        if (!hasSize && hasPoster) {
+          drawable = await loadImageCached(drawable.poster);
         } else {
-          drawable = await loadImageCached(url);
+          const captured = captureVideoFrame(drawable);
+          if (captured) {
+            drawable = captured;
+            if (directUrl) lastVideoSrcByNodeId.set(node.id, directUrl);
+          } else if (drawable.readyState < 2 && hasPoster) {
+            drawable = await loadImageCached(drawable.poster);
+            if (directUrl) lastVideoSrcByNodeId.set(node.id, directUrl);
+          } else {
+            // Not ready and no poster -> Unusable for instant draw
+            drawable = null;
+          }
         }
       }
     }
+
+    // Step 2: Live DOM capture only (no network fetches).
+    const liveNode = findLiveNodeById(node.id);
+    const ref = extractFileRefFromNode(liveNode || node);
+    const refFilename = typeof ref?.filename === "string" ? ref.filename : "";
+    // VHS debug removed.
+    // Keep filename around for matching DOM media, but no caching logic here.
+    if (
+      directUrl &&
+      refFilename &&
+      !directUrl.includes(encodeURIComponent(refFilename)) &&
+      !directUrl.includes(refFilename)
+    ) {
+      directUrl = null;
+    }
     if (!drawable) {
-      skippedNoDrawable += 1;
-      if (debugLog && logged < 5) {
-        debugLog("video.thumbnail.miss", {
+      const domMedia = selectDomMedia(node.id, domMediaById, domMediaByOverlap);
+      drawable = await captureFromDomMedia(domMedia);
+      if (drawable && debugLog && logged < 5) {
+        debugLog("video.thumbnail.steal", {
           id: node.id,
-          title: node.title,
-          type: node.type,
-          keys: Object.keys(node).filter((k) => /video|img|image|canvas|preview|tex/i.test(k)),
+          type: domMedia instanceof HTMLVideoElement ? "dom-video" : "dom-media",
         });
         logged += 1;
       }
-      continue;
+    }
+    if (!drawable && refFilename) {
+      const matched = allVideos.find((v) => {
+        const src = `${v.currentSrc || ""} ${v.src || ""}`;
+        return src.includes(refFilename) || src.includes(encodeURIComponent(refFilename));
+      });
+      if (matched) {
+        const srcKey = matched.currentSrc || matched.src || "";
+        const prevSrc = lastVideoSrcByNodeId.get(node.id);
+        const ready = (matched.readyState || 0) >= 2;
+        const hasSize = (matched.videoWidth || 0) > 1 && (matched.videoHeight || 0) > 1;
+        if (prevSrc && srcKey && prevSrc !== srcKey && !ready) {
+          // Source changed but not ready yet: avoid stale frame.
+          drawable = null;
+        } else {
+          const captured = ready && hasSize ? captureVideoFrame(matched) : null;
+          if (captured) {
+            drawable = captured;
+            lastVideoSrcByNodeId.set(node.id, srcKey);
+            if (debugLog && logged < 5) {
+              debugLog("video.thumbnail.steal", { id: node.id, type: "dom-match" });
+              logged += 1;
+            }
+          } else if (matched.poster) {
+            drawable = await loadImageCached(matched.poster);
+            lastVideoSrcByNodeId.set(node.id, srcKey);
+          }
+        }
+      }
+    }
+    // Never fetch network video thumbnails; if we only have a URL string, drop it.
+    if (typeof drawable === "string") {
+      drawable = null;
+    }
+    // VHS support disabled for now.
+    if (!drawable && debugLog && logged < 5) {
+      debugLog("video.thumbnail.miss_detail", {
+        id: node.id,
+        title: node.title,
+        type: node.type,
+      });
+      logged += 1;
     }
 
+    // Step 3: Draw (or Placeholder)
     const previewRect = computePreviewRect({ rect, node, bounds, scale });
     if (!previewRect) {
       skippedEmptyRect += 1;
@@ -1300,32 +1562,36 @@ async function drawVideoThumbnails({ exportCtx, graph, nodeRects, bounds, scale,
     }
     const { x, y, w, h, debug } = previewRect;
 
-    if (debugLog && logged < 5) {
-      debugLog("video.thumbnail.pos", {
-        id: node.id,
-        title: node.title,
-        type: node.type,
-        ...debug,
-        drawRect: { x, y, w, h },
-      });
-    }
-
-    try {
-      const dw = drawable.videoWidth || drawable.width || drawable.naturalWidth || 0;
-      const dh = drawable.videoHeight || drawable.height || drawable.naturalHeight || 0;
-      if (dw > 0 && dh > 0) {
-        const scaleFit = Math.min(w / dw, h / dh);
-        const fitW = dw * scaleFit;
-        const fitH = dh * scaleFit;
-        const fitX = x + (w - fitW) / 2;
-        const fitY = y + (h - fitH) / 2;
-        exportCtx.drawImage(drawable, fitX, fitY, fitW, fitH);
-      } else {
-        exportCtx.drawImage(drawable, x, y, w, h);
+    if (drawable) {
+      try {
+        const dw = drawable.videoWidth || drawable.width || drawable.naturalWidth || 0;
+        const dh = drawable.videoHeight || drawable.height || drawable.naturalHeight || 0;
+        if (dw > 0 && dh > 0) {
+          const scaleFit = Math.min(w / dw, h / dh);
+          const fitW = dw * scaleFit;
+          const fitH = dh * scaleFit;
+          const fitX = x + (w - fitW) / 2;
+          const fitY = y + (h - fitH) / 2;
+          exportCtx.drawImage(drawable, fitX, fitY, fitW, fitH);
+        } else {
+          exportCtx.drawImage(drawable, x, y, w, h);
+        }
+        drawn += 1;
+      } catch (_) {
+        // ignore draw failures
       }
-      drawn += 1;
-    } catch (_) {
-      // ignore draw failures
+    } else {
+      // Missing drawable
+      skippedNoDrawable += 1;
+      // Step 4: Fallback Placeholder
+      // In Preview or even Export, if we failed to get a video, draw a placeholder
+      // so the user knows "There is a video here".
+      drawVideoPlaceholder(exportCtx, x, y, w, h);
+
+      if (debugLog && logged < 5) {
+        debugLog("video.thumbnail.miss", { id: node.id });
+        logged += 1;
+      }
     }
   }
 
@@ -1374,7 +1640,7 @@ async function drawImageThumbnails({ exportCtx, graph, nodeRects, bounds, scale,
     if (!drawable) {
       const liveNode = findLiveNodeById(node.id);
       const ref = extractFileRefFromNode(liveNode || node);
-      const url = buildViewUrl(ref);
+      const url = buildViewUrl(ref, liveNode || node);
       if (url) {
         drawable = await loadImageCached(url);
       }

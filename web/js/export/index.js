@@ -5,8 +5,12 @@ import {
   EXTRACT_BG_1,
   EXTRACT_BG_2,
 } from "./background_modes.js";
-import { renderGraphOffscreen } from "./render_graph_offscreen.js";
+import { computeOffscreenBBox, renderGraphOffscreen } from "./render_graph_offscreen.js";
 import { embedWorkflowInPngBlob } from "./png_embed_workflow.js";
+
+const TILE_THRESHOLD_EDGE = 6144;
+const TILE_THRESHOLD_PIXELS = 24 * 1024 * 1024;
+const TILE_SIZE = 2048;
 
 function toWorkflowJsonString(workflowJson) {
   if (typeof workflowJson === "string") {
@@ -103,6 +107,46 @@ function scaleCanvas(baseCanvas, scale) {
 function normalizeSelectedIds(value) {
   if (!Array.isArray(value)) return [];
   return value.map((id) => Number(id)).filter(Number.isFinite);
+}
+
+function shouldTile(width, height) {
+  const w = Math.max(1, Math.ceil(width));
+  const h = Math.max(1, Math.ceil(height));
+  return (
+    w * h > TILE_THRESHOLD_PIXELS ||
+    Math.max(w, h) > TILE_THRESHOLD_EDGE
+  );
+}
+
+async function renderTiled(workflowJson, options, bboxOverride) {
+  const baseWidth = Math.max(1, Math.ceil(bboxOverride.width));
+  const baseHeight = Math.max(1, Math.ceil(bboxOverride.height));
+  const tiledCanvas = document.createElement("canvas");
+  tiledCanvas.width = baseWidth;
+  tiledCanvas.height = baseHeight;
+  const tiledCtx = tiledCanvas.getContext("2d", { alpha: true });
+  if (!tiledCtx) {
+    return renderOnce(workflowJson, { ...options, bboxOverride });
+  }
+  for (let y = 0; y < baseHeight; y += TILE_SIZE) {
+    for (let x = 0; x < baseWidth; x += TILE_SIZE) {
+      const tileRect = {
+        x,
+        y,
+        width: Math.min(TILE_SIZE, baseWidth - x),
+        height: Math.min(TILE_SIZE, baseHeight - y),
+      };
+      const tileCanvas = await renderOnce(workflowJson, {
+        ...options,
+        bboxOverride,
+        tileRect,
+        previewFast: false,
+        maxPixels: 0,
+      });
+      tiledCtx.drawImage(tileCanvas, x, y);
+    }
+  }
+  return tiledCanvas;
 }
 
 async function renderOnce(workflowJson, options) {
@@ -233,21 +277,44 @@ export async function exportWorkflowPng(workflowJson, options = {}) {
     previewFast,
   };
 
-  let canvas = await renderOnce(workflowJson, renderOptions);
+  let bboxOverride = null;
+  if (!previewFast) {
+    try {
+      bboxOverride = await computeOffscreenBBox(workflowJson, renderOptions);
+    } catch (_) {
+      bboxOverride = null;
+    }
+  }
+
+  const tileEnabled =
+    !previewFast && bboxOverride && shouldTile(bboxOverride.width, bboxOverride.height);
+  if (tileEnabled) {
+    warnings.push("render:tiled");
+  }
+
+  const renderPass = async (passOptions) => {
+    const opts = bboxOverride ? { ...passOptions, bboxOverride } : passOptions;
+    if (tileEnabled) {
+      return renderTiled(workflowJson, opts, bboxOverride);
+    }
+    return renderOnce(workflowJson, opts);
+  };
+
+  let canvas = await renderPass(renderOptions);
 
   if (scopeSelected) {
     const dimAlpha = scopeOpacity / 100;
-    const backgroundCanvas = await renderOnce(workflowJson, {
+    const backgroundCanvas = await renderPass({
       ...renderOptions,
       renderFilter: "none",
       linkFilter: "none",
     });
-    const dimCanvas = await renderOnce(workflowJson, {
+    const dimCanvas = await renderPass({
       ...renderOptions,
       backgroundMode: "transparent",
       includeGrid: false,
     });
-    const selectedCanvas = await renderOnce(workflowJson, {
+    const selectedCanvas = await renderPass({
       ...renderOptions,
       backgroundMode: "transparent",
       includeGrid: false,
