@@ -13,6 +13,35 @@ const TILE_THRESHOLD_PIXELS = 24 * 1024 * 1024;
 const TILE_SIZE = 2048;
 const MAX_CANVAS_EDGE = 16384;
 
+function getNowMs() {
+  if (typeof performance !== "undefined" && typeof performance.now === "function") {
+    return performance.now();
+  }
+  return Date.now();
+}
+
+function createPerfLogger(enabled, prefix) {
+  if (!enabled) return null;
+  const t0 = getNowMs();
+  return (label, payload) => {
+    const dt = Math.round(getNowMs() - t0);
+    if (payload !== undefined) {
+      console.log(`${prefix} ${label} +${dt}ms`, payload);
+      return;
+    }
+    console.log(`${prefix} ${label} +${dt}ms`);
+  };
+}
+
+function timeSpan(log, label, fn) {
+  if (!log) return fn();
+  const t0 = getNowMs();
+  const result = fn();
+  return Promise.resolve(result).finally(() => {
+    log(label, { ms: Math.round(getNowMs() - t0) });
+  });
+}
+
 function toWorkflowJsonString(workflowJson) {
   if (typeof workflowJson === "string") {
     return workflowJson;
@@ -127,7 +156,7 @@ function createPngChunk(type, data) {
   return concatUint8(lengthBytes, typeBytes, data, crcBytes);
 }
 
-async function encodePngFromTiles(width, height, renderTile) {
+async function encodePngFromTiles(width, height, renderTile, onProgress, perfLog) {
   if (!("CompressionStream" in window)) {
     throw new Error("CompressionStream not available for tiled PNG export.");
   }
@@ -142,6 +171,12 @@ async function encodePngFromTiles(width, height, renderTile) {
   ihdr[12] = 0; // interlace
 
   const ihdrChunk = createPngChunk("IHDR", ihdr);
+
+  const tilesX = Math.ceil(width / TILE_SIZE);
+  const tilesY = Math.ceil(height / TILE_SIZE);
+  const totalTiles = Math.max(1, tilesX * tilesY);
+  perfLog?.("tile.encode.start", { width, height, tilesX, tilesY, totalTiles });
+  let completedTiles = 0;
 
   const rawStream = new ReadableStream({
     start(controller) {
@@ -159,6 +194,10 @@ async function encodePngFromTiles(width, height, renderTile) {
             }
             const data = tileCtx.getImageData(0, 0, tileW, tileH).data;
             rowTiles.push({ tileW, data });
+            completedTiles += 1;
+            if (onProgress) {
+              onProgress(completedTiles / totalTiles);
+            }
           }
           for (let row = 0; row < tileH; row += 1) {
             const line = new Uint8Array(1 + width * 4);
@@ -179,17 +218,20 @@ async function encodePngFromTiles(width, height, renderTile) {
     },
   });
 
-  const compressed = await new Response(
-    rawStream.pipeThrough(new CompressionStream("deflate"))
-  ).arrayBuffer();
+  const compressed = await timeSpan(
+    perfLog,
+    "tile.encode.compress",
+    () => new Response(rawStream.pipeThrough(new CompressionStream("deflate"))).arrayBuffer()
+  );
 
   const idatChunk = createPngChunk("IDAT", new Uint8Array(compressed));
   const iendChunk = createPngChunk("IEND", new Uint8Array());
   const png = concatUint8(signature, ihdrChunk, idatChunk, iendChunk);
+  perfLog?.("tile.encode.done");
   return new Blob([png], { type: "image/png" });
 }
 
-async function renderTiled(workflowJson, options, bboxOverride) {
+async function renderTiled(workflowJson, options, bboxOverride, onProgress, perfLog) {
   const baseWidth = Math.max(1, Math.ceil(bboxOverride.width));
   const baseHeight = Math.max(1, Math.ceil(bboxOverride.height));
   const tiledCanvas = document.createElement("canvas");
@@ -199,6 +241,11 @@ async function renderTiled(workflowJson, options, bboxOverride) {
   if (!tiledCtx) {
     return renderOnce(workflowJson, { ...options, bboxOverride });
   }
+  const tilesX = Math.ceil(baseWidth / TILE_SIZE);
+  const tilesY = Math.ceil(baseHeight / TILE_SIZE);
+  const totalTiles = Math.max(1, tilesX * tilesY);
+  perfLog?.("tile.render.start", { width: baseWidth, height: baseHeight, tilesX, tilesY, totalTiles });
+  let completedTiles = 0;
   for (let y = 0; y < baseHeight; y += TILE_SIZE) {
     for (let x = 0; x < baseWidth; x += TILE_SIZE) {
       const tileRect = {
@@ -215,12 +262,17 @@ async function renderTiled(workflowJson, options, bboxOverride) {
         maxPixels: 0,
       });
       tiledCtx.drawImage(tileCanvas, x, y);
+      completedTiles += 1;
+      if (onProgress) {
+        onProgress(completedTiles / totalTiles);
+      }
     }
   }
+  perfLog?.("tile.render.done");
   return tiledCanvas;
 }
 
-async function renderTiledPng(workflowJson, options, bboxOverride) {
+async function renderTiledPng(workflowJson, options, bboxOverride, onProgress, perfLog) {
   if (!bboxOverride) {
     const canvas = await renderOnce(workflowJson, options);
     return toBlobAsync(canvas, "image/png");
@@ -228,14 +280,19 @@ async function renderTiledPng(workflowJson, options, bboxOverride) {
   const baseWidth = Math.max(1, Math.ceil(bboxOverride.width));
   const baseHeight = Math.max(1, Math.ceil(bboxOverride.height));
 
-  return encodePngFromTiles(baseWidth, baseHeight, (x, y, w, h) =>
-    renderOnce(workflowJson, {
-      ...options,
-      bboxOverride,
-      tileRect: { x, y, width: w, height: h },
-      previewFast: false,
-      maxPixels: 0,
-    })
+  return encodePngFromTiles(
+    baseWidth,
+    baseHeight,
+    (x, y, w, h) =>
+      renderOnce(workflowJson, {
+        ...options,
+        bboxOverride,
+        tileRect: { x, y, width: w, height: h },
+        previewFast: false,
+        maxPixels: 0,
+      }),
+    onProgress,
+    perfLog
   );
 }
 
@@ -342,6 +399,20 @@ async function renderTransparentFallback(workflowJson, options, warnings) {
 
 export async function exportWorkflowPng(workflowJson, options = {}) {
   const warnings = [];
+  const onProgress = typeof options.onProgress === "function" ? options.onProgress : null;
+  const reportProgress = onProgress
+    ? (() => {
+      let lastPercent = -1;
+      return (value) => {
+        const clamped = Math.max(0, Math.min(1, Number(value)));
+        if (!Number.isFinite(clamped)) return;
+        const percent = Math.floor(clamped * 100);
+        if (percent === lastPercent) return;
+        lastPercent = percent;
+        onProgress({ value: clamped, percent });
+      };
+    })()
+    : null;
   const backgroundMode = options.backgroundMode || "ui";
   const padding = Number(options.padding) || 0;
   const includeGrid = options.includeGrid !== false;
@@ -355,6 +426,8 @@ export async function exportWorkflowPng(workflowJson, options = {}) {
     ? Math.min(100, Math.max(0, scopeOpacityRaw))
     : 30;
   const previewFast = Boolean(options.previewFast);
+  const perfLog = createPerfLogger(debug, "[CWIE][ExportPng][perf]");
+  perfLog?.("start", { format, scale, previewFast, backgroundMode });
 
   let renderOptions = {
     backgroundMode,
@@ -371,7 +444,11 @@ export async function exportWorkflowPng(workflowJson, options = {}) {
   let bboxOverride = null;
   if (!previewFast) {
     try {
-      bboxOverride = await computeOffscreenBBox(workflowJson, renderOptions);
+      bboxOverride = await timeSpan(
+        perfLog,
+        "bbox",
+        () => computeOffscreenBBox(workflowJson, renderOptions)
+      );
     } catch (_) {
       bboxOverride = null;
     }
@@ -382,6 +459,7 @@ export async function exportWorkflowPng(workflowJson, options = {}) {
   if (tileEnabled) {
     warnings.push("render:tiled");
   }
+  perfLog?.("tile.check", { tileEnabled, bbox: bboxOverride ? { w: bboxOverride.width, h: bboxOverride.height } : null });
 
   const huge =
     bboxOverride && shouldTile(bboxOverride.width * scale, bboxOverride.height * scale);
@@ -420,12 +498,22 @@ export async function exportWorkflowPng(workflowJson, options = {}) {
       warnings.push("format:force-png");
     }
     warnings.push("render:tiled-png");
-    let blob = await renderTiledPng(workflowJson, renderOptions, bboxOverride);
+    reportProgress?.(0);
+    let blob = await timeSpan(
+      perfLog,
+      "tile.png",
+      () => renderTiledPng(workflowJson, renderOptions, bboxOverride, reportProgress, perfLog)
+    );
+    reportProgress?.(1);
     if (options.embedWorkflow !== false && format !== "webp") {
       const json = toWorkflowJsonString(workflowJson);
       if (json) {
         try {
-          const embedded = await embedWorkflowInPngBlob(blob, json);
+          const embedded = await timeSpan(
+            perfLog,
+            "embed.workflow",
+            () => embedWorkflowInPngBlob(blob, json)
+          );
           if (embedded) {
             blob = embedded;
           } else {
@@ -446,15 +534,70 @@ export async function exportWorkflowPng(workflowJson, options = {}) {
     return blob;
   }
 
-  const renderPass = async (passOptions) => {
+  const canFastTilePng =
+    tileEnabled &&
+    format === "png" &&
+    scale === 1 &&
+    !previewFast &&
+    !scopeSelected &&
+    backgroundMode !== "transparent";
+  if (canFastTilePng) {
+    try {
+      reportProgress?.(0);
+      let blob = await timeSpan(
+        perfLog,
+        "tile.png.fast",
+        () => renderTiledPng(workflowJson, renderOptions, bboxOverride, reportProgress, perfLog)
+      );
+      reportProgress?.(1);
+      if (options.embedWorkflow !== false) {
+        const json = toWorkflowJsonString(workflowJson);
+        if (json) {
+          try {
+            const embedded = await timeSpan(
+              perfLog,
+              "embed.workflow",
+              () => embedWorkflowInPngBlob(blob, json)
+            );
+            if (embedded) {
+              blob = embedded;
+            } else {
+              warnings.push("embed:failed");
+            }
+          } catch (error) {
+            warnings.push(
+              `embed:failed${error?.message ? `:${error.message}` : ""}`
+            );
+          }
+        } else {
+          warnings.push("embed:failed");
+        }
+      }
+      if (warnings.length) {
+        blob.cwieWarnings = warnings;
+      }
+      return blob;
+    } catch (_) {
+      // Fall back to standard render path if tiled PNG fails.
+    }
+  }
+
+  const renderPass = async (passOptions, label) => {
     const opts = bboxOverride ? { ...passOptions, bboxOverride } : passOptions;
     if (tileEnabled) {
-      return renderTiled(workflowJson, opts, bboxOverride);
+      reportProgress?.(0);
+      const canvas = await timeSpan(
+        perfLog,
+        label || "render.tiled",
+        () => renderTiled(workflowJson, opts, bboxOverride, reportProgress, perfLog)
+      );
+      reportProgress?.(1);
+      return canvas;
     }
-    return renderOnce(workflowJson, opts);
+    return timeSpan(perfLog, label || "render.once", () => renderOnce(workflowJson, opts));
   };
 
-  let canvas = await renderPass(renderOptions);
+  let canvas = await renderPass(renderOptions, "render.base");
 
   if (scopeSelected) {
     const dimAlpha = scopeOpacity / 100;
@@ -462,19 +605,19 @@ export async function exportWorkflowPng(workflowJson, options = {}) {
       ...renderOptions,
       renderFilter: "none",
       linkFilter: "none",
-    });
+    }, "render.scope.background");
     const dimCanvas = await renderPass({
       ...renderOptions,
       backgroundMode: "transparent",
       includeGrid: false,
-    });
+    }, "render.scope.dim");
     const selectedCanvas = await renderPass({
       ...renderOptions,
       backgroundMode: "transparent",
       includeGrid: false,
       renderFilter: "selected",
       linkFilter: "selected",
-    });
+    }, "render.scope.selected");
     const output = document.createElement("canvas");
     output.width = backgroundCanvas.width;
     output.height = backgroundCanvas.height;
@@ -514,7 +657,11 @@ export async function exportWorkflowPng(workflowJson, options = {}) {
     }
   }
 
-  const finalCanvas = scaleCanvas(canvas, scale);
+  const finalCanvas = await timeSpan(
+    perfLog,
+    "scale.canvas",
+    () => scaleCanvas(canvas, scale)
+  );
   if (debug) {
     console.log("[CWIE][Offscreen] final canvas", {
       width: finalCanvas?.width,
@@ -523,13 +670,17 @@ export async function exportWorkflowPng(workflowJson, options = {}) {
     });
   }
   const mime = format === "webp" ? "image/webp" : "image/png";
-  let blob = await toBlobAsync(finalCanvas, mime);
+  let blob = await timeSpan(perfLog, "toBlob", () => toBlobAsync(finalCanvas, mime));
 
   if (options.embedWorkflow !== false && format !== "webp") {
     const json = toWorkflowJsonString(workflowJson);
     if (json) {
       try {
-        const embedded = await embedWorkflowInPngBlob(blob, json);
+        const embedded = await timeSpan(
+          perfLog,
+          "embed.workflow",
+          () => embedWorkflowInPngBlob(blob, json)
+        );
         if (embedded) {
           blob = embedded;
         } else {

@@ -118,6 +118,7 @@ export async function capture(options = {}) {
       scopeSelected: Boolean(normalized.scopeSelected),
       scopeOpacity: normalized.scopeOpacity,
       selectedNodeIds,
+      onProgress: normalized.onProgress,
     });
     const warnings = blob?.cwieWarnings;
     if (warnings?.length) {

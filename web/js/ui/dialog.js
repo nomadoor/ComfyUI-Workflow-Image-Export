@@ -337,7 +337,7 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
   previewPane.className = "cwie-preview-pane";
 
   const previewFrame = document.createElement("div");
-  previewFrame.className = "cwie-preview-frame is-fit";
+  previewFrame.className = "cwie-preview-frame is-fit is-loading";
 
   const previewImg = document.createElement("img");
   previewImg.className = "cwie-preview-image";
@@ -607,9 +607,7 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
     };
     try {
       previewBusy = true;
-      if (!previewImg.src) {
-        previewFrame.classList.add("is-loading");
-      }
+      previewFrame.classList.add("is-loading");
       const blob = await capture(previewState);
       if (dialogClosed || token !== previewToken) {
         previewFrame.classList.remove("is-loading");
@@ -757,28 +755,71 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
   const exportButton = document.createElement("button");
   exportButton.type = "button";
   exportButton.className = "cwie-button primary";
-  exportButton.textContent = "Export";
+  exportButton.textContent = "";
 
   const exportSpinner = document.createElement("span");
   exportSpinner.className = "cwie-spinner";
   exportSpinner.setAttribute("aria-hidden", "true");
-  exportButton.prepend(exportSpinner);
+  const exportLabel = document.createElement("span");
+  exportLabel.className = "cwie-button-label";
+  exportLabel.textContent = "Export";
+  const exportProgressText = document.createElement("span");
+  exportProgressText.className = "cwie-button-progress";
+  exportProgressText.textContent = "0%";
+  exportButton.append(exportSpinner, exportLabel, exportProgressText);
 
   exportButton.addEventListener("click", async () => {
     exportButton.disabled = true;
     cancelButton.disabled = true;
     exportButton.classList.add("is-busy");
     onExportStarted?.();
+    const exportT0 = performance.now();
+    const logExportPhase = (label) => {
+      const dt = Math.round(performance.now() - exportT0);
+      console.log(`[CWIE][Export][perf] ${label} +${dt}ms`);
+    };
+
+    const updateExportProgress = (payload) => {
+      const value = payload?.value;
+      if (!Number.isFinite(value)) {
+        exportButton.classList.remove("is-progressing");
+        exportProgressText.textContent = "0%";
+        return;
+      }
+      const exportProgressValue = Math.max(0, Math.min(1, value));
+      const percent = Number.isFinite(payload?.percent)
+        ? payload.percent
+        : Math.round(exportProgressValue * 100);
+      exportButton.classList.add("is-progressing");
+      exportProgressText.textContent = `${percent}%`;
+    };
+
     updateStateFromControls();
     updateScopeAvailability();
+    const expectsTiling = state.exceedMode === "tile";
+    if (expectsTiling) {
+      exportButton.classList.add("is-progressing");
+      exportProgressText.textContent = "0%";
+    }
+    // Allow the busy spinner/progress to paint before heavy export work.
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+    logExportPhase("ui.ready");
     let messageDialogPayload = null;
     try {
-      const blob = await capture(state);
+      logExportPhase("capture.start");
+      const blob = await capture({
+        ...state,
+        onProgress: updateExportProgress,
+      });
+      logExportPhase("capture.done");
       setDefaultsInSettings(state);
+      logExportPhase("download.start");
       await triggerDownload({
         blob,
         filename: `workflow.${state.format || "png"}`,
       });
+      logExportPhase("download.done");
     } catch (error) {
       if (isNode2UnsupportedError(error)) {
         messageDialogPayload = {
@@ -790,9 +831,16 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
         console.error("[workflow-image-export] export failed", error);
       }
     } finally {
+      exportButton.classList.remove("is-progressing");
+      exportProgressText.textContent = "0%";
       exportButton.classList.remove("is-busy");
       onExportFinished?.();
       closeDialog();
+      logExportPhase("dialog.closed");
+      setTimeout(() => logExportPhase("post.0ms"), 0);
+      setTimeout(() => logExportPhase("post.250ms"), 250);
+      setTimeout(() => logExportPhase("post.1000ms"), 1000);
+      setTimeout(() => logExportPhase("post.2000ms"), 2000);
       if (messageDialogPayload) {
         openMessageDialog(messageDialogPayload);
       }

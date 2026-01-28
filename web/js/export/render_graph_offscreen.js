@@ -18,6 +18,35 @@ import {
 
 const PREVIEW_MAX_PIXELS = 2048 * 2048;
 
+function getNowMs() {
+  if (typeof performance !== "undefined" && typeof performance.now === "function") {
+    return performance.now();
+  }
+  return Date.now();
+}
+
+function createPerfLogger(enabled, prefix) {
+  if (!enabled) return null;
+  const t0 = getNowMs();
+  return (label, payload) => {
+    const dt = Math.round(getNowMs() - t0);
+    if (payload !== undefined) {
+      console.log(`${prefix} ${label} +${dt}ms`, payload);
+      return;
+    }
+    console.log(`${prefix} ${label} +${dt}ms`);
+  };
+}
+
+function timeSpan(log, label, fn) {
+  if (!log) return fn();
+  const t0 = getNowMs();
+  const result = fn();
+  return Promise.resolve(result).finally(() => {
+    log(label, { ms: Math.round(getNowMs() - t0) });
+  });
+}
+
 function resolveGraphConstructor() {
   if (app?.graph?.constructor) {
     return app.graph.constructor;
@@ -644,9 +673,16 @@ export async function renderGraphOffscreen(workflowJson, options = {}) {
       console.log(`[CWIE][Offscreen][dom] ${label}`, payload);
     }
     : null;
+  const perfLog = createPerfLogger(debug, "[CWIE][Offscreen][perf]");
+  perfLog?.("start");
 
   const padding = Number(options.padding) || 0;
-  const { graph, LGraphCanvasRef } = await prepareGraph(workflowJson, debugLog);
+  const { graph, LGraphCanvasRef } = await timeSpan(
+    perfLog,
+    "prepareGraph",
+    () => prepareGraph(workflowJson, debugLog)
+  );
+  perfLog?.("graph.ready");
   if (debug) {
     const nodes = graph?._nodes || graph?.nodes || [];
     const liveNodes = app?.graph?._nodes || app?.graph?.nodes || [];
@@ -680,13 +716,14 @@ export async function renderGraphOffscreen(workflowJson, options = {}) {
 
   const bbox =
     options.bboxOverride ||
-    computeGraphBBox(graph, {
+    await timeSpan(perfLog, "computeGraphBBox", () => computeGraphBBox(graph, {
       padding,
       debug,
       selectedNodeIds: options.selectedNodeIds,
       useSelectionOnly: options.cropToSelection,
       useBounding: options.previewFast ? false : undefined,
-    });
+    }));
+  perfLog?.("bbox.ready", { width: bbox.width, height: bbox.height });
   applyRenderFilter(graph, options.selectedNodeIds, options.renderFilter);
   applyLinkFilter(graph, options.selectedNodeIds, options.linkFilter);
   const baseWidth = Math.max(1, Math.ceil(bbox.width));
@@ -758,7 +795,7 @@ export async function renderGraphOffscreen(workflowJson, options = {}) {
   }
 
   // --- Revert Single Buffer: Use original Multi-Canvas approach for safety ---
-  offscreen.draw(true, true);
+  await timeSpan(perfLog, "offscreen.draw", () => offscreen.draw(true, true));
 
   // Composite on a fresh canvas so overlays are not affected by LiteGraph
   // transform/clip state that might linger on the original context.
@@ -781,15 +818,28 @@ export async function renderGraphOffscreen(workflowJson, options = {}) {
       height: tileBounds.height,
     };
     const nodeRects = collectNodeRects(graph);
-    await drawBackgroundImageOverlays({
+    await timeSpan(perfLog, "dom.bg.overlays", () => drawBackgroundImageOverlays({
       exportCtx: outputCtx,
       uiCanvas: app?.canvas,
       bounds,
       scale: scaleFactor,
-    });
-    drawImageOverlays({ exportCtx: outputCtx, uiCanvas: app?.canvas, bounds, scale: scaleFactor, debugLog });
-    drawVideoOverlays({ exportCtx: outputCtx, uiCanvas: app?.canvas, bounds, scale: scaleFactor, nodeRects, debugLog });
-    drawTextOverlays({
+    }));
+    await timeSpan(perfLog, "dom.image.overlays", () => drawImageOverlays({
+      exportCtx: outputCtx,
+      uiCanvas: app?.canvas,
+      bounds,
+      scale: scaleFactor,
+      debugLog,
+    }));
+    await timeSpan(perfLog, "dom.video.overlays", () => drawVideoOverlays({
+      exportCtx: outputCtx,
+      uiCanvas: app?.canvas,
+      bounds,
+      scale: scaleFactor,
+      nodeRects,
+      debugLog,
+    }));
+    await timeSpan(perfLog, "dom.text.overlays", () => drawTextOverlays({
       exportCtx: outputCtx,
       uiCanvas: app?.canvas,
       graph,
@@ -797,7 +847,7 @@ export async function renderGraphOffscreen(workflowJson, options = {}) {
       scale: scaleFactor,
       nodeRects,
       debugLog,
-    });
+    }));
   } else {
     // Standard mode (Legacy Capture fallback logic)
     const bounds = {
@@ -829,28 +879,28 @@ export async function renderGraphOffscreen(workflowJson, options = {}) {
     if (textCtx && !options.skipTextFallback) {
       textCtx.setTransform(1, 0, 0, 1, 0, 0);
       textCtx.globalAlpha = 1;
-      drawWidgetTextFallback({
+      await timeSpan(perfLog, "fallback.text", () => drawWidgetTextFallback({
         exportCtx: textCtx,
         graph,
         bounds,
         scale: scaleFactor,
         coveredNodeIds: null,
         debugLog,
-      });
+      }));
       outputCtx.drawImage(textOverlay, 0, 0);
     }
     if (!options.skipMediaThumbnails) {
-      await drawImageThumbnails({
+      await timeSpan(perfLog, "fallback.image.thumbs", () => drawImageThumbnails({
         exportCtx: outputCtx,
         graph,
         nodeRects,
         bounds,
         scale: scaleFactor,
         debugLog,
-      });
+      }));
 
       // Always run drawVideoThumbnails (it handles Preview/Export logic internally)
-      await drawVideoThumbnails({
+      await timeSpan(perfLog, "fallback.video.thumbs", () => drawVideoThumbnails({
         exportCtx: outputCtx,
         graph,
         nodeRects,
@@ -858,10 +908,11 @@ export async function renderGraphOffscreen(workflowJson, options = {}) {
         scale: scaleFactor,
         debugLog,
         isPreview: !!options.previewFast,
-      });
+      }));
     }
   }
 
+  perfLog?.("done");
   return {
     canvas: outputCanvas,
     ctx: outputCtx,
@@ -1455,6 +1506,8 @@ function computePreviewRect({ rect, node, bounds, scale }) {
 async function drawVideoThumbnails({ exportCtx, graph, nodeRects, bounds, scale, debugLog, isPreview }) {
   const nodes = graph?._nodes || graph?.nodes || [];
   if (!nodes.length) return;
+  const videoNodes = nodes.filter((node) => node && isVideoNode(node));
+  if (!videoNodes.length) return;
   const rectById = new Map();
   for (const rect of nodeRects || []) {
     if (Number.isFinite(rect.id)) {
@@ -1478,8 +1531,7 @@ async function drawVideoThumbnails({ exportCtx, graph, nodeRects, bounds, scale,
     logged += 1;
   }
 
-  for (const node of nodes) {
-    if (!node || !isVideoNode(node)) continue;
+  for (const node of videoNodes) {
     const rect = rectById.get(node.id);
     if (!rect) {
       skippedNoRect += 1;
@@ -1647,6 +1699,8 @@ async function drawVideoThumbnails({ exportCtx, graph, nodeRects, bounds, scale,
 async function drawImageThumbnails({ exportCtx, graph, nodeRects, bounds, scale, debugLog }) {
   const nodes = graph?._nodes || graph?.nodes || [];
   if (!nodes.length) return;
+  const imageNodes = nodes.filter((node) => node && isImageNode(node) && !isVideoNode(node));
+  if (!imageNodes.length) return;
   const rectById = new Map();
   for (const rect of nodeRects || []) {
     if (Number.isFinite(rect.id)) {
@@ -1660,8 +1714,7 @@ async function drawImageThumbnails({ exportCtx, graph, nodeRects, bounds, scale,
   let skippedEmptyRect = 0;
   let logged = 0;
 
-  for (const node of nodes) {
-    if (!node || !isImageNode(node) || isVideoNode(node)) continue;
+  for (const node of imageNodes) {
     const rect = rectById.get(node.id);
     if (!rect) {
       skippedNoRect += 1;
