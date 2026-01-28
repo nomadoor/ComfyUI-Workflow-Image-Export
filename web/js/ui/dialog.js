@@ -448,6 +448,22 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
     { value: "200%", label: "200%" },
   ]);
 
+  const pngCompressionInput = document.createElement("input");
+  pngCompressionInput.type = "range";
+  pngCompressionInput.min = "0";
+  pngCompressionInput.max = "9";
+  pngCompressionInput.step = "1";
+  pngCompressionInput.className = "cwie-range";
+
+  const pngCompressionValue = document.createElement("span");
+  pngCompressionValue.className = "cwie-range-value";
+  pngCompressionValue.textContent = "6";
+
+  const pngCompressionWrapper = document.createElement("div");
+  pngCompressionWrapper.className = "cwie-range-wrapper";
+  pngCompressionWrapper.appendChild(pngCompressionInput);
+  pngCompressionWrapper.appendChild(pngCompressionValue);
+
   const maxLongEdgeInput = document.createElement("input");
   maxLongEdgeInput.type = "number";
   maxLongEdgeInput.min = "0";
@@ -465,12 +481,14 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
       embedToggle.input.disabled = false;
       formatSelect.setDisabled(false);
       embedNote.textContent = "";
+      pngCompressionInput.disabled = false;
       return;
     }
 
     embedToggle.input.checked = false;
     embedToggle.input.disabled = true;
     formatSelect.setDisabled(false);
+    pngCompressionInput.disabled = true;
 
     if (v === "webp") {
       embedNote.textContent =
@@ -491,6 +509,8 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
     paddingInput.value = String(nextState.padding);
     paddingValue.textContent = String(nextState.padding);
     outputResolutionSelect.setValue(nextState.outputResolution);
+    pngCompressionInput.value = String(nextState.pngCompression);
+    pngCompressionValue.textContent = String(nextState.pngCompression);
     maxLongEdgeInput.value = String(nextState.maxLongEdge);
     exceedSelect.setValue(nextState.exceedMode);
     if (solidColorRow) {
@@ -515,6 +535,7 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
       solidColor: solidColorInput.value,
       padding: paddingInput.value,
       outputResolution: outputResolutionSelect.getValue(),
+      pngCompression: pngCompressionInput.value,
       maxLongEdge: maxLongEdgeInput.value,
       exceedMode: exceedSelect.getValue(),
     });
@@ -700,6 +721,10 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
     handleChange();
   });
   outputResolutionSelect.onChange(() => handleChange());
+  pngCompressionInput.addEventListener("input", () => {
+    pngCompressionValue.textContent = pngCompressionInput.value;
+    handleChange();
+  });
   maxLongEdgeInput.addEventListener("change", () => handleChange());
   exceedSelect.onChange(() => handleChange());
   scopeToggle.input.addEventListener("change", () => {
@@ -867,6 +892,7 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
   controlsScroll.appendChild(createRow("Opacity", scopeOpacityWrapper));
 
   advancedBody.appendChild(createRow("Output resolution", outputResolutionSelect.root));
+  advancedBody.appendChild(createRow("PNG Compression", pngCompressionWrapper));
   advancedBody.appendChild(createRow("Max long edge", maxLongEdgeInput));
   advancedBody.appendChild(createRow("If exceeded", exceedSelect.root));
 

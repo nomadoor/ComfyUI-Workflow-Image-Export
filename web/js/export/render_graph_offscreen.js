@@ -919,7 +919,12 @@ export async function renderGraphOffscreen(workflowJson, options = {}) {
     bbox,
     scaleFactor,
     tileRect,
-    cleanup: () => safeCleanup(offscreen, graph),
+    cleanup: () => {
+      if (debug) {
+        console.log("[CWIE][Offscreen] cleanup");
+      }
+      safeCleanup(offscreen, graph);
+    },
   };
 }
 

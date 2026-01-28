@@ -12,6 +12,8 @@ const TILE_THRESHOLD_EDGE = 6144;
 const TILE_THRESHOLD_PIXELS = 24 * 1024 * 1024;
 const TILE_SIZE = 2048;
 const MAX_CANVAS_EDGE = 16384;
+const ADLER_MOD = 65521;
+const ADLER_NMAX = 5552;
 
 function getNowMs() {
   if (typeof performance !== "undefined" && typeof performance.now === "function") {
@@ -40,6 +42,22 @@ function timeSpan(log, label, fn) {
   return Promise.resolve(result).finally(() => {
     log(label, { ms: Math.round(getNowMs() - t0) });
   });
+}
+
+function clampPngCompression(value) {
+  const num = Number.parseInt(value, 10);
+  if (!Number.isFinite(num)) return 6;
+  return Math.min(9, Math.max(0, num));
+}
+
+async function resolvePako() {
+  if (window?.pako) return window.pako;
+  try {
+    const mod = await import("../vendor/pako.min.js");
+    return mod?.default || mod?.pako || window?.pako || null;
+  } catch (_) {
+    return null;
+  }
 }
 
 function toWorkflowJsonString(workflowJson) {
@@ -156,8 +174,79 @@ function createPngChunk(type, data) {
   return concatUint8(lengthBytes, typeBytes, data, crcBytes);
 }
 
-async function encodePngFromTiles(width, height, renderTile, onProgress, perfLog) {
-  if (!("CompressionStream" in window)) {
+function adler32Update(state, data) {
+  let a = state.a;
+  let b = state.b;
+  let index = 0;
+  const len = data.length;
+  while (index < len) {
+    const end = Math.min(index + ADLER_NMAX, len);
+    for (; index < end; index += 1) {
+      a += data[index];
+      b += a;
+    }
+    a %= ADLER_MOD;
+    b %= ADLER_MOD;
+  }
+  state.a = a;
+  state.b = b;
+}
+
+function createStoreDeflateStream() {
+  const MAX_BLOCK = 0xffff;
+  const adler = { a: 1, b: 0 };
+  let block = new Uint8Array(MAX_BLOCK);
+  let blockLen = 0;
+
+  const flushBlock = (controller, isFinal) => {
+    const len = blockLen;
+    const header = new Uint8Array(5 + len);
+    header[0] = isFinal ? 0x01 : 0x00;
+    header[1] = len & 0xff;
+    header[2] = (len >>> 8) & 0xff;
+    const nlen = (~len) & 0xffff;
+    header[3] = nlen & 0xff;
+    header[4] = (nlen >>> 8) & 0xff;
+    if (len > 0) {
+      header.set(block.subarray(0, len), 5);
+    }
+    controller.enqueue(header);
+    blockLen = 0;
+  };
+
+  return new TransformStream({
+    start(controller) {
+      controller.enqueue(new Uint8Array([0x78, 0x01]));
+    },
+    transform(chunk, controller) {
+      const data = chunk instanceof Uint8Array ? chunk : new Uint8Array(chunk);
+      adler32Update(adler, data);
+      let offset = 0;
+      while (offset < data.length) {
+        const space = MAX_BLOCK - blockLen;
+        const take = Math.min(space, data.length - offset);
+        block.set(data.subarray(offset, offset + take), blockLen);
+        blockLen += take;
+        offset += take;
+        if (blockLen === MAX_BLOCK) {
+          flushBlock(controller, false);
+        }
+      }
+    },
+    flush(controller) {
+      flushBlock(controller, true);
+      const adlerValue = (adler.b << 16) | adler.a;
+      controller.enqueue(toUint32(adlerValue >>> 0));
+    },
+  });
+}
+
+async function encodePngFromTiles(width, height, renderTile, onProgress, perfLog, compressionLevel) {
+  const level = clampPngCompression(compressionLevel);
+  const useStored = level === 0;
+  const pako = useStored ? null : await resolvePako();
+  const usePako = Boolean(pako);
+  if (!useStored && !usePako && !("CompressionStream" in window)) {
     throw new Error("CompressionStream not available for tiled PNG export.");
   }
   const signature = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
@@ -175,8 +264,66 @@ async function encodePngFromTiles(width, height, renderTile, onProgress, perfLog
   const tilesX = Math.ceil(width / TILE_SIZE);
   const tilesY = Math.ceil(height / TILE_SIZE);
   const totalTiles = Math.max(1, tilesX * tilesY);
-  perfLog?.("tile.encode.start", { width, height, tilesX, tilesY, totalTiles });
+  perfLog?.("tile.encode.start", {
+    width,
+    height,
+    tilesX,
+    tilesY,
+    totalTiles,
+    compression: level,
+    encoder: useStored ? "store" : usePako ? "pako" : "stream",
+  });
   let completedTiles = 0;
+
+  if (usePako) {
+    const deflater = new pako.Deflate({ level });
+    const chunks = [];
+    deflater.onData = (chunk) => {
+      chunks.push(chunk instanceof Uint8Array ? chunk : new Uint8Array(chunk));
+    };
+
+    for (let tileY = 0; tileY < height; tileY += TILE_SIZE) {
+      const tileH = Math.min(TILE_SIZE, height - tileY);
+      const rowTiles = [];
+      for (let tileX = 0; tileX < width; tileX += TILE_SIZE) {
+        const tileW = Math.min(TILE_SIZE, width - tileX);
+        const tileCanvas = await renderTile(tileX, tileY, tileW, tileH);
+        const tileCtx = tileCanvas.getContext("2d", { alpha: true });
+        if (!tileCtx) {
+          throw new Error("tile context unavailable");
+        }
+        const data = tileCtx.getImageData(0, 0, tileW, tileH).data;
+        rowTiles.push({ tileW, data });
+        completedTiles += 1;
+        if (onProgress) {
+          onProgress(completedTiles / totalTiles);
+        }
+      }
+      for (let row = 0; row < tileH; row += 1) {
+        const line = new Uint8Array(1 + width * 4);
+        line[0] = 0;
+        let offset = 1;
+        for (const tile of rowTiles) {
+          const start = row * tile.tileW * 4;
+          const end = start + tile.tileW * 4;
+          line.set(tile.data.subarray(start, end), offset);
+          offset += tile.tileW * 4;
+        }
+        deflater.push(line, false);
+      }
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+    deflater.push(new Uint8Array(0), true);
+    if (deflater.err) {
+      throw new Error(deflater.msg || "pako deflate failed");
+    }
+    const compressed = concatUint8(...chunks);
+    const idatChunk = createPngChunk("IDAT", compressed);
+    const iendChunk = createPngChunk("IEND", new Uint8Array());
+    const png = concatUint8(signature, ihdrChunk, idatChunk, iendChunk);
+    perfLog?.("tile.encode.done");
+    return new Blob([png], { type: "image/png" });
+  }
 
   const rawStream = new ReadableStream({
     start(controller) {
@@ -220,8 +367,13 @@ async function encodePngFromTiles(width, height, renderTile, onProgress, perfLog
 
   const compressed = await timeSpan(
     perfLog,
-    "tile.encode.compress",
-    () => new Response(rawStream.pipeThrough(new CompressionStream("deflate"))).arrayBuffer()
+    useStored ? "tile.encode.store" : "tile.encode.compress",
+    () => {
+      const stream = useStored
+        ? rawStream.pipeThrough(createStoreDeflateStream())
+        : rawStream.pipeThrough(new CompressionStream("deflate"));
+      return new Response(stream).arrayBuffer();
+    }
   );
 
   const idatChunk = createPngChunk("IDAT", new Uint8Array(compressed));
@@ -272,7 +424,7 @@ async function renderTiled(workflowJson, options, bboxOverride, onProgress, perf
   return tiledCanvas;
 }
 
-async function renderTiledPng(workflowJson, options, bboxOverride, onProgress, perfLog) {
+async function renderTiledPng(workflowJson, options, bboxOverride, onProgress, perfLog, compressionLevel) {
   if (!bboxOverride) {
     const canvas = await renderOnce(workflowJson, options);
     return toBlobAsync(canvas, "image/png");
@@ -292,7 +444,8 @@ async function renderTiledPng(workflowJson, options, bboxOverride, onProgress, p
         maxPixels: 0,
       }),
     onProgress,
-    perfLog
+    perfLog,
+    compressionLevel
   );
 }
 
@@ -426,8 +579,9 @@ export async function exportWorkflowPng(workflowJson, options = {}) {
     ? Math.min(100, Math.max(0, scopeOpacityRaw))
     : 30;
   const previewFast = Boolean(options.previewFast);
+  const pngCompression = clampPngCompression(options.pngCompression);
   const perfLog = createPerfLogger(debug, "[CWIE][ExportPng][perf]");
-  perfLog?.("start", { format, scale, previewFast, backgroundMode });
+  perfLog?.("start", { format, scale, previewFast, backgroundMode, pngCompression });
 
   let renderOptions = {
     backgroundMode,
@@ -502,7 +656,7 @@ export async function exportWorkflowPng(workflowJson, options = {}) {
     let blob = await timeSpan(
       perfLog,
       "tile.png",
-      () => renderTiledPng(workflowJson, renderOptions, bboxOverride, reportProgress, perfLog)
+      () => renderTiledPng(workflowJson, renderOptions, bboxOverride, reportProgress, perfLog, pngCompression)
     );
     reportProgress?.(1);
     if (options.embedWorkflow !== false && format !== "webp") {
@@ -547,7 +701,7 @@ export async function exportWorkflowPng(workflowJson, options = {}) {
       let blob = await timeSpan(
         perfLog,
         "tile.png.fast",
-        () => renderTiledPng(workflowJson, renderOptions, bboxOverride, reportProgress, perfLog)
+        () => renderTiledPng(workflowJson, renderOptions, bboxOverride, reportProgress, perfLog, pngCompression)
       );
       reportProgress?.(1);
       if (options.embedWorkflow !== false) {
