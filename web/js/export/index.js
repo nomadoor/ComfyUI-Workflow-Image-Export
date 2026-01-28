@@ -1,4 +1,4 @@
-import { toBlobAsync } from "../core/utils.js";
+import { toBlobAsync, toUint32, concatUint8, crc32 } from "../core/utils.js";
 import {
   resolveUiBackgroundColor,
   resolveSolidBackgroundColor,
@@ -11,6 +11,7 @@ import { embedWorkflowInPngBlob } from "./png_embed_workflow.js";
 const TILE_THRESHOLD_EDGE = 6144;
 const TILE_THRESHOLD_PIXELS = 24 * 1024 * 1024;
 const TILE_SIZE = 2048;
+const MAX_CANVAS_EDGE = 16384;
 
 function toWorkflowJsonString(workflowJson) {
   if (typeof workflowJson === "string") {
@@ -112,10 +113,80 @@ function normalizeSelectedIds(value) {
 function shouldTile(width, height) {
   const w = Math.max(1, Math.ceil(width));
   const h = Math.max(1, Math.ceil(height));
+  if (Math.max(w, h) > MAX_CANVAS_EDGE) return true;
   return (
     w * h > TILE_THRESHOLD_PIXELS ||
     Math.max(w, h) > TILE_THRESHOLD_EDGE
   );
+}
+
+function createPngChunk(type, data) {
+  const typeBytes = new TextEncoder().encode(type);
+  const lengthBytes = toUint32(data.length);
+  const crcBytes = toUint32(crc32(concatUint8(typeBytes, data)));
+  return concatUint8(lengthBytes, typeBytes, data, crcBytes);
+}
+
+async function encodePngFromTiles(width, height, renderTile) {
+  if (!("CompressionStream" in window)) {
+    throw new Error("CompressionStream not available for tiled PNG export.");
+  }
+  const signature = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+  const ihdr = new Uint8Array(13);
+  ihdr.set(toUint32(width), 0);
+  ihdr.set(toUint32(height), 4);
+  ihdr[8] = 8; // bit depth
+  ihdr[9] = 6; // color type RGBA
+  ihdr[10] = 0; // compression
+  ihdr[11] = 0; // filter
+  ihdr[12] = 0; // interlace
+
+  const ihdrChunk = createPngChunk("IHDR", ihdr);
+
+  const rawStream = new ReadableStream({
+    start(controller) {
+      (async () => {
+        for (let tileY = 0; tileY < height; tileY += TILE_SIZE) {
+          const tileH = Math.min(TILE_SIZE, height - tileY);
+          const rowTiles = [];
+          for (let tileX = 0; tileX < width; tileX += TILE_SIZE) {
+            const tileW = Math.min(TILE_SIZE, width - tileX);
+            const tileCanvas = await renderTile(tileX, tileY, tileW, tileH);
+            const tileCtx = tileCanvas.getContext("2d", { alpha: true });
+            if (!tileCtx) {
+              controller.error(new Error("tile context unavailable"));
+              return;
+            }
+            const data = tileCtx.getImageData(0, 0, tileW, tileH).data;
+            rowTiles.push({ tileW, data });
+          }
+          for (let row = 0; row < tileH; row += 1) {
+            const line = new Uint8Array(1 + width * 4);
+            line[0] = 0; // no filter
+            let offset = 1;
+            for (const tile of rowTiles) {
+              const start = row * tile.tileW * 4;
+              const end = start + tile.tileW * 4;
+              line.set(tile.data.subarray(start, end), offset);
+              offset += tile.tileW * 4;
+            }
+            controller.enqueue(line);
+          }
+          await new Promise((resolve) => setTimeout(resolve, 0));
+        }
+        controller.close();
+      })().catch((err) => controller.error(err));
+    },
+  });
+
+  const compressed = await new Response(
+    rawStream.pipeThrough(new CompressionStream("deflate"))
+  ).arrayBuffer();
+
+  const idatChunk = createPngChunk("IDAT", new Uint8Array(compressed));
+  const iendChunk = createPngChunk("IEND", new Uint8Array());
+  const png = concatUint8(signature, ihdrChunk, idatChunk, iendChunk);
+  return new Blob([png], { type: "image/png" });
 }
 
 async function renderTiled(workflowJson, options, bboxOverride) {
@@ -147,6 +218,25 @@ async function renderTiled(workflowJson, options, bboxOverride) {
     }
   }
   return tiledCanvas;
+}
+
+async function renderTiledPng(workflowJson, options, bboxOverride) {
+  if (!bboxOverride) {
+    const canvas = await renderOnce(workflowJson, options);
+    return toBlobAsync(canvas, "image/png");
+  }
+  const baseWidth = Math.max(1, Math.ceil(bboxOverride.width));
+  const baseHeight = Math.max(1, Math.ceil(bboxOverride.height));
+
+  return encodePngFromTiles(baseWidth, baseHeight, (x, y, w, h) =>
+    renderOnce(workflowJson, {
+      ...options,
+      bboxOverride,
+      tileRect: { x, y, width: w, height: h },
+      previewFast: false,
+      maxPixels: 0,
+    })
+  );
 }
 
 async function renderOnce(workflowJson, options) {
@@ -257,6 +347,7 @@ export async function exportWorkflowPng(workflowJson, options = {}) {
   const includeGrid = options.includeGrid !== false;
   const scale = Number(options.scale) || 1;
   const debug = Boolean(options.debug);
+  const format = String(options.format || "png").toLowerCase();
   const selectedNodeIds = normalizeSelectedIds(options.selectedNodeIds);
   const scopeSelected = Boolean(options.scopeSelected) && selectedNodeIds.length > 0;
   const scopeOpacityRaw = Number(options.scopeOpacity);
@@ -290,6 +381,69 @@ export async function exportWorkflowPng(workflowJson, options = {}) {
     !previewFast && bboxOverride && shouldTile(bboxOverride.width, bboxOverride.height);
   if (tileEnabled) {
     warnings.push("render:tiled");
+  }
+
+  const huge =
+    bboxOverride && shouldTile(bboxOverride.width * scale, bboxOverride.height * scale);
+
+  if (huge && scopeSelected) {
+    warnings.push("scope:disabled_for_huge");
+    renderOptions = {
+      ...renderOptions,
+      renderFilter: "none",
+      linkFilter: "none",
+      cropToSelection: false,
+      includeDomOverlays: false,
+      ...(previewFast
+        ? {
+          skipTextFallback: true,
+          skipMediaThumbnails: true,
+        }
+        : {}),
+    };
+  }
+
+  if (huge && backgroundMode === "transparent") {
+    warnings.push("transparent:unchecked");
+  }
+
+  if (huge) {
+    if (!scopeSelected && previewFast) {
+      renderOptions = {
+        ...renderOptions,
+        includeDomOverlays: false,
+        skipTextFallback: true,
+        skipMediaThumbnails: true,
+      };
+    }
+    if (format === "webp") {
+      warnings.push("format:force-png");
+    }
+    warnings.push("render:tiled-png");
+    let blob = await renderTiledPng(workflowJson, renderOptions, bboxOverride);
+    if (options.embedWorkflow !== false && format !== "webp") {
+      const json = toWorkflowJsonString(workflowJson);
+      if (json) {
+        try {
+          const embedded = await embedWorkflowInPngBlob(blob, json);
+          if (embedded) {
+            blob = embedded;
+          } else {
+            warnings.push("embed:failed");
+          }
+        } catch (error) {
+          warnings.push(
+            `embed:failed${error?.message ? `:${error.message}` : ""}`
+          );
+        }
+      } else {
+        warnings.push("embed:failed");
+      }
+    }
+    if (warnings.length) {
+      blob.cwieWarnings = warnings;
+    }
+    return blob;
   }
 
   const renderPass = async (passOptions) => {
@@ -368,9 +522,10 @@ export async function exportWorkflowPng(workflowJson, options = {}) {
       scale,
     });
   }
-  let blob = await toBlobAsync(finalCanvas, "image/png");
+  const mime = format === "webp" ? "image/webp" : "image/png";
+  let blob = await toBlobAsync(finalCanvas, mime);
 
-  if (options.embedWorkflow !== false) {
+  if (options.embedWorkflow !== false && format !== "webp") {
     const json = toWorkflowJsonString(workflowJson);
     if (json) {
       try {

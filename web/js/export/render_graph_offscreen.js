@@ -787,7 +787,7 @@ export async function renderGraphOffscreen(workflowJson, options = {}) {
     textOverlay.width = canvas.width;
     textOverlay.height = canvas.height;
     const textCtx = textOverlay.getContext("2d", { alpha: true });
-    if (textCtx) {
+    if (textCtx && !options.skipTextFallback) {
       textCtx.setTransform(1, 0, 0, 1, 0, 0);
       textCtx.globalAlpha = 1;
       drawWidgetTextFallback({
@@ -800,25 +800,27 @@ export async function renderGraphOffscreen(workflowJson, options = {}) {
       });
       outputCtx.drawImage(textOverlay, 0, 0);
     }
-    await drawImageThumbnails({
-      exportCtx: outputCtx,
-      graph,
-      nodeRects,
-      bounds,
-      scale: scaleFactor,
-      debugLog,
-    });
+    if (!options.skipMediaThumbnails) {
+      await drawImageThumbnails({
+        exportCtx: outputCtx,
+        graph,
+        nodeRects,
+        bounds,
+        scale: scaleFactor,
+        debugLog,
+      });
 
-    // Always run drawVideoThumbnails (it handles Preview/Export logic internally)
-    await drawVideoThumbnails({
-      exportCtx: outputCtx,
-      graph,
-      nodeRects,
-      bounds,
-      scale: scaleFactor,
-      debugLog,
-      isPreview: !!options.previewFast,
-    });
+      // Always run drawVideoThumbnails (it handles Preview/Export logic internally)
+      await drawVideoThumbnails({
+        exportCtx: outputCtx,
+        graph,
+        nodeRects,
+        bounds,
+        scale: scaleFactor,
+        debugLog,
+        isPreview: !!options.previewFast,
+      });
+    }
   }
 
   return {

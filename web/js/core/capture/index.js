@@ -117,13 +117,15 @@ export async function capture(options = {}) {
       scopeOpacity: normalized.scopeOpacity,
       selectedNodeIds,
     });
-    if (blob?.cwieWarnings?.length) {
-      console.warn("[workflow-image-export] export warnings", blob.cwieWarnings);
+    const warnings = blob?.cwieWarnings;
+    if (warnings?.length) {
+      console.warn("[workflow-image-export] export warnings", warnings);
     }
     result = {
       type: "raster",
       mime: "image/png",
       blob,
+      cwieWarnings: warnings,
     };
   } else {
     result = await captureLegacy(normalized);
@@ -135,7 +137,11 @@ export async function capture(options = {}) {
 
 
   if (normalized.format === "png") {
-    const scaled = await downscaleIfNeeded(result, normalized);
+    const warnings = result?.cwieWarnings || result?.blob?.cwieWarnings;
+    const forceTile =
+      normalized.exceedMode === "tile" ||
+      warnings?.includes?.("render:tiled-png");
+    const scaled = forceTile ? result : await downscaleIfNeeded(result, normalized);
     if (normalized.embedWorkflow) {
       const workflowJson = getWorkflowJson();
       const workflowText = toWorkflowJsonString(workflowJson);
@@ -148,7 +154,14 @@ export async function capture(options = {}) {
   }
 
   const withBg = await applyBackground(result, normalized);
-  const scaled = await downscaleIfNeeded(withBg, normalized);
+  const warnings = result?.cwieWarnings || result?.blob?.cwieWarnings;
+  if (warnings?.length && withBg && !withBg.cwieWarnings) {
+    withBg.cwieWarnings = warnings;
+  }
+  const forceTile =
+    normalized.exceedMode === "tile" ||
+    warnings?.includes?.("render:tiled-png");
+  const scaled = forceTile ? withBg : await downscaleIfNeeded(withBg, normalized);
   return scaled.blob;
 }
 
