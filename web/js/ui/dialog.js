@@ -800,6 +800,7 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
     onExportStarted?.();
     const exportT0 = performance.now();
     const logExportPhase = (label) => {
+      if (!state.debug) return;
       const dt = Math.round(performance.now() - exportT0);
       console.log(`[CWIE][Export][perf] ${label} +${dt}ms`);
     };

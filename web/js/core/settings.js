@@ -21,8 +21,8 @@ export const DEFAULTS = {
   padding: 100,
   outputResolution: "auto",
   maxLongEdge: 4096,
-  exceedMode: "downscale",
-  pngCompression: 6,
+  exceedMode: "tile",
+  pngCompression: 7,
 };
 
 const CAT = "Workflow Image Export";
