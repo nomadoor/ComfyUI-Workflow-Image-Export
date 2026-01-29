@@ -10,6 +10,7 @@ export const SETTING_IDS = {
   outputResolution: "WorkflowImageExport.OutputResolution",
   maxLongEdge: "WorkflowImageExport.MaxLongEdge",
   exceedMode: "WorkflowImageExport.ExceedMode",
+  pngCompression: "WorkflowImageExport.PngCompression",
 };
 
 export const DEFAULTS = {
@@ -20,7 +21,8 @@ export const DEFAULTS = {
   padding: 100,
   outputResolution: "auto",
   maxLongEdge: 4096,
-  exceedMode: "downscale",
+  exceedMode: "tile",
+  pngCompression: 7,
 };
 
 const CAT = "Workflow Image Export";
@@ -66,6 +68,19 @@ const SETTINGS_DEFINITIONS = [
     ],
     defaultValue: "auto",
     tooltip: "Scale the export resolution.",
+  },
+  {
+    id: SETTING_IDS.pngCompression,
+    name: "PNG compression",
+    category: cat(ADV, "PNG compression"),
+    type: "number",
+    defaultValue: DEFAULTS.pngCompression,
+    attrs: {
+      min: 0,
+      max: 9,
+      step: 1,
+    },
+    tooltip: "PNG compression level (0 = fastest, 9 = smallest).",
   },
   // Basic (define in reverse to match UI order)
   {
@@ -194,6 +209,12 @@ function normalizeNumber(value, fallback) {
   return fallback;
 }
 
+function normalizePngCompression(value) {
+  const num = Number.parseInt(value, 10);
+  if (!Number.isFinite(num)) return DEFAULTS.pngCompression;
+  return Math.min(9, Math.max(0, num));
+}
+
 export function normalizeState(raw) {
   return {
     format: normalizeFormat(raw?.format),
@@ -204,6 +225,7 @@ export function normalizeState(raw) {
     outputResolution: normalizeResolution(raw?.outputResolution),
     maxLongEdge: normalizeNumber(raw?.maxLongEdge, DEFAULTS.maxLongEdge),
     exceedMode: normalizeExceedMode(raw?.exceedMode),
+    pngCompression: normalizePngCompression(raw?.pngCompression),
   };
 }
 
@@ -227,6 +249,7 @@ export function getDefaultsFromSettings() {
     outputResolution: get(SETTING_IDS.outputResolution, DEFAULTS.outputResolution),
     maxLongEdge: get(SETTING_IDS.maxLongEdge, DEFAULTS.maxLongEdge),
     exceedMode: get(SETTING_IDS.exceedMode, DEFAULTS.exceedMode),
+    pngCompression: get(SETTING_IDS.pngCompression, DEFAULTS.pngCompression),
   };
 
   return normalizeState(raw);
@@ -243,6 +266,7 @@ function toSettingFormat(state) {
     outputResolution: state.outputResolution,
     maxLongEdge: state.maxLongEdge,
     exceedMode: state.exceedMode,
+    pngCompression: state.pngCompression,
   };
 }
 
@@ -260,6 +284,7 @@ export function setDefaultsInSettings(state) {
   access.set(SETTING_IDS.outputResolution, values.outputResolution);
   access.set(SETTING_IDS.maxLongEdge, values.maxLongEdge);
   access.set(SETTING_IDS.exceedMode, values.exceedMode);
+  access.set(SETTING_IDS.pngCompression, values.pngCompression);
   return true;
 }
 
