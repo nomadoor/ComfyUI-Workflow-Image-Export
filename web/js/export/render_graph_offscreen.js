@@ -786,8 +786,8 @@ export async function renderGraphOffscreen(workflowJson, options = {}) {
   // [CWIE] DPR-Invariant Fix:
   // Create backing store using UI pixel ratio to match LiteGraph's internal scaling.
   const uiPxRatio = options.uiPxRatio || 1;
-  // [CWIE] DOM Canvas Unification: Use actual DOM element for overlays
-  const uiCanvasDom = app?.canvas?.canvas ?? app?.canvas;
+  // [CWIE] DOM Canvas Unification: Use LGraphCanvas instance for overlays properties
+  const uiCanvasDom = app?.canvas;
 
   const canvas = document.createElement("canvas");
   const deviceW = Math.ceil(tileWidth * uiPxRatio);
@@ -839,11 +839,9 @@ export async function renderGraphOffscreen(workflowJson, options = {}) {
   offscreen._cwieTileOffsetX = tileRect?.x || 0;
   offscreen._cwieTileOffsetY = tileRect?.y || 0;
 
-  if (offscreen.resize && false) {
-    // [CWIE] v3: Disable resize to prevent double-scaling and property reset.
-    // The canvas is already sized correctly (deviceW/H) + patched GBCR (cssW/H).
-    // offscreen.resize would likely try to apply DPR logic again or reset styles.
-    // We rely on manual setup above.
+  // [CWIE] v3: Resize is disabled by default to prevent double-scaling.
+  // Explicitly enabled only if options.enableOffscreenResize is set.
+  if (offscreen.resize && options.enableOffscreenResize) {
     offscreen.resize(deviceW, deviceH);
   }
 
