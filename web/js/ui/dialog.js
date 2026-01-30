@@ -892,7 +892,7 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
   controlsScroll.appendChild(createRow("Scope", scopeToggle.wrapper));
   controlsScroll.appendChild(createRow("Opacity", scopeOpacityWrapper));
 
-  advancedBody.appendChild(createRow("Output resolution", outputResolutionSelect.root));
+  // advancedBody.appendChild(createRow("Output resolution", outputResolutionSelect.root));
   advancedBody.appendChild(createRow("PNG Compression", pngCompressionWrapper));
   advancedBody.appendChild(createRow("Max long edge", maxLongEdgeInput));
   advancedBody.appendChild(createRow("If exceeded", exceedSelect.root));
