@@ -1,4 +1,6 @@
+import { app } from "/scripts/app.js";
 import { toBlobAsync, toUint32, concatUint8, crc32 } from "../core/utils.js";
+
 import {
   resolveUiBackgroundColor,
   resolveSolidBackgroundColor,
@@ -393,27 +395,59 @@ async function renderTiled(workflowJson, options, bboxOverride, onProgress, perf
   if (!tiledCtx) {
     return renderOnce(workflowJson, { ...options, bboxOverride });
   }
+
+  // --- Fix D: Solid Background Fill ---
+  if (options.backgroundMode === "solid" && options.backgroundColor) {
+    tiledCtx.fillStyle = options.backgroundColor;
+    tiledCtx.fillRect(0, 0, baseWidth, baseHeight);
+  }
+
   const tilesX = Math.ceil(baseWidth / TILE_SIZE);
   const tilesY = Math.ceil(baseHeight / TILE_SIZE);
   const totalTiles = Math.max(1, tilesX * tilesY);
-  perfLog?.("tile.render.start", { width: baseWidth, height: baseHeight, tilesX, tilesY, totalTiles });
+
+  // [CWIE] v3: Tile Bleed Implementation
+  // [CWIE] v3: Tile Bleed Implementation (Center Crop)
+  const bleed = Number.isFinite(Number(options.tileBleed)) ? Math.max(0, Number(options.tileBleed)) : 64;
+
+  perfLog?.("tile.render.start", { width: baseWidth, height: baseHeight, tilesX, tilesY, totalTiles, bleed });
+
   let completedTiles = 0;
   for (let y = 0; y < baseHeight; y += TILE_SIZE) {
     for (let x = 0; x < baseWidth; x += TILE_SIZE) {
-      const tileRect = {
-        x,
-        y,
-        width: Math.min(TILE_SIZE, baseWidth - x),
-        height: Math.min(TILE_SIZE, baseHeight - y),
+      // Logical tile size
+      const w = Math.min(TILE_SIZE, baseWidth - x);
+      const h = Math.min(TILE_SIZE, baseHeight - y);
+
+      // Expanded rect with bleed
+      const ex = Math.max(0, x - bleed);
+      const ey = Math.max(0, y - bleed);
+      const ew = Math.min(baseWidth - ex, w + (x - ex) + bleed);
+      const eh = Math.min(baseHeight - ey, h + (y - ey) + bleed);
+
+      const expandedRect = {
+        x: ex,
+        y: ey,
+        width: ew,
+        height: eh,
       };
-      const tileCanvas = await renderOnce(workflowJson, {
+
+      const expandedCanvas = await renderOnce(workflowJson, {
         ...options,
         bboxOverride,
-        tileRect,
+        tileRect: expandedRect,
         previewFast: false,
         maxPixels: 0,
       });
-      tiledCtx.drawImage(tileCanvas, x, y);
+
+      // Crop source coords from bleeding canvas (Source X/Y)
+      const sx = x - ex;
+      const sy = y - ey;
+
+      // Draw cropped tile to final canvas
+      // tiledCtx.drawImage(image, sx, sy, sWidth, sHeight, dx, dy, dWidth, dHeight)
+      tiledCtx.drawImage(expandedCanvas, sx, sy, w, h, x, y, w, h);
+
       completedTiles += 1;
       if (onProgress) {
         onProgress(completedTiles / totalTiles);
@@ -432,17 +466,47 @@ async function renderTiledPng(workflowJson, options, bboxOverride, onProgress, p
   const baseWidth = Math.max(1, Math.ceil(bboxOverride.width));
   const baseHeight = Math.max(1, Math.ceil(bboxOverride.height));
 
+  const tilesX = Math.ceil(baseWidth / TILE_SIZE);
+  const tilesY = Math.ceil(baseHeight / TILE_SIZE);
+
+  // [CWIE] v3: Tile Bleed for PNG
+  // [CWIE] v3: Tile Bleed for PNG
+  const bleed = Number.isFinite(Number(options.tileBleed)) ? Math.max(0, Number(options.tileBleed)) : 64;
+  console.log(`[CWIE][Export] Tiled export: mode=png, tiles=${tilesX}x${tilesY}, size=${baseWidth}x${baseHeight}, ratio=${options.uiPxRatio}, bleed=${bleed}`);
+
   return encodePngFromTiles(
     baseWidth,
     baseHeight,
-    (x, y, w, h) =>
-      renderOnce(workflowJson, {
+    async (x, y, w, h) => {
+      // Expanded rect with bleed
+      const ex = Math.max(0, x - bleed);
+      const ey = Math.max(0, y - bleed);
+      const ew = Math.min(baseWidth - ex, w + (x - ex) + bleed);
+      const eh = Math.min(baseHeight - ey, h + (y - ey) + bleed);
+
+      const expandedRect = { x: ex, y: ey, width: ew, height: eh };
+
+      const expandedCanvas = await renderOnce(workflowJson, {
         ...options,
         bboxOverride,
-        tileRect: { x, y, width: w, height: h },
+        tileRect: expandedRect,
         previewFast: false,
         maxPixels: 0,
-      }),
+      });
+
+      const sx = x - ex;
+      const sy = y - ey;
+
+      // Crop to returning canvas
+      const cropCanvas = document.createElement("canvas");
+      cropCanvas.width = w;
+      cropCanvas.height = h;
+      const cropCtx = cropCanvas.getContext("2d", { alpha: true });
+      if (cropCtx) {
+        cropCtx.drawImage(expandedCanvas, sx, sy, w, h, 0, 0, w, h);
+      }
+      return cropCanvas;
+    },
     onProgress,
     perfLog,
     compressionLevel
@@ -578,10 +642,26 @@ export async function exportWorkflowPng(workflowJson, options = {}) {
   const scopeOpacity = Number.isFinite(scopeOpacityRaw)
     ? Math.min(100, Math.max(0, scopeOpacityRaw))
     : 30;
+  // [CWIE] v3: Fixed Ratio & Tile Bleed - Declarations moved below (consolidated)
   const previewFast = Boolean(options.previewFast);
   const pngCompression = clampPngCompression(options.pngCompression);
   const perfLog = createPerfLogger(debug, "[CWIE][ExportPng][perf]");
   perfLog?.("start", { format, scale, previewFast, backgroundMode, pngCompression });
+
+  // [CWIE] v3: Compute unified export settings
+  const exportPxRatioRaw = Number(options.exportPxRatio);
+  const exportPxRatio = Number.isFinite(exportPxRatioRaw)
+    ? Math.min(4, Math.max(1, exportPxRatioRaw))
+    : 1;
+
+  const tileBleedRaw = Number(options.tileBleed);
+  const tileBleed = Number.isFinite(tileBleedRaw)
+    ? Math.max(0, tileBleedRaw)
+    : 64;
+
+  const mediaMode = (options.mediaMode === "force" || options.mediaMode === "off" || options.mediaMode === "auto")
+    ? options.mediaMode
+    : "off";
 
   let renderOptions = {
     backgroundMode,
@@ -589,11 +669,18 @@ export async function exportWorkflowPng(workflowJson, options = {}) {
     includeGrid,
     padding,
     includeDomOverlays: options.includeDomOverlays !== false,
+    uiPxRatio: exportPxRatio,     // Fixed DPR (Zoom Invariant)
+    tileBleed,                   // Tile Bleed
+    mediaMode,                   // Media Render Mode
     debug,
     selectedNodeIds,
     cropToSelection: scopeSelected,
     previewFast,
+    maxPixels: 0, // Max pixels is only used for previewFast, otherwise it's 0
+    scale,
   };
+
+
 
   let bboxOverride = null;
   if (!previewFast) {
@@ -617,6 +704,15 @@ export async function exportWorkflowPng(workflowJson, options = {}) {
 
   const huge =
     bboxOverride && shouldTile(bboxOverride.width * scale, bboxOverride.height * scale);
+
+  if (huge) {
+    renderOptions = {
+      ...renderOptions,
+      includeDomOverlays: false, // Force disable overlays
+      // skipTextFallback: true, // Keep text valid in huge mode
+      mediaMode: "off",          // Force disable media
+    };
+  }
 
   if (huge && scopeSelected) {
     warnings.push("scope:disabled_for_huge");

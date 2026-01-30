@@ -126,6 +126,12 @@ export function canvasPointToGraph(uiCanvas, x, y) {
   return [x / ds.scale - ds.offset[0], y / ds.scale - ds.offset[1]];
 }
 
+export function getEffectivePxRatio(canvas) {
+  if (!canvas) return 1;
+  const rect = canvas.getBoundingClientRect();
+  return rect.width > 0 ? canvas.width / rect.width : 1;
+}
+
 export function getDomElementGraphRect(el, uiCanvas) {
   const canvasEl = uiCanvas?.canvas;
   const ds = uiCanvas?.ds;
@@ -137,8 +143,8 @@ export function getDomElementGraphRect(el, uiCanvas) {
   const r = el.getBoundingClientRect();
   if (!r.width || !r.height) return null;
 
-  const scaleX = canvasEl.width / rect.width;
-  const scaleY = canvasEl.height / rect.height;
+  const scaleX = getEffectivePxRatio(canvasEl);
+  const scaleY = scaleX; // Assume uniform scaling for now, or calculate separately if needed
 
   const sx = (r.left - rect.left) * scaleX;
   const sy = (r.top - rect.top) * scaleY;

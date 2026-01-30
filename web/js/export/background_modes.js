@@ -80,3 +80,15 @@ export function applyBackgroundMode(offscreen, options = {}) {
 
   return mode;
 }
+
+export function getExportBackgroundFillColor(options = {}) {
+  const mode = options.backgroundMode || "ui";
+  if (mode === "transparent") {
+    return null;
+  }
+  if (mode === "solid") {
+    return resolveSolidBackgroundColor(options);
+  }
+  // ui mode
+  return resolveUiBackgroundColor();
+}
