@@ -2016,50 +2016,7 @@ async function drawBackgroundImageOverlays({ exportCtx, uiCanvas, bounds, scale 
   }
 }
 
-function drawExportGrid(ctx, tileBounds, ds, uiCanvas) {
-  if (!ctx || !tileBounds || !ds) return;
 
-  ctx.save();
-  try {
-    const scale = ds.scale || 1;
-    const offsetX = ds.offset?.[0] || 0;
-    const offsetY = ds.offset?.[1] || 0;
-    const gridSize = uiCanvas?.grid_size || 10;
-
-    ctx.lineWidth = 1;
-    ctx.strokeStyle = "rgba(128, 128, 128, 0.2)";
-
-    const startX = (tileBounds.paddedMinX ?? tileBounds.minX ?? 0);
-    const startY = (tileBounds.paddedMinY ?? tileBounds.minY ?? 0);
-    const endX = startX + tileBounds.width;
-    const endY = startY + tileBounds.height;
-
-    const initialX = Math.floor(startX / gridSize) * gridSize;
-    const initialY = Math.floor(startY / gridSize) * gridSize;
-
-    ctx.beginPath();
-
-    for (let x = initialX; x <= endX; x += gridSize) {
-      const screenX = (x + offsetX) * scale;
-      if (screenX >= -1 && screenX <= ctx.canvas.width + 1) {
-        ctx.moveTo(screenX, 0);
-        ctx.lineTo(screenX, ctx.canvas.height);
-      }
-    }
-
-    for (let y = initialY; y <= endY; y += gridSize) {
-      const screenY = (y + offsetY) * scale;
-      if (screenY >= -1 && screenY <= ctx.canvas.height + 1) {
-        ctx.moveTo(0, screenY);
-        ctx.lineTo(ctx.canvas.width, screenY);
-      }
-    }
-
-    ctx.stroke();
-  } finally {
-    ctx.restore();
-  }
-}
 
 
 

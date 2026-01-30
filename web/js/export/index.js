@@ -470,9 +470,10 @@ async function renderTiledPng(workflowJson, options, bboxOverride, onProgress, p
   const tilesY = Math.ceil(baseHeight / TILE_SIZE);
 
   // [CWIE] v3: Tile Bleed for PNG
-  // [CWIE] v3: Tile Bleed for PNG
   const bleed = Number.isFinite(Number(options.tileBleed)) ? Math.max(0, Number(options.tileBleed)) : 64;
-  console.log(`[CWIE][Export] Tiled export: mode=png, tiles=${tilesX}x${tilesY}, size=${baseWidth}x${baseHeight}, ratio=${options.uiPxRatio}, bleed=${bleed}`);
+  if (options.debug) {
+    console.log(`[CWIE][Export] Tiled export: mode=png, tiles=${tilesX}x${tilesY}, size=${baseWidth}x${baseHeight}, ratio=${options.uiPxRatio}, bleed=${bleed}`);
+  }
 
   return encodePngFromTiles(
     baseWidth,
