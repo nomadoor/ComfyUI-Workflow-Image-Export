@@ -195,6 +195,9 @@ function adler32Update(state, data) {
 }
 
 function createStoreDeflateStream() {
+  if (typeof TransformStream === "undefined") {
+    return null;
+  }
   const MAX_BLOCK = 0xffff;
   const adler = { a: 1, b: 0 };
   let block = new Uint8Array(MAX_BLOCK);
@@ -246,9 +249,12 @@ function createStoreDeflateStream() {
 async function encodePngFromTiles(width, height, renderTile, onProgress, perfLog, compressionLevel) {
   const level = clampPngCompression(compressionLevel);
   const useStored = level === 0;
-  const pako = useStored ? null : await resolvePako();
+  const storedStream = useStored ? createStoreDeflateStream() : null;
+  const useStoredStream = Boolean(storedStream);
+  const pako = useStoredStream ? null : await resolvePako();
   const usePako = Boolean(pako);
-  if (!useStored && !usePako && !("CompressionStream" in window)) {
+  const hasCompressionStream = typeof CompressionStream !== "undefined";
+  if (!useStoredStream && !usePako && !hasCompressionStream) {
     throw new Error("CompressionStream not available for tiled PNG export.");
   }
   const signature = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
@@ -273,7 +279,7 @@ async function encodePngFromTiles(width, height, renderTile, onProgress, perfLog
     tilesY,
     totalTiles,
     compression: level,
-    encoder: useStored ? "store" : usePako ? "pako" : "stream",
+    encoder: useStoredStream ? "store" : usePako ? "pako" : "stream",
   });
   let completedTiles = 0;
 
@@ -367,16 +373,16 @@ async function encodePngFromTiles(width, height, renderTile, onProgress, perfLog
     },
   });
 
-  const compressed = await timeSpan(
-    perfLog,
-    useStored ? "tile.encode.store" : "tile.encode.compress",
-    () => {
-      const stream = useStored
-        ? rawStream.pipeThrough(createStoreDeflateStream())
-        : rawStream.pipeThrough(new CompressionStream("deflate"));
-      return new Response(stream).arrayBuffer();
-    }
-  );
+    const compressed = await timeSpan(
+      perfLog,
+      useStoredStream ? "tile.encode.store" : "tile.encode.compress",
+      () => {
+        const stream = useStoredStream
+          ? rawStream.pipeThrough(storedStream)
+          : rawStream.pipeThrough(new CompressionStream("deflate"));
+        return new Response(stream).arrayBuffer();
+      }
+    );
 
   const idatChunk = createPngChunk("IDAT", new Uint8Array(compressed));
   const iendChunk = createPngChunk("IEND", new Uint8Array());
