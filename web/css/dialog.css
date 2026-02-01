@@ -19,6 +19,7 @@
     0 1.125rem 2.5rem rgba(0, 0, 0, 0.45),
     0 0.25rem 0.875rem rgba(0, 0, 0, 0.35);
   padding: 1.25rem;
+  gap: 1.5rem;
   font-family: var(--font-family, system-ui, sans-serif);
   display: flex;
   flex-direction: column;
@@ -54,7 +55,6 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  min-height: 0;
 }
 
 .cwie-preview-image {
