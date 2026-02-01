@@ -743,6 +743,7 @@ export async function exportWorkflowPng(workflowJson, options = {}) {
   }
 
   if (huge) {
+    const forcePng = format === "webp";
     if (!scopeSelected && previewFast) {
       renderOptions = {
         ...renderOptions,
@@ -751,7 +752,7 @@ export async function exportWorkflowPng(workflowJson, options = {}) {
         skipMediaThumbnails: true,
       };
     }
-    if (format === "webp") {
+    if (forcePng) {
       warnings.push("format:force-png");
     }
     warnings.push("render:tiled-png");
@@ -762,7 +763,7 @@ export async function exportWorkflowPng(workflowJson, options = {}) {
       () => renderTiledPng(workflowJson, renderOptions, bboxOverride, reportProgress, perfLog, pngCompression)
     );
     reportProgress?.(1);
-    if (options.embedWorkflow !== false && format !== "webp") {
+    if (options.embedWorkflow !== false && !forcePng) {
       const json = toWorkflowJsonString(workflowJson);
       if (json) {
         try {
@@ -784,6 +785,11 @@ export async function exportWorkflowPng(workflowJson, options = {}) {
       } else {
         warnings.push("embed:failed");
       }
+    }
+    if (forcePng) {
+      const withType = blob?.type === "image/png" ? blob : new Blob([blob], { type: "image/png" });
+      withType.cwieFormat = "png";
+      blob = withType;
     }
     if (warnings.length) {
       blob.cwieWarnings = warnings;
