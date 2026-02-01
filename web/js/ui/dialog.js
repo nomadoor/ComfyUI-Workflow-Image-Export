@@ -937,7 +937,9 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
   const shouldCapturePointer = (event) => {
     const target = event?.target;
     if (!(target instanceof Element)) return true;
-    return !target.closest("button, input, select, textarea, label, .cwie-button");
+    return !target.closest(
+      "button, input, select, textarea, label, summary, details, .cwie-button, .cwie-select, .cwie-select-option"
+    );
   };
   controlsPane.addEventListener("pointerdown", (event) => {
     if (shouldCapturePointer(event) && controlsPane.setPointerCapture) {

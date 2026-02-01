@@ -1,4 +1,3 @@
-import { app } from "/scripts/app.js";
 import { toBlobAsync, toUint32, concatUint8, crc32 } from "../core/utils.js";
 
 import {
@@ -763,7 +762,7 @@ export async function exportWorkflowPng(workflowJson, options = {}) {
       () => renderTiledPng(workflowJson, renderOptions, bboxOverride, reportProgress, perfLog, pngCompression)
     );
     reportProgress?.(1);
-    if (options.embedWorkflow !== false && !forcePng) {
+    if (options.embedWorkflow !== false) {
       const json = toWorkflowJsonString(workflowJson);
       if (json) {
         try {
