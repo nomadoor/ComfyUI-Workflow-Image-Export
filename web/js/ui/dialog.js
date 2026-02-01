@@ -832,9 +832,21 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
       logExportPhase("capture.done");
       setDefaultsInSettings(state);
       logExportPhase("download.start");
+      const resolveExt = () => {
+        const hint = blob?.cwieFormat;
+        if (typeof hint === "string" && hint.trim()) {
+          return hint.trim().toLowerCase();
+        }
+        const type = String(blob?.type || "").toLowerCase();
+        if (type.includes("png")) return "png";
+        if (type.includes("webp")) return "webp";
+        if (type.includes("svg")) return "svg";
+        return state.format || "png";
+      };
+      const ext = resolveExt();
       await triggerDownload({
         blob,
-        filename: `workflow.${state.format || "png"}`,
+        filename: `workflow.${ext}`,
       });
       logExportPhase("download.done");
     } catch (error) {
