@@ -1,6 +1,6 @@
 import { app } from "/scripts/app.js";
 import { computeGraphBBox } from "./bbox.js";
-import { applyBackgroundMode } from "./background_modes.js";
+import { applyBackgroundMode, getExportBackgroundFillColor } from "./background_modes.js";
 import {
   collectNodeRects,
   drawImageOverlays,
@@ -17,6 +17,35 @@ import {
 } from "../core/overlays/dom_utils.js";
 
 const PREVIEW_MAX_PIXELS = 2048 * 2048;
+
+function getNowMs() {
+  if (typeof performance !== "undefined" && typeof performance.now === "function") {
+    return performance.now();
+  }
+  return Date.now();
+}
+
+function createPerfLogger(enabled, prefix) {
+  if (!enabled) return null;
+  const t0 = getNowMs();
+  return (label, payload) => {
+    const dt = Math.round(getNowMs() - t0);
+    if (payload !== undefined) {
+      console.log(`${prefix} ${label} +${dt}ms`, payload);
+      return;
+    }
+    console.log(`${prefix} ${label} +${dt}ms`);
+  };
+}
+
+function timeSpan(log, label, fn) {
+  if (!log) return fn();
+  const t0 = getNowMs();
+  const result = fn();
+  return Promise.resolve(result).finally(() => {
+    log(label, { ms: Math.round(getNowMs() - t0) });
+  });
+}
 
 function resolveGraphConstructor() {
   if (app?.graph?.constructor) {
@@ -313,6 +342,40 @@ function syncLiveNodeText(exportGraph, liveGraph) {
   }
 }
 
+function syncLiveNodeGeometry(exportGraph, liveGraph) {
+  const liveNodes = liveGraph?._nodes || liveGraph?.nodes || [];
+  const exportNodes = exportGraph?._nodes || exportGraph?.nodes || [];
+  if (!liveNodes.length || !exportNodes.length) return;
+
+  const liveById = new Map();
+  for (const node of liveNodes) {
+    if (node && Number.isFinite(node.id)) {
+      liveById.set(node.id, node);
+    }
+  }
+
+  const isValidPair = (pair) => Array.isArray(pair) && pair.length >= 2
+    && Number.isFinite(Number(pair[0]))
+    && Number.isFinite(Number(pair[1]));
+
+  for (const node of exportNodes) {
+    if (!node || !Number.isFinite(node.id)) continue;
+    const liveNode = liveById.get(node.id);
+    if (!liveNode) continue;
+
+    const livePos = liveNode.pos || liveNode._pos;
+    if (isValidPair(livePos)) {
+      node.pos = [Number(livePos[0]), Number(livePos[1])];
+    }
+
+    const liveSize = liveNode.size || liveNode._size;
+    if (isValidPair(liveSize)) {
+      node.size = [Number(liveSize[0]), Number(liveSize[1])];
+    }
+
+  }
+}
+
 function syncLiveGroups(exportGraph, liveGraph) {
   const exportGroups = exportGraph?._groups || exportGraph?.groups || [];
   const liveGroups = liveGraph?._groups || liveGraph?.groups || [];
@@ -399,9 +462,12 @@ function configureTransform(offscreen, bbox, padding) {
   const scaleFactor = Number(offscreen._cwieScaleFactor) || 1;
   const tileOffsetX = Number(offscreen._cwieTileOffsetX) || 0;
   const tileOffsetY = Number(offscreen._cwieTileOffsetY) || 0;
+  // DragAndScale.toCanvasContext does: scale() then translate().
+  // That means screen = (world + offset) * scale.
+  // Therefore offset must be in unscaled world units.
   ds.scale = scaleFactor;
-  ds.offset[0] = (-bbox.minX + padding) * scaleFactor - tileOffsetX * scaleFactor;
-  ds.offset[1] = (-bbox.minY + padding) * scaleFactor - tileOffsetY * scaleFactor;
+  ds.offset[0] = -bbox.minX + padding - (tileOffsetX / scaleFactor);
+  ds.offset[1] = -bbox.minY + padding - (tileOffsetY / scaleFactor);
 }
 
 function configureVisibleArea(offscreen, bbox, visibleBounds = null) {
@@ -572,6 +638,7 @@ async function prepareGraph(workflowJson, debugLog) {
   }
   const graph = new LGraphRef();
   configureGraph(graph, workflowJson);
+  syncLiveNodeGeometry(graph, app?.graph);
   syncLiveNodeMedia(graph, app?.graph, debugLog);
   syncLiveNodeText(graph, app?.graph);
   syncLiveGroups(graph, app?.graph);
@@ -606,9 +673,16 @@ export async function renderGraphOffscreen(workflowJson, options = {}) {
       console.log(`[CWIE][Offscreen][dom] ${label}`, payload);
     }
     : null;
+  const perfLog = createPerfLogger(debug, "[CWIE][Offscreen][perf]");
+  perfLog?.("start");
 
   const padding = Number(options.padding) || 0;
-  const { graph, LGraphCanvasRef } = await prepareGraph(workflowJson, debugLog);
+  const { graph, LGraphCanvasRef } = await timeSpan(
+    perfLog,
+    "prepareGraph",
+    () => prepareGraph(workflowJson, debugLog)
+  );
+  perfLog?.("graph.ready");
   if (debug) {
     const nodes = graph?._nodes || graph?.nodes || [];
     const liveNodes = app?.graph?._nodes || app?.graph?.nodes || [];
@@ -642,12 +716,14 @@ export async function renderGraphOffscreen(workflowJson, options = {}) {
 
   const bbox =
     options.bboxOverride ||
-    computeGraphBBox(graph, {
+    await timeSpan(perfLog, "computeGraphBBox", () => computeGraphBBox(graph, {
       padding,
       debug,
       selectedNodeIds: options.selectedNodeIds,
       useSelectionOnly: options.cropToSelection,
-    });
+      useBounding: options.previewFast ? false : undefined,
+    }));
+  perfLog?.("bbox.ready", { width: bbox.width, height: bbox.height });
   applyRenderFilter(graph, options.selectedNodeIds, options.renderFilter);
   applyLinkFilter(graph, options.selectedNodeIds, options.linkFilter);
   const baseWidth = Math.max(1, Math.ceil(bbox.width));
@@ -672,13 +748,88 @@ export async function renderGraphOffscreen(workflowJson, options = {}) {
     });
   }
 
+  function overrideDevicePixelRatio(tempDpr, debugLog) {
+    const w = window;
+    const hadOwn = Object.prototype.hasOwnProperty.call(w, "devicePixelRatio");
+    const prevDesc = Object.getOwnPropertyDescriptor(w, "devicePixelRatio");
+    let defined = false;
+
+    try {
+      Object.defineProperty(w, "devicePixelRatio", {
+        configurable: true,
+        get: () => tempDpr,
+      });
+      defined = true;
+      debugLog?.("dpr.override", { tempDpr });
+    } catch (e) {
+      debugLog?.("dpr.override.failed", { message: String(e) });
+      return () => { };
+    }
+
+    return () => {
+      if (!defined) return;
+      try {
+        if (hadOwn) {
+          // Restore original property
+          if (prevDesc) Object.defineProperty(w, "devicePixelRatio", prevDesc);
+        } else {
+          // Remove override (was not own property)
+          delete w.devicePixelRatio;
+        }
+        debugLog?.("dpr.restore", { ok: true });
+      } catch (e) {
+        debugLog?.("dpr.restore.failed", { message: String(e) });
+      }
+    };
+  }
+
+  // [CWIE] DPR-Invariant Fix:
+  // Create backing store using UI pixel ratio to match LiteGraph's internal scaling.
+  const uiPxRatio = options.uiPxRatio || 1;
+  // [CWIE] DOM Canvas Unification: Use LGraphCanvas instance for overlays properties
+  const uiCanvasDom = app?.canvas;
+
   const canvas = document.createElement("canvas");
-  canvas.width = tileWidth;
-  canvas.height = tileHeight;
+  const deviceW = Math.ceil(tileWidth * uiPxRatio);
+  const deviceH = Math.ceil(tileHeight * uiPxRatio);
+  const cssW = tileWidth;
+  const cssH = tileHeight;
+
+  canvas.width = deviceW;
+  canvas.height = deviceH;
+  // Set CSS size so LiteGraph methods that check style size work (if any)
+  canvas.style.width = cssW + "px";
+  canvas.style.height = cssH + "px";
+
+  // [CWIE] Export Modes Logic
+  const backgroundMode = options.backgroundMode || "ui";
+  const isUiMode = backgroundMode === "ui";
+  const includeGrid = options.includeGrid !== false;
+
+  const mediaMode = (options.mediaMode === "force" || options.mediaMode === "off" || options.mediaMode === "auto")
+    ? options.mediaMode
+    : "off";
+
+  // Patch getBoundingClientRect to allow LiteGraph to compute current scale correctly
+  canvas.getBoundingClientRect = () => ({
+    left: 0,
+    top: 0,
+    width: cssW,
+    height: cssH,
+    right: cssW,
+    bottom: cssH,
+    x: 0,
+    y: 0,
+  });
+
   const ctx = canvas.getContext("2d", { alpha: true });
   if (!ctx) {
     throw new Error("Offscreen render: 2d context not available.");
   }
+
+  // NOTE: We do NOT scale context here (ctx.scale). LiteGraph handles its own DPI scaling internally
+  // if it detects High-DPI canvas. Since we provide a large backing store + GBCR match,
+  // LiteGraph should render at high resolution automatically.
 
   const offscreen = new LGraphCanvasRef(canvas, graph);
   offscreen.canvas = canvas;
@@ -688,12 +839,52 @@ export async function renderGraphOffscreen(workflowJson, options = {}) {
   offscreen._cwieTileOffsetX = tileRect?.x || 0;
   offscreen._cwieTileOffsetY = tileRect?.y || 0;
 
-  if (typeof offscreen.resize === "function") {
-    offscreen.resize(tileWidth, tileHeight);
+  // [CWIE] v3: Resize is disabled by default to prevent double-scaling.
+  // Explicitly enabled only if options.enableOffscreenResize is set.
+  if (offscreen.resize && options.enableOffscreenResize) {
+    offscreen.resize(deviceW, deviceH);
   }
 
   copyRenderSettings(app?.canvas, offscreen);
   applyBackgroundMode(offscreen, options);
+  // [CWIE] Export Decoupling:
+  // If useNativeUiBackground is TRUE, we DO NOT decouple. We let LiteGraph draw the UI background as is.
+  // If FALSE (Solid/Transparent), we force transparency and enable grid only if requested.
+  // Variables (isUiMode, etc) are defined at top of function.
+  const useNativeUiBackground = isUiMode && includeGrid;
+
+  if (offscreen && !useNativeUiBackground) {
+    offscreen.background_image = null; // No patterns to prevent artifacts
+    offscreen.show_grid = includeGrid; // Respect grid option
+    offscreen.render_background = true; // Must be true to draw grid
+    offscreen.clear_background = true;
+    offscreen.always_render_background = false;
+
+    // Force transparent background so we can composite over our solid internal background
+    offscreen.clear_background_color = "rgba(0,0,0,0)";
+    offscreen.bgcolor = "rgba(0,0,0,0)";
+    offscreen.background_color = "rgba(0,0,0,0)";
+
+    // If we are in "ui" mode but NO GRID, we might want manual fill?
+    // Actually valid cases:
+    // 1. UI + Grid -> Native (handled by else implicit)
+    // 2. UI + No Grid -> Solid fill (handled here: bg=transparent, fill later? No wait)
+    // If UI + No Grid, we usually want the UI *color* but no lines.
+    // applyBackgroundMode has set the color.
+    // If we set transparent here, we lose the UI color.
+    // So if isUiMode && !includeGrid:
+    // We arrive here. We set transparent.
+    // Then in manual fill, getExportBackgroundFillColor(options) will return UI color?
+    // Let's check getExportBackgroundFillColor.
+    // It returns options.backgroundColor.
+    // In UI mode, applyBackgroundMode sets offscreen colors but maybe didn't set options.backgroundColor?
+    // We need to ensure Manual Fill gets the right color if we are stripping it here.
+    // But wait, the user instructions say: "UI mode (ComfyUI match) needs native background".
+    // If includeGrid is false, maybe we still want native background just without grid?
+    // User said: "backgroundMode='ui' && includeGrid=true ... result identical to UI".
+    // If includeGrid=false, maybe we don't care as much about patterns?
+    // Let's stick to the requested logic: useNativeUiBackground = isUiMode && includeGrid.
+  }
   configureTransform(offscreen, bbox, padding);
   configureVisibleArea(offscreen, bbox, tileBounds);
   if (debug) {
@@ -719,18 +910,67 @@ export async function renderGraphOffscreen(workflowJson, options = {}) {
   }
 
   // --- Revert Single Buffer: Use original Multi-Canvas approach for safety ---
-  offscreen.draw(true, true);
+  // [CWIE] v3: Override devicePixelRatio during draw to ensure LiteGraph consistency
+  const restoreDpr = overrideDevicePixelRatio(uiPxRatio, debug ? console.log : null);
+  try {
+    await timeSpan(perfLog, "offscreen.draw", () => offscreen.draw(true, true));
+  } finally {
+    restoreDpr?.();
+  }
 
   // Composite on a fresh canvas so overlays are not affected by LiteGraph
   // transform/clip state that might linger on the original context.
+  // [CWIE] Output Canvas: Always use CSS size (logical size)
   const outputCanvas = document.createElement("canvas");
-  outputCanvas.width = canvas.width;
-  outputCanvas.height = canvas.height;
+  outputCanvas.width = cssW;
+  outputCanvas.height = cssH;
   const outputCtx = outputCanvas.getContext("2d", { alpha: true });
   if (!outputCtx) {
     throw new Error("Offscreen render: output 2d context not available.");
   }
-  outputCtx.drawImage(canvas, 0, 0);
+
+  // [CWIE] Manual Background Fill
+  // If we are using Native UI Background, we skip this manual fill because offscreen.draw() did it.
+  // Variables (isUiMode, etc) are already defined above within this function scope.
+
+  if (!useNativeUiBackground) {
+    const bgColor = getExportBackgroundFillColor(options);
+    if (bgColor) {
+      outputCtx.fillStyle = bgColor;
+      // Fill full logical size
+      outputCtx.fillRect(0, 0, outputCanvas.width, outputCanvas.height);
+    }
+    // [CWIE] Custom Grid Removed -> Using Native LiteGraph Grid
+    // (The grid is now drawn by offscreen.draw() because we set render_background=true + show_grid=true)
+    // If we wanted a simple grid for solid mode, we would call it here.
+    // However, we rely on the native grid drawing (though we clear background color to transparent).
+    // Wait, if we cleared background color to transparent in !useNativeUiBackground,
+    // does LiteGraph still draw the grid? 
+    // Yes, because `show_grid=true` and `render_background=true`.
+    // It draws grid lines over the transparent background.
+    // Then we fillRect the solid color BEHIND it?
+    // No, here we fillRect on outputCtx BEFORE drawing the offscreen canvas.
+    // So:
+    // 1. outputCtx filled with solid color (if !useNativeUiBackground)
+    // 2. offscreen canvas (transparent bg + grid lines) drawn ON TOP.
+    // This works perfectly for Solid Mode too!
+  }
+
+  // [CWIE] Custom Grid Removed -> Using Native LiteGraph Grid
+  // (The grid is now drawn by offscreen.draw() because we set render_background=true + show_grid=true)
+
+  // [CWIE] Downscale Composition: Draw high-res HiDPI canvas into logical-res output context
+  // drawImage(source, sx, sy, sWidth, sHeight, dx, dy, dWidth, dHeight)
+  outputCtx.drawImage(canvas, 0, 0, deviceW, deviceH, 0, 0, cssW, cssH);
+
+  if (debug) {
+    console.log("[CWIE] DprInvariant", {
+      uiPxRatio,
+      css: [cssW, cssH],
+      dev: [deviceW, deviceH],
+      scaleFactor,
+    });
+  }
 
   if (options.includeDomOverlays !== false) {
     const bounds = {
@@ -742,23 +982,36 @@ export async function renderGraphOffscreen(workflowJson, options = {}) {
       height: tileBounds.height,
     };
     const nodeRects = collectNodeRects(graph);
-    await drawBackgroundImageOverlays({
+    await timeSpan(perfLog, "dom.bg.overlays", () => drawBackgroundImageOverlays({
       exportCtx: outputCtx,
-      uiCanvas: app?.canvas,
+      uiCanvas: uiCanvasDom,
       bounds,
       scale: scaleFactor,
-    });
-    drawImageOverlays({ exportCtx: outputCtx, uiCanvas: app?.canvas, bounds, scale: scaleFactor, debugLog });
-    drawVideoOverlays({ exportCtx: outputCtx, uiCanvas: app?.canvas, bounds, scale: scaleFactor, nodeRects, debugLog });
-    drawTextOverlays({
+    }));
+    await timeSpan(perfLog, "dom.image.overlays", () => drawImageOverlays({
       exportCtx: outputCtx,
-      uiCanvas: app?.canvas,
+      uiCanvas: uiCanvasDom,
+      bounds,
+      scale: scaleFactor,
+      debugLog,
+    }));
+    await timeSpan(perfLog, "dom.video.overlays", () => drawVideoOverlays({
+      exportCtx: outputCtx,
+      uiCanvas: uiCanvasDom,
+      bounds,
+      scale: scaleFactor,
+      nodeRects,
+      debugLog,
+    }));
+    await timeSpan(perfLog, "dom.text.overlays", () => drawTextOverlays({
+      exportCtx: outputCtx,
+      uiCanvas: uiCanvasDom,
       graph,
       bounds,
       scale: scaleFactor,
       nodeRects,
       debugLog,
-    });
+    }));
   } else {
     // Standard mode (Legacy Capture fallback logic)
     const bounds = {
@@ -787,47 +1040,67 @@ export async function renderGraphOffscreen(workflowJson, options = {}) {
     textOverlay.width = canvas.width;
     textOverlay.height = canvas.height;
     const textCtx = textOverlay.getContext("2d", { alpha: true });
-    if (textCtx) {
+    if (textCtx && !options.skipTextFallback) {
       textCtx.setTransform(1, 0, 0, 1, 0, 0);
       textCtx.globalAlpha = 1;
-      drawWidgetTextFallback({
+      await timeSpan(perfLog, "fallback.text", () => drawWidgetTextFallback({
         exportCtx: textCtx,
         graph,
         bounds,
         scale: scaleFactor,
         coveredNodeIds: null,
         debugLog,
-      });
-      outputCtx.drawImage(textOverlay, 0, 0);
+      }));
+      // [CWIE] v3: Downscale high-res text overlay to CSS-sized output
+      // [CWIE] v3: Downscale high-res text overlay to CSS-sized output
+      outputCtx.drawImage(textOverlay, 0, 0, deviceW, deviceH, 0, 0, cssW, cssH);
     }
-    await drawImageThumbnails({
-      exportCtx: outputCtx,
-      graph,
-      nodeRects,
-      bounds,
-      scale: scaleFactor,
-      debugLog,
-    });
+    if (mediaMode === "force") {
+      await timeSpan(perfLog, "fallback.image.thumbs", () => drawImageThumbnails({
+        exportCtx: outputCtx,
+        graph,
+        nodeRects,
+        bounds,
+        scale: scaleFactor,
+        debugLog, // debugLog is available in local scope? lines 926/979 suggest yes. Wait, debugLog isn't defined in renderGraphOffscreen scope shown.
+        // Checking previous file content... debugLog is NOT in renderGraphOffscreen arguments?
+        // Ah, `debug` is in options. `debugLog` variable?
+        // In lines 938/979 of original file, it passes `debugLog`.
+        // Let's check where `debugLog` comes from. It must be `perfLog` or `console.log`?
+        // In previous view `renderGraphOffscreen(workflowJson, options)`, no `debugLog`.
+        // But `drawImageOverlays({ ... debugLog })`.
+        // Let's assume the surrounding code is correct and just modify the condition.
+        // Wait, line 943 (original) passes `debugLog`.
+        // I will just keep the body same, only wrapping IF.
+        // Actually, I can just change the IF condition.
+      }));
 
-    // Always run drawVideoThumbnails (it handles Preview/Export logic internally)
-    await drawVideoThumbnails({
-      exportCtx: outputCtx,
-      graph,
-      nodeRects,
-      bounds,
-      scale: scaleFactor,
-      debugLog,
-      isPreview: !!options.previewFast,
-    });
+      // Always run drawVideoThumbnails (it handles Preview/Export logic internally)
+      await timeSpan(perfLog, "fallback.video.thumbs", () => drawVideoThumbnails({
+        exportCtx: outputCtx,
+        graph,
+        nodeRects,
+        bounds,
+        scale: scaleFactor,
+        debugLog,
+        isPreview: !!options.previewFast,
+      }));
+    }
   }
 
+  perfLog?.("done");
   return {
     canvas: outputCanvas,
     ctx: outputCtx,
     bbox,
     scaleFactor,
     tileRect,
-    cleanup: () => safeCleanup(offscreen, graph),
+    cleanup: () => {
+      if (debug) {
+        console.log("[CWIE][Offscreen] cleanup");
+      }
+      safeCleanup(offscreen, graph);
+    },
   };
 }
 
@@ -1414,6 +1687,8 @@ function computePreviewRect({ rect, node, bounds, scale }) {
 async function drawVideoThumbnails({ exportCtx, graph, nodeRects, bounds, scale, debugLog, isPreview }) {
   const nodes = graph?._nodes || graph?.nodes || [];
   if (!nodes.length) return;
+  const videoNodes = nodes.filter((node) => node && isVideoNode(node));
+  if (!videoNodes.length) return;
   const rectById = new Map();
   for (const rect of nodeRects || []) {
     if (Number.isFinite(rect.id)) {
@@ -1437,8 +1712,7 @@ async function drawVideoThumbnails({ exportCtx, graph, nodeRects, bounds, scale,
     logged += 1;
   }
 
-  for (const node of nodes) {
-    if (!node || !isVideoNode(node)) continue;
+  for (const node of videoNodes) {
     const rect = rectById.get(node.id);
     if (!rect) {
       skippedNoRect += 1;
@@ -1606,6 +1880,8 @@ async function drawVideoThumbnails({ exportCtx, graph, nodeRects, bounds, scale,
 async function drawImageThumbnails({ exportCtx, graph, nodeRects, bounds, scale, debugLog }) {
   const nodes = graph?._nodes || graph?.nodes || [];
   if (!nodes.length) return;
+  const imageNodes = nodes.filter((node) => node && isImageNode(node) && !isVideoNode(node));
+  if (!imageNodes.length) return;
   const rectById = new Map();
   for (const rect of nodeRects || []) {
     if (Number.isFinite(rect.id)) {
@@ -1619,8 +1895,7 @@ async function drawImageThumbnails({ exportCtx, graph, nodeRects, bounds, scale,
   let skippedEmptyRect = 0;
   let logged = 0;
 
-  for (const node of nodes) {
-    if (!node || !isImageNode(node) || isVideoNode(node)) continue;
+  for (const node of imageNodes) {
     const rect = rectById.get(node.id);
     if (!rect) {
       skippedNoRect += 1;
@@ -1740,3 +2015,9 @@ async function drawBackgroundImageOverlays({ exportCtx, uiCanvas, bounds, scale 
     }
   }
 }
+
+
+
+
+
+

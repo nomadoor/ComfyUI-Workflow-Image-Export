@@ -16,6 +16,8 @@ let activeDialog = null;
 let activeMessageDialog = null;
 let activeDialogCleanup = null;
 
+const PREVIEW_MAX_PIXELS = 1024 * 1024;
+
 function ensureStyles() {
   if (document.getElementById("cwie-styles")) {
     return;
@@ -335,7 +337,7 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
   previewPane.className = "cwie-preview-pane";
 
   const previewFrame = document.createElement("div");
-  previewFrame.className = "cwie-preview-frame is-fit";
+  previewFrame.className = "cwie-preview-frame is-fit is-loading";
 
   const previewImg = document.createElement("img");
   previewImg.className = "cwie-preview-image";
@@ -440,11 +442,21 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
   const advancedBody = document.createElement("div");
   advancedBody.className = "cwie-advanced-body";
 
-  const outputResolutionSelect = createSelect("resolution", [
-    { value: "auto", label: "Auto" },
-    { value: "100%", label: "100%" },
-    { value: "200%", label: "200%" },
-  ]);
+  const pngCompressionInput = document.createElement("input");
+  pngCompressionInput.type = "range";
+  pngCompressionInput.min = "0";
+  pngCompressionInput.max = "9";
+  pngCompressionInput.step = "1";
+  pngCompressionInput.className = "cwie-range";
+
+  const pngCompressionValue = document.createElement("span");
+  pngCompressionValue.className = "cwie-range-value";
+  pngCompressionValue.textContent = "6";
+
+  const pngCompressionWrapper = document.createElement("div");
+  pngCompressionWrapper.className = "cwie-range-wrapper";
+  pngCompressionWrapper.appendChild(pngCompressionInput);
+  pngCompressionWrapper.appendChild(pngCompressionValue);
 
   const maxLongEdgeInput = document.createElement("input");
   maxLongEdgeInput.type = "number";
@@ -463,12 +475,14 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
       embedToggle.input.disabled = false;
       formatSelect.setDisabled(false);
       embedNote.textContent = "";
+      pngCompressionInput.disabled = false;
       return;
     }
 
     embedToggle.input.checked = false;
     embedToggle.input.disabled = true;
     formatSelect.setDisabled(false);
+    pngCompressionInput.disabled = true;
 
     if (v === "webp") {
       embedNote.textContent =
@@ -488,7 +502,8 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
     solidColorInput.value = nextState.solidColor;
     paddingInput.value = String(nextState.padding);
     paddingValue.textContent = String(nextState.padding);
-    outputResolutionSelect.setValue(nextState.outputResolution);
+    pngCompressionInput.value = String(nextState.pngCompression);
+    pngCompressionValue.textContent = String(nextState.pngCompression);
     maxLongEdgeInput.value = String(nextState.maxLongEdge);
     exceedSelect.setValue(nextState.exceedMode);
     if (solidColorRow) {
@@ -512,7 +527,7 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
       background: [...backgroundGroup.inputs.values()].find((input) => input.checked)?.value,
       solidColor: solidColorInput.value,
       padding: paddingInput.value,
-      outputResolution: outputResolutionSelect.getValue(),
+      pngCompression: pngCompressionInput.value,
       maxLongEdge: maxLongEdgeInput.value,
       exceedMode: exceedSelect.getValue(),
     });
@@ -543,16 +558,24 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
 
   let previewUrl = null;
   let previewTimer = null;
+  let previewIdle = null;
   let previewBusy = false;
   let previewQueued = false;
   let dialogClosed = false;
+  let previewToken = 0;
+  let previewPaused = false;
 
   const cleanupDialog = () => {
     if (dialogClosed) return;
     dialogClosed = true;
+    previewToken += 1;
     if (previewTimer) {
       clearTimeout(previewTimer);
       previewTimer = null;
+    }
+    if (previewIdle && "cancelIdleCallback" in window) {
+      window.cancelIdleCallback(previewIdle);
+      previewIdle = null;
     }
     previewQueued = false;
     previewBusy = false;
@@ -573,10 +596,15 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
 
   async function renderPreview() {
     if (dialogClosed) return;
+    if (previewPaused) {
+      previewQueued = true;
+      return;
+    }
     if (previewBusy) {
       previewQueued = true;
       return;
     }
+    const token = previewToken;
     updateStateFromControls();
     updateScopeAvailability();
     const selectedIds = getSelectedNodeIds();
@@ -588,14 +616,13 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
       maxLongEdge: 0,
       selectedNodeIds: selectedIds,
       previewFast: true,
+      previewMaxPixels: PREVIEW_MAX_PIXELS,
     };
     try {
       previewBusy = true;
-      if (!previewImg.src) {
-        previewFrame.classList.add("is-loading");
-      }
+      previewFrame.classList.add("is-loading");
       const blob = await capture(previewState);
-      if (dialogClosed) {
+      if (dialogClosed || token !== previewToken) {
         previewFrame.classList.remove("is-loading");
         return;
       }
@@ -621,24 +648,58 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
     }
   }
 
-  function schedulePreview() {
+  function schedulePreview(delay = 450) {
     if (dialogClosed) return;
+    if (previewPaused) {
+      previewQueued = true;
+      return;
+    }
     if (previewTimer) {
       clearTimeout(previewTimer);
     }
-    previewTimer = setTimeout(() => {
-      previewTimer = null;
+    if (previewIdle && "cancelIdleCallback" in window) {
+      window.cancelIdleCallback(previewIdle);
+      previewIdle = null;
+    }
+    const run = () => {
       if (!dialogClosed) {
         renderPreview();
       }
-    }, 450);
+    };
+    previewTimer = setTimeout(() => {
+      previewTimer = null;
+      if (dialogClosed) return;
+      if ("requestIdleCallback" in window) {
+        previewIdle = window.requestIdleCallback(() => {
+          previewIdle = null;
+          run();
+        }, { timeout: 1500 });
+        return;
+      }
+      run();
+    }, delay);
   }
 
   function handleChange() {
+    previewToken += 1;
     updateStateFromControls();
     previewFrame.classList.toggle("is-transparent", state.background === "transparent");
     schedulePreview();
   }
+
+  const pausePreview = () => {
+    previewPaused = true;
+  };
+
+  const resumePreview = (delay = 200) => {
+    if (dialogClosed) return;
+    if (!previewPaused) return;
+    previewPaused = false;
+    if (previewQueued) {
+      previewQueued = false;
+      schedulePreview(delay);
+    }
+  };
 
   formatSelect.onChange((value) => {
     syncEmbedAvailability(value);
@@ -651,7 +712,10 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
     paddingValue.textContent = paddingInput.value;
     handleChange();
   });
-  outputResolutionSelect.onChange(() => handleChange());
+  pngCompressionInput.addEventListener("input", () => {
+    pngCompressionValue.textContent = pngCompressionInput.value;
+    handleChange();
+  });
   maxLongEdgeInput.addEventListener("change", () => handleChange());
   exceedSelect.onChange(() => handleChange());
   scopeToggle.input.addEventListener("change", () => {
@@ -707,28 +771,84 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
   const exportButton = document.createElement("button");
   exportButton.type = "button";
   exportButton.className = "cwie-button primary";
-  exportButton.textContent = "Export";
+  exportButton.textContent = "";
 
   const exportSpinner = document.createElement("span");
   exportSpinner.className = "cwie-spinner";
   exportSpinner.setAttribute("aria-hidden", "true");
-  exportButton.prepend(exportSpinner);
+  const exportLabel = document.createElement("span");
+  exportLabel.className = "cwie-button-label";
+  exportLabel.textContent = "Export";
+  const exportProgressText = document.createElement("span");
+  exportProgressText.className = "cwie-button-progress";
+  exportProgressText.textContent = "0%";
+  exportButton.append(exportSpinner, exportLabel, exportProgressText);
 
   exportButton.addEventListener("click", async () => {
     exportButton.disabled = true;
     cancelButton.disabled = true;
     exportButton.classList.add("is-busy");
     onExportStarted?.();
+    const exportT0 = performance.now();
+    const logExportPhase = (label) => {
+      if (!state.debug) return;
+      const dt = Math.round(performance.now() - exportT0);
+      console.log(`[CWIE][Export][perf] ${label} +${dt}ms`);
+    };
+
+    const updateExportProgress = (payload) => {
+      const value = payload?.value;
+      if (!Number.isFinite(value)) {
+        exportButton.classList.remove("is-progressing");
+        exportProgressText.textContent = "0%";
+        return;
+      }
+      const exportProgressValue = Math.max(0, Math.min(1, value));
+      const percent = Number.isFinite(payload?.percent)
+        ? payload.percent
+        : Math.round(exportProgressValue * 100);
+      exportButton.classList.add("is-progressing");
+      exportProgressText.textContent = `${percent}%`;
+    };
+
     updateStateFromControls();
     updateScopeAvailability();
+    const expectsTiling = state.exceedMode === "tile";
+    if (expectsTiling) {
+      exportButton.classList.add("is-progressing");
+      exportProgressText.textContent = "0%";
+    }
+    // Allow the busy spinner/progress to paint before heavy export work.
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+    logExportPhase("ui.ready");
     let messageDialogPayload = null;
     try {
-      const blob = await capture(state);
+      logExportPhase("capture.start");
+      const blob = await capture({
+        ...state,
+        onProgress: updateExportProgress,
+      });
+      logExportPhase("capture.done");
       setDefaultsInSettings(state);
+      logExportPhase("download.start");
+      const resolveExt = () => {
+        const hint = blob?.cwieFormat;
+        if (typeof hint === "string" && hint.trim()) {
+          return hint.trim().toLowerCase();
+        }
+        const type = String(blob?.type || "").toLowerCase();
+        if (type.includes("png")) return "png";
+        if (type.includes("webp")) return "webp";
+        if (type.includes("svg")) return "svg";
+        return state.format || "png";
+      };
+      const ext = resolveExt();
       await triggerDownload({
         blob,
-        filename: `workflow.${state.format || "png"}`,
+        filename: `workflow.${ext}`,
       });
+      logExportPhase("download.done");
     } catch (error) {
       if (isNode2UnsupportedError(error)) {
         messageDialogPayload = {
@@ -740,9 +860,16 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
         console.error("[workflow-image-export] export failed", error);
       }
     } finally {
+      exportButton.classList.remove("is-progressing");
+      exportProgressText.textContent = "0%";
       exportButton.classList.remove("is-busy");
       onExportFinished?.();
       closeDialog();
+      logExportPhase("dialog.closed");
+      setTimeout(() => logExportPhase("post.0ms"), 0);
+      setTimeout(() => logExportPhase("post.250ms"), 250);
+      setTimeout(() => logExportPhase("post.1000ms"), 1000);
+      setTimeout(() => logExportPhase("post.2000ms"), 2000);
       if (messageDialogPayload) {
         openMessageDialog(messageDialogPayload);
       }
@@ -768,7 +895,7 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
   controlsScroll.appendChild(createRow("Scope", scopeToggle.wrapper));
   controlsScroll.appendChild(createRow("Opacity", scopeOpacityWrapper));
 
-  advancedBody.appendChild(createRow("Output resolution", outputResolutionSelect.root));
+  advancedBody.appendChild(createRow("PNG Compression", pngCompressionWrapper));
   advancedBody.appendChild(createRow("Max long edge", maxLongEdgeInput));
   advancedBody.appendChild(createRow("If exceeded", exceedSelect.root));
 
@@ -805,11 +932,58 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
   updateScopeAvailability(true);
   previewFrame.classList.toggle("is-transparent", state.background === "transparent");
   solidColorRow.classList.toggle("is-hidden", state.background !== "solid");
-  renderPreview();
+  // Defer first preview so the dialog paints immediately.
+  setTimeout(() => {
+    if (!dialogClosed) {
+      schedulePreview(0);
+    }
+  }, 0);
 
   previewImg.addEventListener("load", () => {
     if (!dialogClosed) {
       previewFrame.classList.remove("is-loading");
     }
+  });
+
+  const previewCaptureIds = new Set();
+  const shouldCapturePointer = (event) => {
+    const target = event?.target;
+    if (!(target instanceof Element)) return true;
+    return !target.closest(
+      "button, input, select, textarea, label, summary, details, .cwie-button, .cwie-select, .cwie-select-option"
+    );
+  };
+  controlsPane.addEventListener("pointerdown", (event) => {
+    if (shouldCapturePointer(event) && controlsPane.setPointerCapture) {
+      try {
+        controlsPane.setPointerCapture(event.pointerId);
+        previewCaptureIds.add(event.pointerId);
+      } catch (_) {
+        // ignore capture failures
+      }
+    }
+    pausePreview();
+  });
+  controlsPane.addEventListener("pointerup", (event) => {
+    if (previewCaptureIds.has(event.pointerId) && controlsPane.releasePointerCapture) {
+      try {
+        controlsPane.releasePointerCapture(event.pointerId);
+      } catch (_) {
+        // ignore release failures
+      }
+      previewCaptureIds.delete(event.pointerId);
+    }
+    resumePreview(150);
+  });
+  controlsPane.addEventListener("pointercancel", (event) => {
+    if (previewCaptureIds.has(event.pointerId) && controlsPane.releasePointerCapture) {
+      try {
+        controlsPane.releasePointerCapture(event.pointerId);
+      } catch (_) {
+        // ignore release failures
+      }
+      previewCaptureIds.delete(event.pointerId);
+    }
+    resumePreview(150);
   });
 }

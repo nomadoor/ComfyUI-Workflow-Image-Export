@@ -46,7 +46,7 @@
   width: 100%;
   height: 100%;
   min-height: 12rem;
-  background: #0f0f0f;
+  background: transparent;
   border-radius: 0.5rem;
   overflow: hidden;
   display: flex;
@@ -354,20 +354,20 @@
   transition: 0.2s ease;
 }
 
-.cwie-toggle input:checked + .cwie-toggle-slider {
+.cwie-toggle input:checked+.cwie-toggle-slider {
   background: var(--highlight-color, #4a90e2);
 }
 
-.cwie-toggle input:checked + .cwie-toggle-slider::before {
+.cwie-toggle input:checked+.cwie-toggle-slider::before {
   transform: translate(1.125rem, -50%);
 }
 
-.cwie-toggle input:disabled + .cwie-toggle-slider {
+.cwie-toggle input:disabled+.cwie-toggle-slider {
   opacity: 0.5;
   cursor: not-allowed;
 }
 
-.cwie-toggle input:disabled + .cwie-toggle-slider::before {
+.cwie-toggle input:disabled+.cwie-toggle-slider::before {
   background: #b0b0b0;
 }
 
@@ -439,6 +439,7 @@
 
 .cwie-footer-right {
   display: flex;
+  align-items: center;
   gap: 0.5rem;
 }
 
@@ -465,16 +466,53 @@
   color: #0b1020;
 }
 
+.cwie-button.primary .cwie-button-label {
+  color: #0b1020;
+}
+
 .cwie-button.reset {
   font-size: 0.7rem;
   padding: 0.3rem 0.5rem;
   opacity: 0.7;
 }
 
+.cwie-button-label {
+  line-height: 1;
+  font-weight: 600;
+}
+
+.cwie-button-progress {
+  display: none;
+  text-align: right;
+  font-size: 0.7rem;
+  opacity: 0.9;
+  font-weight: 600;
+}
+
+.cwie-button.is-progressing .cwie-button-progress {
+  display: inline-block;
+}
+
+.cwie-button.primary .cwie-button-progress {
+  color: #ffffff;
+}
+
 
 .cwie-button:disabled {
-  opacity: 0.6;
   cursor: default;
+}
+
+.cwie-button.primary.is-busy {
+  background: #2f5f9f;
+}
+
+.cwie-button.primary.is-busy .cwie-button-label {
+  color: #0b1020;
+}
+
+.cwie-button.primary.is-busy .cwie-spinner {
+  border-color: rgba(255, 255, 255, 0.45);
+  border-top-color: rgba(255, 255, 255, 0.95);
 }
 
 .cwie-link {
@@ -518,6 +556,7 @@
   .cwie-dialog-grid {
     grid-template-columns: 1fr;
   }
+
   .cwie-preview-frame {
     min-height: 14rem;
   }
@@ -530,5 +569,15 @@
 @keyframes cwie-spin {
   to {
     transform: rotate(360deg);
+  }
+}
+
+@keyframes cwie-progress-indeterminate {
+  0% {
+    transform: translateX(-100%);
+  }
+
+  100% {
+    transform: translateX(220%);
   }
 }
