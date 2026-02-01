@@ -19,6 +19,7 @@
     0 1.125rem 2.5rem rgba(0, 0, 0, 0.45),
     0 0.25rem 0.875rem rgba(0, 0, 0, 0.35);
   padding: 1.25rem;
+  gap: 2rem;
   font-family: var(--font-family, system-ui, sans-serif);
   display: flex;
   flex-direction: column;
@@ -39,13 +40,12 @@
   gap: 0.5rem;
   min-height: 0;
   justify-content: center;
-  height: 100%;
 }
 
 .cwie-preview-frame {
   position: relative;
   width: 100%;
-  height: 100%;
+  max-height: 100%;
   min-height: 12rem;
   background: transparent;
   border-radius: 0.5rem;
@@ -53,8 +53,6 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  flex: 1;
-  min-height: 0;
 }
 
 .cwie-preview-image {
