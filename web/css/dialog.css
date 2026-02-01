@@ -39,6 +39,7 @@
   gap: 0.5rem;
   min-height: 0;
   justify-content: center;
+  height: 100%;
 }
 
 .cwie-preview-frame {
@@ -52,6 +53,8 @@
   display: flex;
   align-items: center;
   justify-content: center;
+  flex: 1;
+  max-height: 100%;
 }
 
 .cwie-preview-image {
@@ -59,6 +62,8 @@
   max-width: 100%;
   max-height: 100%;
   object-fit: contain;
+  width: 100%;
+  height: 100%;
 }
 
 .cwie-preview-frame.is-transparent {
