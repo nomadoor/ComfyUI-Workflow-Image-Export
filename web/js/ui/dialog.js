@@ -442,12 +442,6 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
   const advancedBody = document.createElement("div");
   advancedBody.className = "cwie-advanced-body";
 
-  const outputResolutionSelect = createSelect("resolution", [
-    { value: "auto", label: "Auto" },
-    { value: "100%", label: "100%" },
-    { value: "200%", label: "200%" },
-  ]);
-
   const pngCompressionInput = document.createElement("input");
   pngCompressionInput.type = "range";
   pngCompressionInput.min = "0";
@@ -508,7 +502,6 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
     solidColorInput.value = nextState.solidColor;
     paddingInput.value = String(nextState.padding);
     paddingValue.textContent = String(nextState.padding);
-    outputResolutionSelect.setValue(nextState.outputResolution);
     pngCompressionInput.value = String(nextState.pngCompression);
     pngCompressionValue.textContent = String(nextState.pngCompression);
     maxLongEdgeInput.value = String(nextState.maxLongEdge);
@@ -534,7 +527,6 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
       background: [...backgroundGroup.inputs.values()].find((input) => input.checked)?.value,
       solidColor: solidColorInput.value,
       padding: paddingInput.value,
-      outputResolution: outputResolutionSelect.getValue(),
       pngCompression: pngCompressionInput.value,
       maxLongEdge: maxLongEdgeInput.value,
       exceedMode: exceedSelect.getValue(),
@@ -720,7 +712,6 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
     paddingValue.textContent = paddingInput.value;
     handleChange();
   });
-  outputResolutionSelect.onChange(() => handleChange());
   pngCompressionInput.addEventListener("input", () => {
     pngCompressionValue.textContent = pngCompressionInput.value;
     handleChange();
@@ -892,7 +883,6 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
   controlsScroll.appendChild(createRow("Scope", scopeToggle.wrapper));
   controlsScroll.appendChild(createRow("Opacity", scopeOpacityWrapper));
 
-  // advancedBody.appendChild(createRow("Output resolution", outputResolutionSelect.root));
   advancedBody.appendChild(createRow("PNG Compression", pngCompressionWrapper));
   advancedBody.appendChild(createRow("Max long edge", maxLongEdgeInput));
   advancedBody.appendChild(createRow("If exceeded", exceedSelect.root));
@@ -943,7 +933,43 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
     }
   });
 
-  controlsPane.addEventListener("pointerdown", pausePreview);
-  controlsPane.addEventListener("pointerup", () => resumePreview(150));
-  controlsPane.addEventListener("pointercancel", () => resumePreview(150));
+  const previewCaptureIds = new Set();
+  const shouldCapturePointer = (event) => {
+    const target = event?.target;
+    if (!(target instanceof Element)) return true;
+    return !target.closest("button, input, select, textarea, label, .cwie-button");
+  };
+  controlsPane.addEventListener("pointerdown", (event) => {
+    if (shouldCapturePointer(event) && controlsPane.setPointerCapture) {
+      try {
+        controlsPane.setPointerCapture(event.pointerId);
+        previewCaptureIds.add(event.pointerId);
+      } catch (_) {
+        // ignore capture failures
+      }
+    }
+    pausePreview();
+  });
+  controlsPane.addEventListener("pointerup", (event) => {
+    if (previewCaptureIds.has(event.pointerId) && controlsPane.releasePointerCapture) {
+      try {
+        controlsPane.releasePointerCapture(event.pointerId);
+      } catch (_) {
+        // ignore release failures
+      }
+      previewCaptureIds.delete(event.pointerId);
+    }
+    resumePreview(150);
+  });
+  controlsPane.addEventListener("pointercancel", (event) => {
+    if (previewCaptureIds.has(event.pointerId) && controlsPane.releasePointerCapture) {
+      try {
+        controlsPane.releasePointerCapture(event.pointerId);
+      } catch (_) {
+        // ignore release failures
+      }
+      previewCaptureIds.delete(event.pointerId);
+    }
+    resumePreview(150);
+  });
 }
