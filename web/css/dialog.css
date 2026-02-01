@@ -39,6 +39,7 @@
   gap: 0.5rem;
   min-height: 0;
   justify-content: center;
+  height: 100%;
 }
 
 .cwie-preview-frame {
@@ -52,6 +53,8 @@
   display: flex;
   align-items: center;
   justify-content: center;
+  flex: 1;
+  min-height: 0;
 }
 
 .cwie-preview-image {
