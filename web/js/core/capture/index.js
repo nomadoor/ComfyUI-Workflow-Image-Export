@@ -6,6 +6,7 @@ import { exportWorkflowPng } from "../../export/index.js";
 import { embedWorkflowInPngBlob } from "../../export/png_embed_workflow.js";
 
 export const NODE2_UNSUPPORTED_CODE = "NODE2_UNSUPPORTED";
+export const WEBP_HUGE_UNSUPPORTED_CODE = "WEBP_HUGE_UNSUPPORTED";
 
 export function detectBackendType() {
   return detectBackend();
@@ -95,7 +96,7 @@ export async function capture(options = {}) {
     const error = new Error("Node2.0 is not supported yet.");
     error.code = NODE2_UNSUPPORTED_CODE;
     throw error;
-  } else if (normalized.format === "png") {
+  } else if (normalized.format === "png" || normalized.format === "webp") {
     const workflowJson = getWorkflowJson();
     if (!workflowJson) {
       throw new Error("Capture failed: workflow JSON unavailable.");
@@ -114,6 +115,7 @@ export async function capture(options = {}) {
       includeDomOverlays: false,
       debug: normalized.debug,
       embedWorkflow: false,
+      format: normalized.format,
       previewFast: Boolean(normalized.previewFast),
       maxPixels: normalized.previewMaxPixels,
       scopeSelected: Boolean(normalized.scopeSelected),
@@ -127,7 +129,7 @@ export async function capture(options = {}) {
     }
     result = {
       type: "raster",
-      mime: "image/png",
+      mime: normalized.format === "webp" ? "image/webp" : "image/png",
       blob,
       cwieWarnings: warnings,
     };
@@ -140,13 +142,13 @@ export async function capture(options = {}) {
   }
 
 
-  if (normalized.format === "png") {
+  if (normalized.format === "png" || normalized.format === "webp") {
     const warnings = result?.cwieWarnings || result?.blob?.cwieWarnings;
     const forceTile =
       normalized.exceedMode === "tile" ||
       warnings?.includes?.("render:tiled-png");
     const scaled = forceTile ? result : await downscaleIfNeeded(result, normalized);
-    if (normalized.embedWorkflow) {
+    if (normalized.format === "png" && normalized.embedWorkflow) {
       const workflowJson = getWorkflowJson();
       const workflowText = toWorkflowJsonString(workflowJson);
       if (workflowText) {
@@ -171,4 +173,8 @@ export async function capture(options = {}) {
 
 export function isNode2UnsupportedError(error) {
   return Boolean(error && error.code === NODE2_UNSUPPORTED_CODE);
+}
+
+export function isWebpHugeUnsupportedError(error) {
+  return Boolean(error && error.code === WEBP_HUGE_UNSUPPORTED_CODE);
 }

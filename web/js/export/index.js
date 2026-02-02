@@ -711,6 +711,19 @@ export async function exportWorkflowPng(workflowJson, options = {}) {
   const huge =
     bboxOverride && shouldTile(bboxOverride.width * scale, bboxOverride.height * scale);
 
+  if (huge && format === "webp") {
+    const error = new Error("WebP is not supported for huge/tiled exports. Please use PNG or reduce the export size.");
+    error.code = "WEBP_HUGE_UNSUPPORTED";
+    error.cwie = {
+      format,
+      huge: true,
+      width: bboxOverride?.width,
+      height: bboxOverride?.height,
+      scale,
+    };
+    throw error;
+  }
+
   if (huge) {
     renderOptions = {
       ...renderOptions,
