@@ -6,6 +6,7 @@ export const SETTING_IDS = {
   embedWorkflow: "WorkflowImageExport.EmbedWorkflow",
   background: "WorkflowImageExport.Background",
   solidColor: "WorkflowImageExport.SolidColor",
+  nodeOpacity: "WorkflowImageExport.NodeOpacity",
   padding: "WorkflowImageExport.Padding",
   outputResolution: "WorkflowImageExport.OutputResolution",
   maxLongEdge: "WorkflowImageExport.MaxLongEdge",
@@ -18,6 +19,7 @@ export const DEFAULTS = {
   embedWorkflow: true,
   background: "ui",
   solidColor: "#1f1f1f",
+  nodeOpacity: 100,
   padding: 100,
   outputResolution: "auto",
   maxLongEdge: 4096,
@@ -83,6 +85,19 @@ const SETTINGS_DEFINITIONS = [
     tooltip: "PNG compression level (0 = fastest, 9 = smallest).",
   },
   // Basic (define in reverse to match UI order)
+  {
+    id: SETTING_IDS.nodeOpacity,
+    name: "Node opacity (%)",
+    category: cat(BASIC, "Node opacity (%)"),
+    type: "number",
+    defaultValue: DEFAULTS.nodeOpacity,
+    attrs: {
+      min: 0,
+      max: 100,
+      step: 1,
+    },
+    tooltip: "Background opacity for nodes in the exported image (100 = fully opaque).",
+  },
   {
     id: SETTING_IDS.padding,
     name: "Padding (px)",
@@ -221,6 +236,7 @@ export function normalizeState(raw) {
     embedWorkflow: Boolean(raw?.embedWorkflow),
     background: normalizeBackground(raw?.background),
     solidColor: typeof raw?.solidColor === "string" ? raw.solidColor : DEFAULTS.solidColor,
+    nodeOpacity: normalizeNumber(raw?.nodeOpacity, DEFAULTS.nodeOpacity),
     padding: normalizeNumber(raw?.padding, DEFAULTS.padding),
     outputResolution: normalizeResolution(raw?.outputResolution),
     maxLongEdge: normalizeNumber(raw?.maxLongEdge, DEFAULTS.maxLongEdge),
@@ -245,6 +261,7 @@ export function getDefaultsFromSettings() {
     embedWorkflow: get(SETTING_IDS.embedWorkflow, DEFAULTS.embedWorkflow),
     background: get(SETTING_IDS.background, DEFAULTS.background),
     solidColor: get(SETTING_IDS.solidColor, DEFAULTS.solidColor),
+    nodeOpacity: get(SETTING_IDS.nodeOpacity, DEFAULTS.nodeOpacity),
     padding: get(SETTING_IDS.padding, DEFAULTS.padding),
     outputResolution: get(SETTING_IDS.outputResolution, DEFAULTS.outputResolution),
     maxLongEdge: get(SETTING_IDS.maxLongEdge, DEFAULTS.maxLongEdge),
@@ -262,6 +279,7 @@ function toSettingFormat(state) {
     embedWorkflow: Boolean(state.embedWorkflow),
     background: state.background,
     solidColor: state.solidColor,
+    nodeOpacity: state.nodeOpacity,
     padding: state.padding,
     outputResolution: state.outputResolution,
     maxLongEdge: state.maxLongEdge,
@@ -280,6 +298,7 @@ export function setDefaultsInSettings(state) {
   access.set(SETTING_IDS.embedWorkflow, values.embedWorkflow);
   access.set(SETTING_IDS.background, values.background);
   access.set(SETTING_IDS.solidColor, values.solidColor);
+  access.set(SETTING_IDS.nodeOpacity, values.nodeOpacity);
   access.set(SETTING_IDS.padding, values.padding);
   access.set(SETTING_IDS.outputResolution, values.outputResolution);
   access.set(SETTING_IDS.maxLongEdge, values.maxLongEdge);

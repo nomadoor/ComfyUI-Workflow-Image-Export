@@ -109,6 +109,7 @@ export async function capture(options = {}) {
       backgroundMode: normalized.background,
       backgroundColor: normalized.solidColor,
       padding: normalized.padding,
+      nodeOpacity: normalized.nodeOpacity,
       scale,
       pngCompression: normalized.pngCompression,
       includeGrid: true,

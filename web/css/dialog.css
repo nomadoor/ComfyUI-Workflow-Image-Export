@@ -180,6 +180,83 @@
   opacity: 0.7;
 }
 
+.cwie-row-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.cwie-help {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1rem;
+  height: 1rem;
+  border-radius: 999px;
+  border: 1px solid rgba(229, 229, 229, 0.35);
+  background: transparent;
+  color: inherit;
+  font-size: 0.65rem;
+  padding: 0;
+  cursor: pointer;
+  opacity: 0.65;
+  position: relative;
+  transition: opacity 160ms ease, border-color 160ms ease;
+}
+
+.cwie-help:hover {
+  opacity: 1;
+  border-color: rgba(229, 229, 229, 0.7);
+}
+
+.cwie-help::after {
+  content: attr(data-help);
+  position: absolute;
+  left: calc(100% + 0.5rem);
+  top: 50%;
+  transform: translateY(-50%);
+  background: rgba(40, 40, 40, 0.95);
+  color: #f0f0f0;
+  font-size: 0.7rem;
+  line-height: 1.4;
+  padding: 0.35rem 0.5rem;
+  border-radius: 0.35rem;
+  white-space: normal;
+  min-width: 12rem;
+  max-width: 18rem;
+  box-shadow: 0 0.4rem 1rem rgba(0, 0, 0, 0.35);
+  z-index: 10;
+  pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 160ms ease, visibility 0s linear 160ms;
+  text-align: left;
+}
+
+.cwie-help::before {
+  content: "";
+  position: absolute;
+  left: calc(100% + 0.1rem);
+  top: 50%;
+  transform: translateY(-50%);
+  border: 0.3rem solid transparent;
+  border-right-color: rgba(40, 40, 40, 0.95);
+  z-index: 10;
+  pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 160ms ease, visibility 0s linear 160ms;
+}
+
+.cwie-help:hover::after,
+.cwie-help:hover::before,
+.cwie-help:focus-visible::after,
+.cwie-help:focus-visible::before {
+  opacity: 1;
+  visibility: visible;
+  transition-delay: 0s;
+}
+
 .cwie-input {
   width: 100%;
   background: var(--input-bg, #2b2b2b);
