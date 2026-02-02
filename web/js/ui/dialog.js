@@ -3,6 +3,7 @@ import {
   capture,
   detectBackendType,
   isNode2UnsupportedError,
+  isWebpHugeUnsupportedError,
 } from "../core/capture/index.js";
 import { triggerDownload } from "../core/download.js";
 import {
@@ -407,6 +408,8 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
   const embedToggle = createToggle();
   const embedNote = document.createElement("div");
   embedNote.className = "cwie-note";
+  const webpNote = document.createElement("div");
+  webpNote.className = "cwie-note";
 
   const backgroundGroup = createRadioGroup("cwie-bg", [
     { value: "ui", label: "UI" },
@@ -511,6 +514,7 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
       formatSelect.setDisabled(false);
       embedNote.textContent = "";
       pngCompressionInput.disabled = false;
+      webpNote.textContent = "";
       return;
     }
 
@@ -524,6 +528,109 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
         "Workflow embedding is disabled for WebP.";
       return;
     }
+  }
+
+  const TILE_THRESHOLD_EDGE = 6144;
+  const TILE_THRESHOLD_PIXELS = 24 * 1024 * 1024;
+  const MAX_CANVAS_EDGE = 16384;
+
+  function shouldTile(width, height) {
+    const w = Math.max(1, Math.ceil(width));
+    const h = Math.max(1, Math.ceil(height));
+    if (Math.max(w, h) > MAX_CANVAS_EDGE) return true;
+    return w * h > TILE_THRESHOLD_PIXELS || Math.max(w, h) > TILE_THRESHOLD_EDGE;
+  }
+
+  let webpBlocked = false;
+  let webpCheckToken = 0;
+  let webpCheckTimer = null;
+  let webpCheckIdle = null;
+
+  async function checkWebpAvailability() {
+    const token = ++webpCheckToken;
+    const formatValue = String(state.format || "png").toLowerCase();
+    if (formatValue !== "webp") {
+      webpBlocked = false;
+      webpNote.textContent = "";
+      if (exportButton) exportButton.disabled = false;
+      return;
+    }
+
+    if (exportButton) exportButton.disabled = true;
+    webpNote.textContent = "Checking WebP size…";
+
+    const workflowJson =
+      (typeof app?.graph?.serialize === "function" && app.graph.serialize()) || null;
+    if (!workflowJson) {
+      webpBlocked = false;
+      webpNote.textContent = "";
+      if (exportButton) exportButton.disabled = false;
+      return;
+    }
+
+    try {
+      const { computeOffscreenBBox } = await import("../export/render_graph_offscreen.js");
+      const selectedIds = getSelectedNodeIds();
+      const scale = state.outputResolution === "200%" ? 2 : 1;
+      const bbox = await computeOffscreenBBox(workflowJson, {
+        padding: state.padding,
+        selectedNodeIds: selectedIds,
+        cropToSelection: Boolean(state.scopeSelected),
+        previewFast: false,
+      });
+      if (token !== webpCheckToken) return;
+      if (!bbox) {
+        webpBlocked = false;
+        webpNote.textContent = "";
+        if (exportButton) exportButton.disabled = false;
+        return;
+      }
+      const w = bbox.width * scale;
+      const h = bbox.height * scale;
+      const huge = shouldTile(w, h);
+      webpBlocked = huge;
+      if (huge) {
+        webpNote.textContent =
+          `WebP is unavailable for huge exports (${Math.round(w)}x${Math.round(h)}). Use PNG or reduce size.`;
+      } else {
+        webpNote.textContent = "";
+      }
+      if (exportButton) exportButton.disabled = webpBlocked;
+    } catch (error) {
+      if (token !== webpCheckToken) return;
+      webpBlocked = false;
+      webpNote.textContent = "";
+      if (exportButton) exportButton.disabled = false;
+      log?.("webp:check.error", { message: error?.message || String(error) });
+    }
+  }
+
+  function scheduleWebpCheck(delay = 350) {
+    if (dialogClosed) return;
+    if (webpCheckTimer) {
+      clearTimeout(webpCheckTimer);
+    }
+    if (webpCheckIdle && "cancelIdleCallback" in window) {
+      window.cancelIdleCallback(webpCheckIdle);
+      webpCheckIdle = null;
+    }
+    const run = () => {
+      if (!dialogClosed) {
+        checkWebpAvailability();
+      }
+    };
+    webpCheckTimer = setTimeout(() => {
+      webpCheckTimer = null;
+      if (dialogClosed) return;
+      if ("requestIdleCallback" in window) {
+        webpCheckIdle = window.requestIdleCallback(() => {
+          webpCheckIdle = null;
+          run();
+        }, { timeout: 1500 });
+        return;
+      }
+      run();
+    }, delay);
   }
 
   function applyStateToControls(nextState) {
@@ -739,6 +846,7 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
   formatSelect.onChange((value) => {
     syncEmbedAvailability(value);
     handleChange();
+    scheduleWebpCheck();
   });
   embedToggle.input.addEventListener("change", () => handleChange());
   solidColorInput.addEventListener("input", () => handleChange());
@@ -747,15 +855,23 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
     paddingValue.textContent = paddingInput.value;
     handleChange();
   });
+  paddingInput.addEventListener("change", () => scheduleWebpCheck());
   pngCompressionInput.addEventListener("input", () => {
     pngCompressionValue.textContent = pngCompressionInput.value;
     handleChange();
   });
-  maxLongEdgeInput.addEventListener("change", () => handleChange());
-  exceedSelect.onChange(() => handleChange());
+  maxLongEdgeInput.addEventListener("change", () => {
+    handleChange();
+    scheduleWebpCheck();
+  });
+  exceedSelect.onChange(() => {
+    handleChange();
+    scheduleWebpCheck();
+  });
   scopeToggle.input.addEventListener("change", () => {
     updateScopeAvailability();
     handleChange();
+    scheduleWebpCheck();
   });
   scopeOpacityInput.addEventListener("input", () => {
     scopeOpacityValue.textContent = scopeOpacityInput.value;
@@ -820,6 +936,13 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
   exportButton.append(exportSpinner, exportLabel, exportProgressText);
 
   exportButton.addEventListener("click", async () => {
+    if (webpBlocked) {
+      openMessageDialog({
+        title: "WebP not supported for huge exports",
+        message: "WebP export is disabled for huge/tiled renders. Please use PNG or reduce the export size.",
+      });
+      return;
+    }
     exportButton.disabled = true;
     cancelButton.disabled = true;
     exportButton.classList.add("is-busy");
@@ -891,6 +1014,12 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
           title: "Node2.0 Unsupported",
           message: "Node2.0 is not supported yet.",
         };
+      } else if (isWebpHugeUnsupportedError(error)) {
+        messageDialogPayload = {
+          title: "WebP not supported for huge exports",
+          message:
+            "WebP export is disabled for huge/tiled renders. Please use PNG or reduce the export size.",
+        };
       } else {
         log?.("export:error", { message: error?.message || String(error) });
         console.error("[workflow-image-export] export failed", error);
@@ -918,6 +1047,7 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
   footerLeft.appendChild(resetButton);
   footer.appendChild(footerLeft);
   footer.appendChild(footerRight);
+  footer.appendChild(webpNote);
 
   controlsScroll.appendChild(basicTitle);
   controlsScroll.appendChild(createRow("Format", formatSelect.root));
@@ -972,6 +1102,11 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
   setTimeout(() => {
     if (!dialogClosed) {
       schedulePreview(0);
+    }
+  }, 0);
+  setTimeout(() => {
+    if (!dialogClosed) {
+      scheduleWebpCheck(0);
     }
   }, 0);
 
