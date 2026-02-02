@@ -437,6 +437,22 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
   paddingWrapper.appendChild(paddingInput);
   paddingWrapper.appendChild(paddingValue);
 
+  const nodeOpacityInput = document.createElement("input");
+  nodeOpacityInput.type = "range";
+  nodeOpacityInput.min = "0";
+  nodeOpacityInput.max = "100";
+  nodeOpacityInput.step = "1";
+  nodeOpacityInput.className = "cwie-range";
+
+  const nodeOpacityValue = document.createElement("span");
+  nodeOpacityValue.className = "cwie-range-value";
+  nodeOpacityValue.textContent = "100";
+
+  const nodeOpacityWrapper = document.createElement("div");
+  nodeOpacityWrapper.className = "cwie-range-wrapper";
+  nodeOpacityWrapper.appendChild(nodeOpacityInput);
+  nodeOpacityWrapper.appendChild(nodeOpacityValue);
+
   const scopeToggle = createToggle();
   const scopeOpacityInput = document.createElement("input");
   scopeOpacityInput.type = "range";
@@ -644,6 +660,9 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
     solidColorInput.value = nextState.solidColor;
     paddingInput.value = String(nextState.padding);
     paddingValue.textContent = String(nextState.padding);
+    const nodeOpacity = Number.isFinite(Number(nextState.nodeOpacity)) ? nextState.nodeOpacity : 100;
+    nodeOpacityInput.value = String(nodeOpacity);
+    nodeOpacityValue.textContent = String(nodeOpacity);
     pngCompressionInput.value = String(nextState.pngCompression);
     pngCompressionValue.textContent = String(nextState.pngCompression);
     maxLongEdgeInput.value = String(nextState.maxLongEdge);
@@ -669,6 +688,7 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
       background: [...backgroundGroup.inputs.values()].find((input) => input.checked)?.value,
       solidColor: solidColorInput.value,
       padding: paddingInput.value,
+      nodeOpacity: nodeOpacityInput.value,
       pngCompression: pngCompressionInput.value,
       maxLongEdge: maxLongEdgeInput.value,
       exceedMode: exceedSelect.getValue(),
@@ -853,6 +873,10 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
   solidColorInput.addEventListener("change", () => handleChange());
   paddingInput.addEventListener("input", () => {
     paddingValue.textContent = paddingInput.value;
+    handleChange();
+  });
+  nodeOpacityInput.addEventListener("input", () => {
+    nodeOpacityValue.textContent = nodeOpacityInput.value;
     handleChange();
   });
   paddingInput.addEventListener("change", () => scheduleWebpCheck());
@@ -1057,6 +1081,7 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
 
   solidColorRow = createRow("Solid color", solidColorInput);
   controlsScroll.appendChild(solidColorRow);
+  controlsScroll.appendChild(createRow("Node opacity", nodeOpacityWrapper));
   controlsScroll.appendChild(createRow("Padding", paddingWrapper));
   controlsScroll.appendChild(createRow("Scope", scopeToggle.wrapper));
   controlsScroll.appendChild(createRow("Opacity", scopeOpacityWrapper));

@@ -648,6 +648,10 @@ export async function exportWorkflowPng(workflowJson, options = {}) {
   const scopeOpacity = Number.isFinite(scopeOpacityRaw)
     ? Math.min(100, Math.max(0, scopeOpacityRaw))
     : 30;
+  const nodeOpacityRaw = Number(options.nodeOpacity);
+  const nodeOpacity = Number.isFinite(nodeOpacityRaw)
+    ? Math.min(100, Math.max(0, nodeOpacityRaw))
+    : 100;
   // [CWIE] v3: Fixed Ratio & Tile Bleed - Declarations moved below (consolidated)
   const previewFast = Boolean(options.previewFast);
   const pngCompression = clampPngCompression(options.pngCompression);
@@ -684,6 +688,7 @@ export async function exportWorkflowPng(workflowJson, options = {}) {
     previewFast,
     maxPixels: 0, // Max pixels is only used for previewFast, otherwise it's 0
     scale,
+    nodeOpacity,
   };
 
 
