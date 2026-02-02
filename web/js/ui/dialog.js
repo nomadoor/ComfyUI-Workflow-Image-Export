@@ -96,14 +96,28 @@ function openMessageDialog({ title, message }) {
   activeMessageDialog = backdrop;
 }
 
-function createRow(labelText, inputElement) {
+function createRow(labelText, inputElement, options = {}) {
   const row = document.createElement("div");
   row.className = "cwie-row";
 
   const label = document.createElement("label");
   label.textContent = labelText;
 
-  row.appendChild(label);
+  const labelWrap = document.createElement("div");
+  labelWrap.className = "cwie-row-label";
+  labelWrap.appendChild(label);
+
+  if (options.helpText) {
+    const help = document.createElement("button");
+    help.type = "button";
+    help.className = "cwie-help";
+    help.textContent = "?";
+    help.setAttribute("data-help", options.helpText);
+    help.setAttribute("aria-label", options.helpText);
+    labelWrap.appendChild(help);
+  }
+
+  row.appendChild(labelWrap);
   row.appendChild(inputElement);
 
   return row;
@@ -1081,10 +1095,18 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
 
   solidColorRow = createRow("Solid color", solidColorInput);
   controlsScroll.appendChild(solidColorRow);
-  controlsScroll.appendChild(createRow("Node opacity", nodeOpacityWrapper));
+  controlsScroll.appendChild(
+    createRow("Node opacity", nodeOpacityWrapper, {
+      helpText: "Controls node background opacity in exports.",
+    })
+  );
   controlsScroll.appendChild(createRow("Padding", paddingWrapper));
   controlsScroll.appendChild(createRow("Scope", scopeToggle.wrapper));
-  controlsScroll.appendChild(createRow("Opacity", scopeOpacityWrapper));
+  controlsScroll.appendChild(
+    createRow("Scope opacity", scopeOpacityWrapper, {
+      helpText: "Opacity for non-selected nodes when Scope is enabled.",
+    })
+  );
 
   advancedBody.appendChild(createRow("PNG Compression", pngCompressionWrapper));
   advancedBody.appendChild(createRow("Max long edge", maxLongEdgeInput));

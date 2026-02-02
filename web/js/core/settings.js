@@ -96,7 +96,7 @@ const SETTINGS_DEFINITIONS = [
       max: 100,
       step: 1,
     },
-    tooltip: "Opacity for nodes in the exported image (100 = fully opaque).",
+    tooltip: "Background opacity for nodes in the exported image (100 = fully opaque).",
   },
   {
     id: SETTING_IDS.padding,
