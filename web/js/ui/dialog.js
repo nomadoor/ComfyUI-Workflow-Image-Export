@@ -124,6 +124,41 @@ function createToggle() {
   return { wrapper, input };
 }
 
+function sanitizeFilename(value) {
+  const text = String(value || "").trim();
+  if (!text) return "";
+  return text
+    .replace(/[<>:"/\\|?*\x00-\x1F]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function resolveWorkflowName() {
+  const graph = app?.graph;
+  const candidates = [
+    graph?.name,
+    graph?.title,
+    graph?.workflow_name,
+    graph?.workflowName,
+    graph?.extra?.workflow_name,
+    graph?.extra?.name,
+    graph?.config?.name,
+    graph?.config?.title,
+    graph?._config?.name,
+    graph?._config?.title,
+  ];
+  for (const candidate of candidates) {
+    const cleaned = sanitizeFilename(candidate);
+    if (cleaned) return cleaned;
+  }
+  const docTitle = sanitizeFilename(document?.title || "");
+  if (docTitle) {
+    const stripped = docTitle.replace(/\s*-\s*ComfyUI\s*$/i, "").trim();
+    if (stripped) return stripped;
+  }
+  return "workflow";
+}
+
 function createRadioGroup(name, options) {
   const group = document.createElement("div");
   group.className = "cwie-radio-group";
@@ -844,9 +879,10 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
         return state.format || "png";
       };
       const ext = resolveExt();
+      const baseName = resolveWorkflowName();
       await triggerDownload({
         blob,
-        filename: `workflow.${ext}`,
+        filename: `${baseName}.${ext}`,
       });
       logExportPhase("download.done");
     } catch (error) {
