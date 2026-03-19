@@ -971,6 +971,8 @@ export async function renderGraphOffscreen(workflowJson, options = {}) {
   offscreen._cwieTileOffsetX = tileRect?.x || 0;
   offscreen._cwieTileOffsetY = tileRect?.y || 0;
 
+  let _exportOk = false;
+  try {
   // [CWIE] v3: Resize is disabled by default to prevent double-scaling.
   // Explicitly enabled only if options.enableOffscreenResize is set.
   if (offscreen.resize && options.enableOffscreenResize) {
@@ -1224,6 +1226,7 @@ export async function renderGraphOffscreen(workflowJson, options = {}) {
   }
 
   perfLog?.("done");
+  _exportOk = true;
   return {
     canvas: outputCanvas,
     ctx: outputCtx,
@@ -1237,6 +1240,11 @@ export async function renderGraphOffscreen(workflowJson, options = {}) {
       safeCleanup(offscreen, graph);
     },
   };
+  } finally {
+    if (!_exportOk) {
+      safeCleanup(offscreen, graph);
+    }
+  }
 }
 
 // --- Helper Classes & Functions ---
