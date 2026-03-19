@@ -2,8 +2,8 @@ import { app } from "/scripts/app.js";
 import { detectBackend } from "../detect.js";
 import { captureLegacy } from "../backends/legacy_capture.js";
 import { applyBackground, downscaleIfNeeded } from "../postprocess/raster.js";
-import { exportWorkflowPng } from "../../export/index.js";
 import { embedWorkflowInPngBlob } from "../../export/png_embed_workflow.js";
+import { captureScreen } from "../backends/screen_capture.js";
 
 export const NODE2_UNSUPPORTED_CODE = "NODE2_UNSUPPORTED";
 export const WEBP_HUGE_UNSUPPORTED_CODE = "WEBP_HUGE_UNSUPPORTED";
@@ -97,42 +97,15 @@ export async function capture(options = {}) {
     error.code = NODE2_UNSUPPORTED_CODE;
     throw error;
   } else if (normalized.format === "png" || normalized.format === "webp") {
-    const workflowJson = getWorkflowJson();
-    if (!workflowJson) {
-      throw new Error("Capture failed: workflow JSON unavailable.");
-    }
-    const scale = resolveOutputScale(normalized);
-    const selectedNodeIds = Array.isArray(normalized.selectedNodeIds)
-      ? normalized.selectedNodeIds
-      : getSelectedNodeIds();
-    const blob = await exportWorkflowPng(workflowJson, {
-      backgroundMode: normalized.background,
-      backgroundColor: normalized.solidColor,
+    const blob = await captureScreen({
       padding: normalized.padding,
-      nodeOpacity: normalized.nodeOpacity,
-      scale,
-      pngCompression: normalized.pngCompression,
-      includeGrid: true,
-      includeDomOverlays: false,
-      debug: normalized.debug,
-      embedWorkflow: false,
       format: normalized.format,
-      previewFast: Boolean(normalized.previewFast),
-      maxPixels: normalized.previewMaxPixels,
-      scopeSelected: Boolean(normalized.scopeSelected),
-      scopeOpacity: normalized.scopeOpacity,
-      selectedNodeIds,
-      onProgress: normalized.onProgress,
+      debug: normalized.debug,
     });
-    const warnings = blob?.cwieWarnings;
-    if (warnings?.length) {
-      console.warn("[workflow-image-export] export warnings", warnings);
-    }
     result = {
       type: "raster",
       mime: normalized.format === "webp" ? "image/webp" : "image/png",
       blob,
-      cwieWarnings: warnings,
     };
   } else {
     result = await captureLegacy(normalized);

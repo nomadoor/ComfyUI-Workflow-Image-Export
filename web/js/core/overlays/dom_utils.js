@@ -160,3 +160,23 @@ export function getDomElementGraphRect(el, uiCanvas) {
     h: p1[1] - p0[1],
   };
 }
+
+/**
+ * Collect DOM widget elements by iterating graph nodes → node.widgets → widget.element.
+ * More stable than CSS selector approach because it uses LiteGraph's own data structures.
+ * Returns only widgets whose element is visible (has non-zero bounding rect).
+ */
+export function collectWidgetElementsFromNodes(graph) {
+  const result = [];
+  const nodes = graph?._nodes || graph?.nodes || [];
+  for (const node of nodes) {
+    if (!node?.widgets) continue;
+    for (const widget of node.widgets) {
+      if (!widget?.element || !(widget.element instanceof HTMLElement)) continue;
+      const rect = widget.element.getBoundingClientRect();
+      if (!rect.width || !rect.height) continue;
+      result.push({ node, widget, element: widget.element });
+    }
+  }
+  return result;
+}
