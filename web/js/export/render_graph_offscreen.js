@@ -621,6 +621,20 @@ function safeCleanup(offscreen, graph) {
     // ignore
   }
   try {
+    if (typeof offscreen?.setCanvas === "function") {
+      offscreen.setCanvas(null);
+    }
+  } catch (_) {
+    // ignore
+  }
+  try {
+    if (typeof offscreen?.unbind_events === "function") {
+      offscreen.unbind_events();
+    }
+  } catch (_) {
+    // ignore
+  }
+  try {
     if (typeof offscreen?.clear === "function") {
       offscreen.clear();
     }

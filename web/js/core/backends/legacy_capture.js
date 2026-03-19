@@ -1102,88 +1102,92 @@ export async function captureLegacy(options = {}) {
   offscreen.canvas = exportCanvas;
   offscreen.ctx = exportCtx;
 
-  copyRenderSettings(uiCanvas, offscreen);
-  forceExportQuality(offscreen);
-  const mode = applyBackgroundMode(offscreen, options);
-  offscreen.render_canvas_border = false;
-  if (typeof offscreen.resize === "function") {
-    offscreen.resize(width, height);
-    debugLog?.("offscreen.resize", { width, height });
-  }
-  ensureBgCanvas(offscreen, width, height);
-  configureTransform(offscreen, bounds, width, height, scale, debugLog);
+  try {
+    copyRenderSettings(uiCanvas, offscreen);
+    forceExportQuality(offscreen);
+    const mode = applyBackgroundMode(offscreen, options);
+    offscreen.render_canvas_border = false;
+    if (typeof offscreen.resize === "function") {
+      offscreen.resize(width, height);
+      debugLog?.("offscreen.resize", { width, height });
+    }
+    ensureBgCanvas(offscreen, width, height);
+    configureTransform(offscreen, bounds, width, height, scale, debugLog);
 
-  applyBackgroundFill(
-    mode,
-    width,
-    height,
-    exportCtx,
-    offscreen.bgctx,
-    options?.solidColor
-  );
-
-  if (debug) {
-    console.log("[CWIE][Legacy] export:bounds", bounds);
-    console.log("[CWIE][Legacy] export:canvas", {
-      width: exportCanvas.width,
-      height: exportCanvas.height,
-      ctxCanvasIsExport: offscreen.ctx?.canvas === exportCanvas,
-    });
-    console.log(
-      "[CWIE][Legacy] export:bgcanvas",
-      offscreen.bgcanvas
-        ? {
-          width: offscreen.bgcanvas.width,
-          height: offscreen.bgcanvas.height,
-          alpha: offscreen.bgctx?.getContextAttributes?.()?.alpha,
-        }
-        : null
+    applyBackgroundFill(
+      mode,
+      width,
+      height,
+      exportCtx,
+      offscreen.bgctx,
+      options?.solidColor
     );
-    console.log("[CWIE][Legacy] export:mode", mode);
-    debugLog?.("render.flags", {
-      render_background: offscreen.render_background,
-      clear_background: offscreen.clear_background,
-      clear_background_color: offscreen.clear_background_color,
-      show_grid: offscreen.show_grid,
-      bgcolor: offscreen.bgcolor,
-      background_color: offscreen.background_color,
-      background_image: offscreen.background_image,
+
+    if (debug) {
+      console.log("[CWIE][Legacy] export:bounds", bounds);
+      console.log("[CWIE][Legacy] export:canvas", {
+        width: exportCanvas.width,
+        height: exportCanvas.height,
+        ctxCanvasIsExport: offscreen.ctx?.canvas === exportCanvas,
+      });
+      console.log(
+        "[CWIE][Legacy] export:bgcanvas",
+        offscreen.bgcanvas
+          ? {
+            width: offscreen.bgcanvas.width,
+            height: offscreen.bgcanvas.height,
+            alpha: offscreen.bgctx?.getContextAttributes?.()?.alpha,
+          }
+          : null
+      );
+      console.log("[CWIE][Legacy] export:mode", mode);
+      debugLog?.("render.flags", {
+        render_background: offscreen.render_background,
+        clear_background: offscreen.clear_background,
+        clear_background_color: offscreen.clear_background_color,
+        show_grid: offscreen.show_grid,
+        bgcolor: offscreen.bgcolor,
+        background_color: offscreen.background_color,
+        background_image: offscreen.background_image,
+      });
+      debugLog?.("ui.ds", {
+        scale: uiCanvas.ds?.scale,
+        offset: Array.isArray(uiCanvas.ds?.offset) ? [...uiCanvas.ds.offset] : null,
+      });
+      debugLog?.("ui.flags", {
+        render_background: uiCanvas.render_background,
+        clear_background: uiCanvas.clear_background,
+        show_grid: uiCanvas.show_grid,
+        bgcolor: uiCanvas.bgcolor,
+        background_color: uiCanvas.background_color,
+      });
+      logDomMedia(debugLog, uiCanvas);
+    }
+
+    await drawOffscreen(offscreen, {
+      mode,
+      width,
+      height,
+      exportCtx,
+      bgctx: offscreen.bgctx,
+      solidColor: options?.solidColor,
+      resetTransform: () => configureTransform(offscreen, bounds, width, height, scale, debugLog),
     });
-    debugLog?.("ui.ds", {
-      scale: uiCanvas.ds?.scale,
-      offset: Array.isArray(uiCanvas.ds?.offset) ? [...uiCanvas.ds.offset] : null,
-    });
-    debugLog?.("ui.flags", {
-      render_background: uiCanvas.render_background,
-      clear_background: uiCanvas.clear_background,
-      show_grid: uiCanvas.show_grid,
-      bgcolor: uiCanvas.bgcolor,
-      background_color: uiCanvas.background_color,
-    });
-    logDomMedia(debugLog, uiCanvas);
+    drawImageOverlays({ exportCtx, uiCanvas, bounds, scale, debugLog });
+    drawVideoOverlays({ exportCtx, uiCanvas, bounds, scale, nodeRects, debugLog });
+    drawTextOverlays({ exportCtx, uiCanvas, graph, bounds, scale, nodeRects, debugLog });
+
+    const blob = await toBlobAsync(exportCanvas, mime);
+    return {
+      type: "raster",
+      mime,
+      blob,
+      width,
+      height,
+    };
+  } finally {
+    try { if (typeof offscreen.stopRendering === "function") offscreen.stopRendering(); } catch (_) {}
+    try { if (typeof offscreen.setCanvas === "function") offscreen.setCanvas(null); } catch (_) {}
+    try { if (typeof offscreen.unbind_events === "function") offscreen.unbind_events(); } catch (_) {}
   }
-
-  await drawOffscreen(offscreen, {
-    mode,
-    width,
-    height,
-    exportCtx,
-    bgctx: offscreen.bgctx,
-    solidColor: options?.solidColor,
-    resetTransform: () => configureTransform(offscreen, bounds, width, height, scale, debugLog),
-  });
-  drawImageOverlays({ exportCtx, uiCanvas, bounds, scale, debugLog });
-  drawVideoOverlays({ exportCtx, uiCanvas, bounds, scale, nodeRects, debugLog });
-  drawTextOverlays({ exportCtx, uiCanvas, graph, bounds, scale, nodeRects, debugLog });
-
-
-
-  const blob = await toBlobAsync(exportCanvas, mime);
-  return {
-    type: "raster",
-    mime,
-    blob,
-    width,
-    height,
-  };
 }
