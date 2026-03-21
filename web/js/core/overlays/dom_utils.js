@@ -257,13 +257,19 @@ export function collectVideoElementsFromDom(uiCanvas, options = {}) {
     }
   }
 
-  // Standard video elements — require them to be inside a recognised node container.
+  // Standard video elements may be rendered either inside the node subtree or
+  // inside a detached .dom-widget overlay. Collect both; node matching happens
+  // later by graph position.
   for (const el of root.querySelectorAll("video")) {
-    if (el instanceof HTMLVideoElement && !seen.has(el) && isElementInGraphNode(el)) {
+    if (
+      el instanceof HTMLVideoElement &&
+      !seen.has(el) &&
+      (isElementInGraphNode(el) || Boolean(el.closest?.(".dom-widget")))
+    ) {
       seen.add(el);
       elements.push(el);
       options.debugLog?.("diag.collect", diagnoseDomElement(el, uiCanvas, {
-        selector: "video",
+        selector: el.closest?.(".dom-widget") ? ".dom-widget video" : "video",
         kind: "video",
         isVhsLike: false,
       }));
