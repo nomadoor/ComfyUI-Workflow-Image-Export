@@ -859,6 +859,7 @@ export async function drawDomWidgetOverlays({
   scale,
   nodeRects,
   debugLog,
+  skipWidgetCapture = false,
 }) {
   const coveredNodeIds = new Set();
   const widgets = collectDomWidgetContainers(uiCanvas, { debugLog });
@@ -911,9 +912,11 @@ export async function drawDomWidgetOverlays({
       const rh = renderedRect.h * scale;
       const captureWidth = Math.max(1, renderedClientRect.width || renderedRect.w || 1);
       const captureHeight = Math.max(1, renderedClientRect.height || renderedRect.h || 1);
-      const captured = await captureElementAsCanvas(renderedMarkdown, captureWidth, captureHeight, {
-        stripLayoutProps: true,
-      });
+      const captured = skipWidgetCapture
+        ? { canvas: null, stage: "skipped", error: "widget capture skipped" }
+        : await captureElementAsCanvas(renderedMarkdown, captureWidth, captureHeight, {
+          stripLayoutProps: true,
+        });
       let drawn = false;
       let reason = "rendered-capture-failed";
       const style = window.getComputedStyle(renderedMarkdown);
@@ -971,7 +974,9 @@ export async function drawDomWidgetOverlays({
     }
 
     // Attempt foreignObject SVG capture.
-    const captured = await captureElementAsCanvas(widget, w, h);
+    const captured = skipWidgetCapture
+      ? { canvas: null, stage: "skipped", error: "widget capture skipped" }
+      : await captureElementAsCanvas(widget, w, h);
     if (captured?.canvas) {
       exportCtx.drawImage(captured.canvas, x, y, w, h);
       debugLog?.("diag.draw.widget", diagnoseDomElement(widget, uiCanvas, {
@@ -1736,14 +1741,18 @@ export async function captureLegacy(options = {}) {
     drawImageOverlays({ exportCtx, uiCanvas, bounds, scale, debugLog });
     drawVideoOverlays({ exportCtx, uiCanvas, bounds, scale, nodeRects, debugLog });
     drawVhsVideoOverlays({ exportCtx, uiCanvas, bounds, scale, debugLog });
-    const domWidgetCoveredNodeIds = await drawDomWidgetOverlays({
-      exportCtx,
-      uiCanvas,
-      bounds,
-      scale,
-      nodeRects,
-      debugLog,
-    });
+    const domWidgetCoveredNodeIds =
+      options?.skipDomWidgetOverlays === true
+        ? new Set()
+        : await drawDomWidgetOverlays({
+          exportCtx,
+          uiCanvas,
+          bounds,
+          scale,
+          nodeRects,
+          debugLog,
+          skipWidgetCapture: options?.skipWidgetCapture === true,
+        });
     drawTextOverlays({
       exportCtx,
       uiCanvas,
