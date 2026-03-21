@@ -246,11 +246,17 @@ function configureGraph(graph, workflowJson) {
       throw new Error("Offscreen render: workflow JSON parse failed.");
     }
   }
-  const tryLoad = (fn) => {
+  const isObjectData = data && typeof data === "object";
+  const clonedData = isObjectData && typeof structuredClone === "function"
+    ? structuredClone(data)
+    : data;
+  const errors = [];
+  const tryLoad = (label, fn, ...args) => {
     try {
-      fn?.call(graph, data);
+      fn?.call(graph, ...args);
       return true;
-    } catch (_) {
+    } catch (error) {
+      errors.push({ label, error });
       return false;
     }
   };
@@ -262,16 +268,25 @@ function configureGraph(graph, workflowJson) {
 
   let loaded = false;
   if (typeof graph.configure === "function") {
-    loaded = tryLoad(graph.configure);
-  }
-  if (!hasNodes() && typeof graph.load === "function") {
-    loaded = tryLoad(graph.load) || loaded;
+    // Fresh offscreen graphs do not need a pre-load clear(), and newer
+    // frontends tie clear() into shared layout/widget stores.
+    loaded = tryLoad("configure(keep_old=true)", graph.configure, clonedData, true);
   }
   if (!hasNodes() && typeof graph.deserialize === "function") {
-    loaded = tryLoad(graph.deserialize) || loaded;
+    loaded = tryLoad("deserialize", graph.deserialize, clonedData) || loaded;
   }
-  if (!loaded) {
-    throw new Error("Offscreen render: graph.configure not available.");
+  if (!hasNodes() && typeof workflowJson === "string" && typeof graph.load === "function") {
+    loaded = tryLoad("load(string)", graph.load, workflowJson) || loaded;
+  }
+  if (!loaded && !hasNodes()) {
+    const detail = errors
+      .map(({ label, error }) => `${label}: ${error?.message || String(error)}`)
+      .join(" | ");
+    throw new Error(
+      detail
+        ? `Offscreen render: graph.configure failed. ${detail}`
+        : "Offscreen render: graph.configure not available."
+    );
   }
 }
 
