@@ -3,9 +3,11 @@ import { computeGraphBBox } from "./bbox.js";
 import { applyBackgroundMode, getExportBackgroundFillColor } from "./background_modes.js";
 import {
   collectNodeRects,
+  drawDomWidgetOverlays,
   drawImageOverlays,
   drawTextOverlays,
   drawVideoOverlays,
+  drawVhsVideoOverlays,
   drawWidgetTextFallback,
 } from "../core/backends/legacy_capture.js";
 import {
@@ -796,6 +798,7 @@ export async function computeOffscreenBBox(workflowJson, options = {}) {
   const debug = Boolean(options.debug);
   const debugLog = debug
     ? (label, payload) => {
+      if (String(label).startsWith("diag.")) return;
       console.log(`[CWIE][Offscreen][dom] ${label}`, payload);
     }
     : null;
@@ -817,6 +820,7 @@ export async function renderGraphOffscreen(workflowJson, options = {}) {
   const debug = Boolean(options.debug);
   const debugLog = debug
     ? (label, payload) => {
+      if (String(label).startsWith("diag.")) return;
       console.log(`[CWIE][Offscreen][dom] ${label}`, payload);
     }
     : null;
@@ -1155,6 +1159,21 @@ export async function renderGraphOffscreen(workflowJson, options = {}) {
       nodeRects,
       debugLog,
     }));
+    await timeSpan(perfLog, "dom.vhs.overlays", () => drawVhsVideoOverlays({
+      exportCtx: outputCtx,
+      uiCanvas: uiCanvasDom,
+      bounds,
+      scale: scaleFactor,
+      debugLog,
+    }));
+    const domWidgetCoveredNodeIds = await timeSpan(perfLog, "dom.widget.overlays", () => drawDomWidgetOverlays({
+      exportCtx: outputCtx,
+      uiCanvas: uiCanvasDom,
+      bounds,
+      scale: scaleFactor,
+      nodeRects,
+      debugLog,
+    }));
     await timeSpan(perfLog, "dom.text.overlays", () => drawTextOverlays({
       exportCtx: outputCtx,
       uiCanvas: uiCanvasDom,
@@ -1162,6 +1181,7 @@ export async function renderGraphOffscreen(workflowJson, options = {}) {
       bounds,
       scale: scaleFactor,
       nodeRects,
+      skipNodeIds: domWidgetCoveredNodeIds,
       debugLog,
     }));
   } else {

@@ -40,6 +40,9 @@ Install via **ComfyUI Manager**:
 ## Notes
 - Classic only. Node 2.0 / new frontend is not supported. I tried, I failed. Sorry.
 - Preview is a faster render path and may skip heavy things (like video thumbnails).
+- DOM-backed widgets are handled best-effort.
+- VHS previews and multiline widgets are supported in export.
+- Markdown export is content-first, not full WYSIWYG. Export prefers rendered text with a stable background over raw markdown or broken overlay capture.
 
 ## Acknowledgments
 - References [ComfyUI-Custom-Scripts](https://github.com/pythongosssss/ComfyUI-Custom-Scripts) by **pythongosssss**.

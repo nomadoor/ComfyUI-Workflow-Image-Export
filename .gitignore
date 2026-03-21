@@ -29,6 +29,8 @@ ops/log/
 # Editor
 .vscode/
 .idea/
+.claude/*
+!.claude/settings.example.json
 
 # OS junk
 .DS_Store
