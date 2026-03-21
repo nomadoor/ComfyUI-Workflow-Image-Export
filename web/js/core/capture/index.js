@@ -113,7 +113,7 @@ export async function capture(options = {}) {
       scale,
       pngCompression: normalized.pngCompression,
       includeGrid: true,
-      includeDomOverlays: false,
+      includeDomOverlays: true,
       debug: normalized.debug,
       embedWorkflow: false,
       format: normalized.format,

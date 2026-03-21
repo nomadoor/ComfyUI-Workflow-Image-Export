@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(find /d/AI/ComfyUI -name domWidget* -o -name addDOMWidget*)",
+      "Bash(ls /d/AI/ComfyUI/web_custom_versions/Comfy-Org_ComfyUI_frontend/1.43.2/assets/Graph*)",
+      "Bash(grep -o \".\\\\{20\\\\}cs\\(n.canvas,n\\).\\\\{0\\\\}\\\\|var cs=.\\\\{400\\\\}\\\\|let cs=.\\\\{400\\\\}\\\\|,cs=.\\\\{400\\\\}\" /d/AI/ComfyUI/web_custom_versions/Comfy-Org_ComfyUI_frontend/1.43.2/assets/GraphView-GqEPKk7a.js)",
+      "Bash(grep -v \".map$\" -)",
+      "Bash(grep -v \"marked.min\\\\|\\\\.map$\" -)",
+      "Bash(grep -o \"M.se.\\\\?w.\\\\`\\\\`.\\\\?:\\\\\\(L\\\\\\(\\\\\\).\\\\?z\\\\\\(zd\" /d/AI/ComfyUI/web_custom_versions/Comfy-Org_ComfyUI_frontend/1.43.2/assets/GraphView-GqEPKk7a.js)",
+      "Bash(grep -o \".\\\\{500\\\\}z.zd,.\\\\{200\\\\}\" /d/AI/ComfyUI/web_custom_versions/Comfy-Org_ComfyUI_frontend/1.43.2/assets/GraphView-GqEPKk7a.js)"
+    ]
+  }
+}

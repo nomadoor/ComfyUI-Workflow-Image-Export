@@ -1,11 +1,14 @@
 import { app } from "/scripts/app.js";
 import {
   collectDomMediaElements,
+  collectDomWidgetContainers,
   collectImageElementsFromDom,
   collectTextElementsFromDom,
   collectVideoElementsFromDom,
+  diagnoseDomElement,
   getDomElementGraphRect,
   getNodeIdFromElement,
+  resolveNodeIdForGraphRect,
 } from "../overlays/dom_utils.js";
 import { toBlobAsync } from "../utils.js";
 
@@ -343,6 +346,13 @@ function isVideoNodeTitle(title, type) {
   return text.includes("video");
 }
 
+function isVhsVideoElement(video) {
+  if (!video) return false;
+  if (video.classList?.contains("VHS_loopedvideo")) return true;
+  const src = `${video.currentSrc || ""} ${video.src || ""}`.toLowerCase();
+  return src.includes("/api/vhs/viewvideo") || src.includes("viewvideo");
+}
+
 export function drawVideoOverlays({ exportCtx, uiCanvas, bounds, scale, nodeRects, debugLog }) {
   const canvasEl = uiCanvas?.canvas;
   const ds = uiCanvas?.ds;
@@ -351,38 +361,64 @@ export function drawVideoOverlays({ exportCtx, uiCanvas, bounds, scale, nodeRect
   const rect = canvasEl.getBoundingClientRect();
   if (!rect.width || !rect.height) return;
 
-  const scaleX = canvasEl.width / rect.width;
-  const scaleY = canvasEl.height / rect.height;
-
-  const videos = collectVideoElementsFromDom(uiCanvas);
+  const videos = collectVideoElementsFromDom(uiCanvas, { debugLog });
   if (!videos.length) return;
 
+  // ds.scale is in CSS-pixels/graph-unit (not device-pixels/graph-unit).
+  // invScale converts a CSS pixel offset to graph units.
   const invScale = 1 / ds.scale;
+  const standardVideos = videos.filter((video) => !isVhsVideoElement(video));
 
-  for (const video of videos) {
-    if (video.readyState < 2) continue;
+  for (const video of standardVideos) {
+    if (video.readyState < 1) {
+      debugLog?.("diag.draw.video", diagnoseDomElement(video, uiCanvas, {
+        stage: "draw",
+        reason: "readyState<1",
+        readyState: video.readyState,
+        kind: "video",
+      }));
+      continue;
+    }
     const vrect = video.getBoundingClientRect();
     if (!vrect.width || !vrect.height) continue;
 
-    // DOM rects are CSS pixels relative to viewport.
-    const sx = (vrect.left - rect.left) * scaleX;
-    const sy = (vrect.top - rect.top) * scaleY;
-    const sw = vrect.width * scaleX;
-    const sh = vrect.height * scaleY;
+    if (
+      vrect.right < rect.left - 1 ||
+      vrect.left > rect.right + 1 ||
+      vrect.bottom < rect.top - 1 ||
+      vrect.top > rect.bottom + 1
+    ) {
+      debugLog?.("diag.draw.video", diagnoseDomElement(video, uiCanvas, {
+        stage: "draw",
+        reason: "off-canvas-viewport",
+        readyState: video.readyState,
+        kind: "video",
+      }));
+      continue;
+    }
+
+    const sx = vrect.left - rect.left;
+    const sy = vrect.top - rect.top;
+    const sw = vrect.width;
+    const sh = vrect.height;
 
     const graphX = sx * invScale - ds.offset[0];
     const graphY = sy * invScale - ds.offset[1];
     const graphW = sw * invScale;
     const graphH = sh * invScale;
 
-    const node = findNodeForPoint(nodeRects, graphX + graphW * 0.5, graphY + graphH * 0.5);
-    if (!node || !isVideoNodeTitle(node.title, node.type)) {
-      debugLog?.("video.overlay.skip", {
-        reason: "non-video-node",
-        node: node
-          ? { id: node.id, title: node.title, type: node.type }
+    const matchedNode = findNodeForPoint(nodeRects, graphX + graphW * 0.5, graphY + graphH * 0.5);
+    if (!matchedNode || !isVideoNodeTitle(matchedNode.title, matchedNode.type)) {
+      debugLog?.("diag.draw.video", diagnoseDomElement(video, uiCanvas, {
+        stage: "draw",
+        reason: !matchedNode ? "no-node-at-position" : "non-video-node",
+        readyState: video.readyState,
+        graphRect: { x: graphX, y: graphY, w: graphW, h: graphH },
+        matchedNode: matchedNode
+          ? { id: matchedNode.id, title: matchedNode.title, type: matchedNode.type }
           : null,
-      });
+        kind: "video",
+      }));
       continue;
     }
 
@@ -393,16 +429,105 @@ export function drawVideoOverlays({ exportCtx, uiCanvas, bounds, scale, nodeRect
 
     try {
       exportCtx.drawImage(video, x, y, w, h);
-      debugLog?.("video.overlay", {
-        x,
-        y,
-        w,
-        h,
-        node: { id: node.id, title: node.title, type: node.type },
-        rect: { left: vrect.left, top: vrect.top, width: vrect.width, height: vrect.height },
-      });
+      debugLog?.("diag.draw.video", diagnoseDomElement(video, uiCanvas, {
+        stage: "draw",
+        reason: "drawn",
+        readyState: video.readyState,
+        graphRect: { x: graphX, y: graphY, w: graphW, h: graphH },
+        exportRect: { x, y, w, h },
+        matchedNode: { id: matchedNode.id, title: matchedNode.title, type: matchedNode.type },
+        kind: "video",
+      }));
     } catch (error) {
-      debugLog?.("video.overlay.error", { message: error?.message || String(error) });
+      debugLog?.("diag.draw.video", diagnoseDomElement(video, uiCanvas, {
+        stage: "draw",
+        reason: "drawImage-error",
+        readyState: video.readyState,
+        message: error?.message || String(error),
+        kind: "video",
+      }));
+    }
+  }
+}
+
+export function drawVhsVideoOverlays({ exportCtx, uiCanvas, bounds, scale, debugLog }) {
+  const canvasEl = uiCanvas?.canvas;
+  const ds = uiCanvas?.ds;
+  if (!canvasEl || !ds) return;
+
+  const rect = canvasEl.getBoundingClientRect();
+  if (!rect.width || !rect.height) return;
+
+  const videos = collectVideoElementsFromDom(uiCanvas, { debugLog }).filter((video) =>
+    isVhsVideoElement(video)
+  );
+  if (!videos.length) return;
+
+  // ds.scale is in CSS-pixels/graph-unit (not device-pixels/graph-unit).
+  // invScale converts a CSS pixel offset to graph units.
+  const invScale = 1 / ds.scale;
+
+  for (const video of videos) {
+    if (video.readyState < 1) {
+      debugLog?.("diag.draw.vhs", diagnoseDomElement(video, uiCanvas, {
+        stage: "draw",
+        reason: "readyState<1",
+        readyState: video.readyState,
+        kind: "vhs",
+      }));
+      continue;
+    }
+    const vrect = video.getBoundingClientRect();
+    if (!vrect.width || !vrect.height) continue;
+
+    if (
+      vrect.right < rect.left - 1 ||
+      vrect.left > rect.right + 1 ||
+      vrect.bottom < rect.top - 1 ||
+      vrect.top > rect.bottom + 1
+    ) {
+      debugLog?.("diag.draw.vhs", diagnoseDomElement(video, uiCanvas, {
+        stage: "draw",
+        reason: "off-canvas-viewport",
+        readyState: video.readyState,
+        kind: "vhs",
+      }));
+      continue;
+    }
+
+    const sx = vrect.left - rect.left;
+    const sy = vrect.top - rect.top;
+    const sw = vrect.width;
+    const sh = vrect.height;
+
+    const graphX = sx * invScale - ds.offset[0];
+    const graphY = sy * invScale - ds.offset[1];
+    const graphW = sw * invScale;
+    const graphH = sh * invScale;
+
+    const x = (graphX - bounds.left) * scale;
+    const y = (graphY - bounds.top) * scale;
+    const w = graphW * scale;
+    const h = graphH * scale;
+
+    try {
+      exportCtx.drawImage(video, x, y, w, h);
+      debugLog?.("diag.draw.vhs", diagnoseDomElement(video, uiCanvas, {
+        stage: "draw",
+        reason: "drawn",
+        readyState: video.readyState,
+        graphRect: { x: graphX, y: graphY, w: graphW, h: graphH },
+        exportRect: { x, y, w, h },
+        kind: "vhs",
+      }));
+    } catch (error) {
+      debugLog?.("diag.draw.vhs", diagnoseDomElement(video, uiCanvas, {
+        stage: "draw",
+        reason: "drawImage-error",
+        readyState: video.readyState,
+        message: error?.message || String(error),
+        kind: "vhs",
+      }));
     }
   }
 }
@@ -473,6 +598,404 @@ function wrapText(ctx, text, x, y, maxWidth, lineHeight, maxLines = Infinity) {
     ctx.fillText(line, x, offsetY);
     offsetY += lineHeight;
   }
+}
+
+/**
+ * Walk up the DOM to find the first non-transparent background-color.
+ * Falls back to null if nothing opaque is found before <body>.
+ */
+function getEffectiveBackground(el) {
+  let node = el;
+  while (node && node !== document.body) {
+    const bg = window.getComputedStyle(node).backgroundColor;
+    if (bg && bg !== "rgba(0, 0, 0, 0)" && bg !== "transparent") {
+      return bg;
+    }
+    node = node.parentElement;
+  }
+  return null;
+}
+
+function resolveOpaqueBackground(...elements) {
+  for (const el of elements) {
+    const bg = el ? getEffectiveBackground(el) : null;
+    if (bg && bg !== "rgba(0, 0, 0, 0)" && bg !== "transparent") {
+      return bg;
+    }
+  }
+  const rootStyle = window.getComputedStyle(document.documentElement);
+  const vars = [
+    "--comfy-input-bg",
+    "--comfy-menu-bg",
+    "--p-surface-800",
+    "--p-content-background",
+  ];
+  for (const name of vars) {
+    const value = rootStyle.getPropertyValue(name)?.trim();
+    if (value && value !== "transparent") {
+      return value;
+    }
+  }
+  return "rgb(32, 32, 36)";
+}
+
+function isEffectivelyVisibleElement(el) {
+  if (!(el instanceof HTMLElement)) return false;
+  const style = window.getComputedStyle(el);
+  if (!style) return true;
+  if (style.display === "none") return false;
+  if (style.visibility === "hidden" || style.visibility === "collapse") return false;
+  const opacity = Number.parseFloat(style.opacity || "1");
+  if (Number.isFinite(opacity) && opacity <= 0.01) return false;
+  return true;
+}
+
+
+/**
+ * Deep-clone an element and inline ALL its computed styles so the clone is
+ * self-contained inside an SVG foreignObject (CSS variables / external
+ * stylesheets don't apply there).
+ *
+ * Recursively inline styles so child markup keeps its computed appearance
+ * inside SVG foreignObject capture.
+ */
+function cloneWithInlineStyles(src, options = {}, depth = 0) {
+  const MAX_DEPTH = 100;
+  if (depth > MAX_DEPTH) return src.cloneNode(false);
+  if (src.nodeType !== 1 /* ELEMENT_NODE */) return src.cloneNode(true);
+  const dst = src.cloneNode(false);
+  try {
+    const computed = window.getComputedStyle(src);
+    let style = "";
+    // Iterate ALL computed properties so that Tailwind utility classes and
+    // CSS custom properties (--comfy-*, --p-*) are fully resolved and inlined.
+    for (let i = 0; i < computed.length; i++) {
+      const prop = computed[i];
+      try {
+        if (options.stripLayoutProps && (
+          prop === "position" ||
+          prop === "left" ||
+          prop === "top" ||
+          prop === "right" ||
+          prop === "bottom" ||
+          prop === "inset" ||
+          prop === "inset-block" ||
+          prop === "inset-block-end" ||
+          prop === "inset-block-start" ||
+          prop === "inset-inline" ||
+          prop === "inset-inline-end" ||
+          prop === "inset-inline-start" ||
+          prop === "transform"
+        )) {
+          continue;
+        }
+        const val = computed.getPropertyValue(prop);
+        if (val) style += `${prop}:${val};`;
+      } catch (_) {}
+    }
+    dst.style.cssText = style;
+  } catch (_) {}
+
+  for (const child of src.childNodes) {
+    dst.appendChild(cloneWithInlineStyles(child, options, depth + 1));
+  }
+  return dst;
+}
+
+function isCanvasBlank(canvas) {
+  const ctx = canvas?.getContext?.("2d", { willReadFrequently: true });
+  if (!ctx || !canvas.width || !canvas.height) return true;
+  const { width, height } = canvas;
+  const samplePoints = [
+    [0, 0],
+    [Math.max(0, Math.floor(width / 2)), Math.max(0, Math.floor(height / 2))],
+    [Math.max(0, width - 1), Math.max(0, height - 1)],
+    [Math.max(0, Math.floor(width / 4)), Math.max(0, Math.floor(height / 4))],
+    [Math.max(0, Math.floor((width * 3) / 4)), Math.max(0, Math.floor((height * 3) / 4))],
+  ];
+  for (const [x, y] of samplePoints) {
+    try {
+      const data = ctx.getImageData(x, y, 1, 1).data;
+      if ((data?.[3] || 0) > 0) return false;
+    } catch (_) {
+      return false;
+    }
+  }
+  return true;
+}
+
+/**
+ * Render a DOM element to an offscreen canvas using the SVG foreignObject
+ * technique. Inlines computed styles so the clone is self-contained.
+ * Returns a canvas, or null on failure.
+ */
+async function captureElementAsCanvas(el, width, height, options = {}) {
+  const w = Math.ceil(Math.max(1, width));
+  const h = Math.ceil(Math.max(1, height));
+
+  let clone = null;
+  try {
+    clone = cloneWithInlineStyles(el, options);
+  } catch (error) {
+    return { canvas: null, stage: "clone", error: error?.message || String(error) };
+  }
+
+  // Strip cross-origin images that would taint the canvas.
+  for (const img of clone.querySelectorAll("img")) {
+    const src = img.getAttribute("src") || "";
+    if (src.startsWith("http") || src.startsWith("//")) img.removeAttribute("src");
+  }
+
+  // Build the SVG using a Blob URL (avoids data-URI encoding issues and
+  // some browser restrictions around SVG foreignObject + data URIs).
+  const svgStr = [
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}">`,
+    `<foreignObject width="${w}" height="${h}" x="0" y="0">`,
+    `<div xmlns="http://www.w3.org/1999/xhtml" `,
+    `style="width:${w}px;height:${h}px;overflow:hidden;margin:0;padding:0;box-sizing:border-box;">`,
+    clone.outerHTML,
+    `</div>`,
+    `</foreignObject>`,
+    `</svg>`,
+  ].join("");
+
+  return new Promise((resolve) => {
+    const blob = new Blob([svgStr], { type: "image/svg+xml;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const img = new Image();
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      const canvas = document.createElement("canvas");
+      canvas.width = w;
+      canvas.height = h;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) { resolve({ canvas: null, stage: "context", error: "2d context unavailable" }); return; }
+      try {
+        ctx.drawImage(img, 0, 0);
+        resolve({ canvas, stage: "draw", error: null });
+      } catch (error) {
+        resolve({ canvas: null, stage: "draw", error: error?.message || String(error) });
+      }
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      resolve({ canvas: null, stage: "image-load", error: "svg foreignObject image failed to load" });
+    };
+    img.src = url;
+  });
+}
+
+function drawTextBlockToRect(exportCtx, text, rect, style = {}) {
+  if (!text || !text.trim()) return false;
+  const x = rect.x;
+  const y = rect.y;
+  const w = rect.w;
+  const h = rect.h;
+  const fontSize = Number.isFinite(style.fontSize) ? style.fontSize : 12;
+  const lineHeight = Number.isFinite(style.lineHeight) ? style.lineHeight : fontSize * 1.35;
+  const paddingLeft = Number.isFinite(style.paddingLeft) ? style.paddingLeft : 0;
+  const paddingTop = Number.isFinite(style.paddingTop) ? style.paddingTop : 0;
+  const paddingRight = Number.isFinite(style.paddingRight) ? style.paddingRight : 0;
+  const paddingBottom = Number.isFinite(style.paddingBottom) ? style.paddingBottom : 0;
+
+  exportCtx.save();
+  exportCtx.textBaseline = "top";
+  exportCtx.font = style.font || `${fontSize}px sans-serif`;
+  if (style.background && style.background !== "rgba(0, 0, 0, 0)" && style.background !== "transparent") {
+    exportCtx.fillStyle = style.background;
+    exportCtx.fillRect(x, y, w, h);
+  }
+  exportCtx.beginPath();
+  exportCtx.rect(x, y, w, h);
+  exportCtx.clip();
+  exportCtx.fillStyle = style.color || "#ffffff";
+  const innerX = x + paddingLeft;
+  const innerY = y + paddingTop;
+  const innerW = Math.max(1, w - paddingLeft - paddingRight);
+  const innerH = Math.max(1, h - paddingTop - paddingBottom);
+  const maxLines = Math.max(1, Math.floor(innerH / lineHeight));
+  wrapText(exportCtx, text, innerX, innerY, innerW, lineHeight, maxLines);
+  exportCtx.restore();
+  return true;
+}
+
+function findRenderedMarkdownElement(widget) {
+  if (!(widget instanceof HTMLElement)) return null;
+  const rendered =
+    widget.matches?.(".comfy-markdown-content, .tiptap, .markdown-rendered, .markdown-preview")
+      ? widget
+      : widget.querySelector?.(".comfy-markdown-content, .tiptap, .markdown-rendered, .markdown-preview");
+  return rendered instanceof HTMLElement ? rendered : null;
+}
+
+function isDomWidgetMarkdownElement(el) {
+  if (!(el instanceof HTMLElement)) return false;
+  if (el.classList?.contains("comfy-markdown-content")) return true;
+  if (el.classList?.contains("tiptap")) return true;
+  if (el.closest?.(".widget-markdown")) return true;
+  return false;
+}
+
+function formatCanvasFont(style, fallbackSize = 12) {
+  const size = parsePx(style.fontSize, fallbackSize);
+  return `${style.fontStyle || ""} ${style.fontVariant || ""} ${style.fontWeight || ""} ${size}px ${style.fontFamily || "sans-serif"}`.trim();
+}
+
+/**
+ * Draw DOM widget containers onto the export canvas.
+ *
+ * Current policy:
+ * - multiline widgets are handled by text overlay drawing
+ * - markdown prefers rendered DOM capture, but falls back to rendered text
+ *   plus an opaque background when foreignObject capture is not reliable
+ * - generic DOM widgets still use foreignObject as a best-effort path
+ *
+ * Returns a Set of node IDs that were successfully covered.
+ */
+export async function drawDomWidgetOverlays({
+  exportCtx,
+  uiCanvas,
+  bounds,
+  scale,
+  nodeRects,
+  debugLog,
+}) {
+  const coveredNodeIds = new Set();
+  const widgets = collectDomWidgetContainers(uiCanvas, { debugLog });
+  if (!widgets.length) return coveredNodeIds;
+
+  debugLog?.("dom.widget.overlay.count", { count: widgets.length });
+
+  for (const widget of widgets) {
+    const rect = getDomElementGraphRect(widget, uiCanvas, {
+      debugLog,
+      stage: "transform",
+      kind: "widget",
+    });
+    if (!rect || rect.w <= 0 || rect.h <= 0) continue;
+
+    const multilineEl = widget.querySelector?.("textarea.comfy-multiline-input");
+    if (multilineEl instanceof HTMLTextAreaElement) {
+      debugLog?.("diag.draw.widget", diagnoseDomElement(multilineEl, uiCanvas, {
+        stage: "draw",
+        reason: "handled-by-text-overlay",
+        kind: "widget-multiline",
+      }));
+      continue;
+    }
+
+    const x = (rect.x - bounds.left) * scale;
+    const y = (rect.y - bounds.top) * scale;
+    const w = rect.w * scale;
+    const h = rect.h * scale;
+
+    if (w < 1 || h < 1) continue;
+    if (w > bounds.width * scale * 1.1 || h > bounds.height * scale * 1.1) continue;
+
+    const nodeId = resolveNodeIdForGraphRect(
+      nodeRects,
+      rect,
+      getNodeIdFromElement(widget)
+    );
+    const renderedMarkdown = findRenderedMarkdownElement(widget);
+    if (renderedMarkdown) {
+      const renderedRect = getDomElementGraphRect(renderedMarkdown, uiCanvas, {
+        debugLog,
+        stage: "transform",
+        kind: "widget-markdown",
+      }) || rect;
+      const renderedClientRect = renderedMarkdown.getBoundingClientRect();
+      const rx = (renderedRect.x - bounds.left) * scale;
+      const ry = (renderedRect.y - bounds.top) * scale;
+      const rw = renderedRect.w * scale;
+      const rh = renderedRect.h * scale;
+      const captureWidth = Math.max(1, renderedClientRect.width || renderedRect.w || 1);
+      const captureHeight = Math.max(1, renderedClientRect.height || renderedRect.h || 1);
+      const captured = await captureElementAsCanvas(renderedMarkdown, captureWidth, captureHeight, {
+        stripLayoutProps: true,
+      });
+      let drawn = false;
+      let reason = "rendered-capture-failed";
+      const style = window.getComputedStyle(renderedMarkdown);
+      const text = renderedMarkdown.innerText || renderedMarkdown.textContent || "";
+      const fallbackBackground = resolveOpaqueBackground(renderedMarkdown, widget);
+      const captureBlank = captured?.canvas ? isCanvasBlank(captured.canvas) : false;
+
+      if (captured?.canvas && !captureBlank) {
+        exportCtx.drawImage(captured.canvas, rx, ry, rw, rh);
+        drawn = true;
+        reason = "rendered-capture-drawn";
+      } else {
+        // Browser-only, dependency-free markdown export is content-first.
+        // If foreignObject capture fails, prefer stable rendered text with an
+        // opaque background over raw markdown or double-drawing artifacts.
+        drawn = drawTextBlockToRect(
+          exportCtx,
+          text,
+          { x: rx, y: ry, w: rw, h: rh },
+          {
+            fontSize: parsePx(style.fontSize, 12),
+            lineHeight: parsePx(style.lineHeight, parsePx(style.fontSize, 12) * 1.35),
+            paddingLeft: parsePx(style.paddingLeft, 0),
+            paddingTop: parsePx(style.paddingTop, 0),
+            paddingRight: parsePx(style.paddingRight, 0),
+            paddingBottom: parsePx(style.paddingBottom, 0),
+            background: fallbackBackground,
+            color: style.color || "#ffffff",
+            font: formatCanvasFont(style, 12),
+          }
+        );
+        reason = drawn
+          ? captureBlank
+            ? "rendered-capture-blank-text-fallback"
+            : "rendered-text-drawn"
+          : "rendered-text-empty";
+      }
+      if (drawn && Number.isFinite(nodeId)) {
+        coveredNodeIds.add(nodeId);
+      }
+      debugLog?.("diag.draw.widget", diagnoseDomElement(renderedMarkdown, uiCanvas, {
+        stage: "draw",
+        reason,
+        captureStage: captured?.stage || null,
+        captureError: captured?.error || null,
+        captureBlank,
+        captureSize: { width: captureWidth, height: captureHeight },
+        exportRect: { x: rx, y: ry, w: rw, h: rh },
+        resolvedNodeId: nodeId,
+        effectiveBackground: fallbackBackground,
+        textPreview: text.slice(0, 120),
+        kind: "widget-markdown",
+      }));
+      continue;
+    }
+
+    // Attempt foreignObject SVG capture.
+    const captured = await captureElementAsCanvas(widget, w, h);
+    if (captured?.canvas) {
+      exportCtx.drawImage(captured.canvas, x, y, w, h);
+      debugLog?.("diag.draw.widget", diagnoseDomElement(widget, uiCanvas, {
+        stage: "draw",
+        reason: "capture-drawn",
+        captureStage: captured.stage,
+        exportRect: { x, y, w, h },
+        resolvedNodeId: nodeId,
+        kind: "widget",
+      }));
+      if (Number.isFinite(nodeId)) coveredNodeIds.add(nodeId);
+    } else {
+      debugLog?.("diag.draw.widget", diagnoseDomElement(widget, uiCanvas, {
+        stage: "draw",
+        reason: "capture-failed",
+        captureStage: captured?.stage || null,
+        captureError: captured?.error || null,
+        exportRect: { x, y, w, h },
+        resolvedNodeId: nodeId,
+        kind: "widget",
+      }));
+    }
+  }
+  return coveredNodeIds;
 }
 
 function parsePx(value, fallback = 0) {
@@ -722,13 +1245,25 @@ export function drawWidgetTextFallback({ exportCtx, graph, bounds, scale, covere
   return { drawn, skippedCovered, skippedEmpty };
 }
 
-export function drawTextOverlays({ exportCtx, uiCanvas, graph, bounds, scale, nodeRects, debugLog }) {
-  const elements = collectTextElementsFromDom(uiCanvas);
+export function drawTextOverlays({
+  exportCtx,
+  uiCanvas,
+  graph,
+  bounds,
+  scale,
+  nodeRects,
+  debugLog,
+  skipNodeIds = null,
+}) {
+  const elements = collectTextElementsFromDom(uiCanvas, { debugLog });
   const isRenderedMarkdown = (el) =>
+    el.classList?.contains("tiptap") ||
     el.classList?.contains("markdown") ||
     el.classList?.contains("markdown-body") ||
     el.classList?.contains("markdown-preview") ||
-    el.classList?.contains("markdown-rendered");
+    el.classList?.contains("markdown-rendered") ||
+    // Modern ComfyUI frontend WidgetMarkdown component class:
+    el.classList?.contains("comfy-markdown-content");
   const isEditorMarkdown = (el) =>
     el.classList?.contains("ProseMirror") ||
     el.classList?.contains("cm-content") ||
@@ -757,16 +1292,15 @@ export function drawTextOverlays({ exportCtx, uiCanvas, graph, bounds, scale, no
   for (const [groupKey, list] of elementsByGroup.entries()) {
     const hasRendered = list.some(isRenderedMarkdown);
     const hasEditor = list.some(isEditorMarkdown);
-    if (hasEditor) {
-      // Prefer raw/editor text when available (markdown nodes -> raw text only).
+    if (hasRendered) {
       list.forEach((el) => {
-        if (isEditorMarkdown(el)) {
+        if (isRenderedMarkdown(el)) {
           filtered.push(el);
         }
       });
-    } else if (hasRendered) {
+    } else if (hasEditor) {
       list.forEach((el) => {
-        if (isRenderedMarkdown(el)) {
+        if (isEditorMarkdown(el)) {
           filtered.push(el);
         }
       });
@@ -793,14 +1327,8 @@ export function drawTextOverlays({ exportCtx, uiCanvas, graph, bounds, scale, no
   let skippedNoRect = 0;
   let skippedEmpty = 0;
   const coveredNodeIds = new Set();
-  const resolveNodeId = (rect, fallbackId) => {
-    if (Number.isFinite(fallbackId)) return fallbackId;
-    if (!rect || !nodeRects?.length) return null;
-    const cx = rect.x + rect.w / 2;
-    const cy = rect.y + rect.h / 2;
-    const node = findNodeForPoint(nodeRects, cx, cy);
-    return node?.id ?? null;
-  };
+  const resolveNodeId = (rect, fallbackId) =>
+    resolveNodeIdForGraphRect(nodeRects, rect, fallbackId);
   const findNodeRectById = (id) => {
     if (!Number.isFinite(id) || !nodeRects?.length) return null;
     return nodeRects.find((rect) => rect.id === id) || null;
@@ -831,10 +1359,30 @@ export function drawTextOverlays({ exportCtx, uiCanvas, graph, bounds, scale, no
   };
 
   const picks = new Map();
+  const skippedSet = skipNodeIds instanceof Set
+    ? skipNodeIds
+    : new Set(
+      Array.isArray(skipNodeIds)
+        ? skipNodeIds.map((id) => Number(id)).filter(Number.isFinite)
+        : []
+    );
+  for (const skippedId of skippedSet) {
+    coveredNodeIds.add(skippedId);
+  }
 
   for (const el of filtered) {
+    if (!isEffectivelyVisibleElement(el)) {
+      continue;
+    }
+    if (isDomWidgetMarkdownElement(el)) {
+      continue;
+    }
     const nodeId = getNodeIdFromElement(el);
-    const rect = getDomElementGraphRect(el, uiCanvas);
+    const rect = getDomElementGraphRect(el, uiCanvas, {
+      debugLog,
+      stage: "transform",
+      kind: "text",
+    });
     if (!rect) {
       skippedNoRect += 1;
       if (debugLog && loggedSkips < 5) {
@@ -861,6 +1409,9 @@ export function drawTextOverlays({ exportCtx, uiCanvas, graph, bounds, scale, no
       continue;
     }
     const resolvedId = resolveNodeId(rect, nodeId);
+    if (Number.isFinite(resolvedId) && skippedSet.has(resolvedId)) {
+      continue;
+    }
     if (Number.isFinite(resolvedId)) {
       coveredNodeIds.add(resolvedId);
     }
@@ -899,7 +1450,9 @@ export function drawTextOverlays({ exportCtx, uiCanvas, graph, bounds, scale, no
     const paddingTop = parsePx(style.paddingTop, 0);
     const paddingRight = parsePx(style.paddingRight, 0);
     const paddingBottom = parsePx(style.paddingBottom, 0);
-    const bg = style.backgroundColor;
+    // Walk up the DOM to find the effective (non-transparent) background.
+    // Textarea/input elements inside comfy-multiline-input report transparent.
+    const bg = getEffectiveBackground(el);
     const color = style.color || "#ffffff";
 
     const text =
@@ -937,13 +1490,15 @@ export function drawTextOverlays({ exportCtx, uiCanvas, graph, bounds, scale, no
     wrapText(exportCtx, text, innerX, innerY, innerW, lineHeight, maxLines);
     exportCtx.restore();
 
-    debugLog?.("dom.text.item", {
-      x,
-      y,
-      w,
-      h,
-      text: text.slice(0, 80),
-    });
+    debugLog?.("diag.draw.text", diagnoseDomElement(el, uiCanvas, {
+      stage: "draw",
+      reason: "drawn",
+      exportRect: { x, y, w, h },
+      effectiveBackground: bg,
+      drawColor: color,
+      textPreview: text.slice(0, 120),
+      kind: "text",
+    }));
   }
 
   if (visibleCount === 0) {
@@ -970,13 +1525,17 @@ export function drawTextOverlays({ exportCtx, uiCanvas, graph, bounds, scale, no
 }
 
 export function drawImageOverlays({ exportCtx, uiCanvas, bounds, scale, debugLog }) {
-  const elements = collectImageElementsFromDom(uiCanvas);
+  const elements = collectImageElementsFromDom(uiCanvas, { debugLog });
   if (!elements.length) return;
 
   debugLog?.("dom.image.count", { count: elements.length });
 
   for (const el of elements) {
-    const rect = getDomElementGraphRect(el, uiCanvas);
+    const rect = getDomElementGraphRect(el, uiCanvas, {
+      debugLog,
+      stage: "transform",
+      kind: "image",
+    });
     if (!rect) continue;
 
     const x = (rect.x - bounds.left) * scale;
@@ -1175,7 +1734,25 @@ export async function captureLegacy(options = {}) {
     });
     drawImageOverlays({ exportCtx, uiCanvas, bounds, scale, debugLog });
     drawVideoOverlays({ exportCtx, uiCanvas, bounds, scale, nodeRects, debugLog });
-    drawTextOverlays({ exportCtx, uiCanvas, graph, bounds, scale, nodeRects, debugLog });
+    drawVhsVideoOverlays({ exportCtx, uiCanvas, bounds, scale, debugLog });
+    const domWidgetCoveredNodeIds = await drawDomWidgetOverlays({
+      exportCtx,
+      uiCanvas,
+      bounds,
+      scale,
+      nodeRects,
+      debugLog,
+    });
+    drawTextOverlays({
+      exportCtx,
+      uiCanvas,
+      graph,
+      bounds,
+      scale,
+      nodeRects,
+      debugLog,
+      skipNodeIds: domWidgetCoveredNodeIds,
+    });
 
     const blob = await toBlobAsync(exportCanvas, mime);
     return {
