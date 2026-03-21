@@ -235,6 +235,7 @@ export function collectVideoElementsFromDom(uiCanvas, options = {}) {
   const elements = [];
   const isVhsLikeVideo = (el) => {
     if (!(el instanceof HTMLVideoElement)) return false;
+    if (el.closest?.(".vhs_preview")) return true;
     if (el.classList?.contains("VHS_loopedvideo")) return true;
     const src = `${el.currentSrc || ""} ${el.src || ""}`.toLowerCase();
     return src.includes("/api/vhs/viewvideo") || src.includes("viewvideo");
@@ -249,7 +250,7 @@ export function collectVideoElementsFromDom(uiCanvas, options = {}) {
       seen.add(el);
       elements.push(el);
       options.debugLog?.("diag.collect", diagnoseDomElement(el, uiCanvas, {
-        selector: "video[src*='viewvideo']",
+        selector: el.closest?.(".vhs_preview") ? ".vhs_preview video" : "video[src*='viewvideo']",
         kind: "video",
         isVhsLike: true,
       }));
