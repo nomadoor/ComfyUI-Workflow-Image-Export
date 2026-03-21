@@ -5,7 +5,9 @@ import {
   isNode2UnsupportedError,
   isWebpHugeUnsupportedError,
 } from "../core/capture/index.js";
+import { captureLegacy } from "../core/backends/legacy_capture.js";
 import { triggerDownload } from "../core/download.js";
+import { computeGraphBBox } from "../export/bbox.js";
 import {
   DEFAULTS,
   getDefaultsFromSettings,
@@ -589,50 +591,47 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
     if (exportButton) exportButton.disabled = true;
     webpNote.textContent = "Checking WebP size…";
 
-    const workflowJson =
-      (typeof app?.graph?.serialize === "function" && app.graph.serialize()) || null;
-    if (!workflowJson) {
-      webpBlocked = false;
-      webpNote.textContent = "";
-      if (exportButton) exportButton.disabled = false;
-      return;
-    }
-
-    try {
-      const { computeOffscreenBBox } = await import("../export/render_graph_offscreen.js");
-      const selectedIds = getSelectedNodeIds();
-      const scale = state.outputResolution === "200%" ? 2 : 1;
-      const bbox = await computeOffscreenBBox(workflowJson, {
-        padding: state.padding,
-        selectedNodeIds: selectedIds,
-        cropToSelection: Boolean(state.scopeSelected),
-        previewFast: false,
-      });
-      if (token !== webpCheckToken) return;
-      if (!bbox) {
+      const graph = app?.graph;
+      if (!graph) {
         webpBlocked = false;
         webpNote.textContent = "";
         if (exportButton) exportButton.disabled = false;
         return;
       }
-      const w = bbox.width * scale;
-      const h = bbox.height * scale;
-      const huge = shouldTile(w, h);
-      webpBlocked = huge;
-      if (huge) {
-        webpNote.textContent =
-          `WebP is unavailable for huge exports (${Math.round(w)}x${Math.round(h)}). Use PNG or reduce size.`;
-      } else {
+
+      try {
+        const selectedIds = getSelectedNodeIds();
+        const scale = state.outputResolution === "200%" ? 2 : 1;
+        const bbox = computeGraphBBox(graph, {
+          padding: state.padding,
+          selectedNodeIds: selectedIds,
+          useSelectionOnly: Boolean(state.scopeSelected),
+        });
+        if (token !== webpCheckToken) return;
+        if (!bbox) {
+          webpBlocked = false;
+          webpNote.textContent = "";
+          if (exportButton) exportButton.disabled = false;
+          return;
+        }
+        const w = bbox.width * scale;
+        const h = bbox.height * scale;
+        const huge = shouldTile(w, h);
+        webpBlocked = huge;
+        if (huge) {
+          webpNote.textContent =
+            `WebP is unavailable for huge exports (${Math.round(w)}x${Math.round(h)}). Use PNG or reduce size.`;
+        } else {
+          webpNote.textContent = "";
+        }
+        if (exportButton) exportButton.disabled = webpBlocked;
+      } catch (error) {
+        if (token !== webpCheckToken) return;
+        webpBlocked = false;
         webpNote.textContent = "";
+        if (exportButton) exportButton.disabled = false;
+        log?.("webp:check.error", { message: error?.message || String(error) });
       }
-      if (exportButton) exportButton.disabled = webpBlocked;
-    } catch (error) {
-      if (token !== webpCheckToken) return;
-      webpBlocked = false;
-      webpNote.textContent = "";
-      if (exportButton) exportButton.disabled = false;
-      log?.("webp:check.error", { message: error?.message || String(error) });
-    }
   }
 
   function scheduleWebpCheck(delay = 350) {
@@ -797,7 +796,11 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
     try {
       previewBusy = true;
       previewFrame.classList.add("is-loading");
-      const blob = await capture(previewState);
+      const previewResult = await captureLegacy({
+        ...previewState,
+        skipWidgetCapture: true,
+      });
+      const blob = previewResult?.blob || null;
       if (dialogClosed || token !== previewToken) {
         previewFrame.classList.remove("is-loading");
         return;
