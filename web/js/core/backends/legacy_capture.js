@@ -1628,6 +1628,7 @@ export async function captureLegacy(options = {}) {
 
   const debugLog = debug
     ? (label, payload) => {
+      if (String(label).startsWith("diag.")) return;
       console.log(`[CWIE][Legacy][dbg] ${label}`, payload);
     }
     : null;

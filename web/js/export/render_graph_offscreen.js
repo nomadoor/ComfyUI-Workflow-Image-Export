@@ -798,6 +798,7 @@ export async function computeOffscreenBBox(workflowJson, options = {}) {
   const debug = Boolean(options.debug);
   const debugLog = debug
     ? (label, payload) => {
+      if (String(label).startsWith("diag.")) return;
       console.log(`[CWIE][Offscreen][dom] ${label}`, payload);
     }
     : null;
@@ -819,6 +820,7 @@ export async function renderGraphOffscreen(workflowJson, options = {}) {
   const debug = Boolean(options.debug);
   const debugLog = debug
     ? (label, payload) => {
+      if (String(label).startsWith("diag.")) return;
       console.log(`[CWIE][Offscreen][dom] ${label}`, payload);
     }
     : null;
