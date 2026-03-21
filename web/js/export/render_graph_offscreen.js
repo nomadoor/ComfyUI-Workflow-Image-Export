@@ -181,124 +181,6 @@ function resolveCanvasConstructor() {
   return window?.LGraphCanvas || window?.LiteGraph?.LGraphCanvas || null;
 }
 
-function collectDomWidgetOwners() {
-  const owners = new Set();
-  const addOwner = (proto) => {
-    let current = proto;
-    while (current) {
-      if (
-        Object.prototype.hasOwnProperty.call(current, "addDOMWidget") &&
-        typeof current.addDOMWidget === "function"
-      ) {
-        owners.add(current);
-        return;
-      }
-      current = Object.getPrototypeOf(current);
-    }
-  };
-
-  const liveNodes = app?.graph?._nodes || app?.graph?.nodes || [];
-  for (const node of liveNodes) {
-    if (node) addOwner(Object.getPrototypeOf(node));
-  }
-
-  const globals = [
-    window?.LGraphNode?.prototype,
-    window?.LiteGraph?.LGraphNode?.prototype,
-  ];
-  for (const proto of globals) {
-    if (proto && typeof proto.addDOMWidget === "function") {
-      owners.add(proto);
-    }
-  }
-
-  return Array.from(owners);
-}
-
-// Wrap configureGraph so that any addDOMWidget calls made during offscreen graph
-// construction return a plain stub widget rather than a real DOMWidgetImpl.
-//
-// The root cause of the VHS audio bug: addDOMWidget (via addWidget) calls
-// useDomWidgetStore().registerWidget(), inserting the widget into the shared Vue
-// reactive store.  Vue then renders the VHS video element into the live canvas DOM
-// at the same screen position as the live VHS node.  The user's cursor hovering
-// that position triggers the video's onmouseenter handler which sets muted=false,
-// starting audio.  The modal backdrop then blocks the matching mouseleave, so audio
-// never stops until page refresh.
-//
-// The stub widget accepted by VHS code is a plain object.  VHS only needs it to
-// accept property assignment (computeSize, value, parentEl, videoEl, imgEl,
-// updateSource, callback, aspectRatio, onPointerDown).  None of those assignments
-// cause DOM attachment or store registration.
-function withSuppressedDomWidgetStore(task, debugLog) {
-  const owners = collectDomWidgetOwners();
-  const restoreSteps = [];
-  let invokeCount = 0;
-
-  debugLog?.("vhs.domwidget.owners", {
-    ownerCount: owners.length,
-    globalLiteGraphMatch:
-      window?.LiteGraph?.LGraphNode?.prototype &&
-      owners.includes(window.LiteGraph.LGraphNode.prototype),
-    globalLGraphMatch:
-      window?.LGraphNode?.prototype && owners.includes(window.LGraphNode.prototype),
-  });
-
-  for (const owner of owners) {
-    const original = owner.addDOMWidget;
-    if (typeof original !== "function") continue;
-
-    owner.addDOMWidget = function offscreenAddDOMWidget(name, type, element, options = {}) {
-      invokeCount += 1;
-      debugLog?.("vhs.domwidget.stub", {
-        invokeCount,
-        name,
-        type,
-        nodeId: this?.id,
-        nodeType: this?.type,
-      });
-
-      // Return a plain stub.  This satisfies VHS property assignments without
-      // calling addWidget / useDomWidgetStore().registerWidget(), so the widget
-      // is never injected into the live Vue DOM overlay.
-      const stub = {
-        name,
-        type,
-        element,
-        options: { hideOnZoom: true, ...options },
-        value: "",
-        y: 0,
-        height: 0,
-      };
-
-      // Still push into node.widgets so index-based widget sync remains correct.
-      if (Array.isArray(this.widgets)) {
-        this.widgets.push(stub);
-      }
-
-      return stub;
-    };
-
-    restoreSteps.push(() => {
-      owner.addDOMWidget = original;
-    });
-  }
-
-  try {
-    return task();
-  } finally {
-    while (restoreSteps.length) {
-      const restore = restoreSteps.pop();
-      try {
-        restore?.();
-      } catch (_) {
-        // ignore restore failures
-      }
-    }
-    debugLog?.("vhs.domwidget.stubbed", { invokeCount });
-  }
-}
-
 function copyRenderSettings(fromCanvas, toCanvas) {
   if (!fromCanvas || !toCanvas) return;
   const renderKeys = [
@@ -904,7 +786,7 @@ async function prepareGraph(workflowJson, debugLog) {
     throw new Error("Offscreen render: LiteGraph constructors not available.");
   }
   const graph = new LGraphRef();
-  withSuppressedDomWidgetStore(() => configureGraph(graph, workflowJson), debugLog);
+  configureGraph(graph, workflowJson);
   syncLiveNodeGeometry(graph, app?.graph);
   syncLiveNodeMedia(graph, app?.graph, debugLog);
   syncLiveNodeText(graph, app?.graph);

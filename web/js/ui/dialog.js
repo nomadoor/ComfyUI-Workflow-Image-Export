@@ -19,109 +19,6 @@ let activeDialogCleanup = null;
 
 const PREVIEW_MAX_PIXELS = 1024 * 1024;
 
-function createLiveVhsProbe(enabled) {
-  if (!enabled) return () => {};
-
-  const nodes = (app?.graph?._nodes || app?.graph?.nodes || []).filter((node) => {
-    const type = String(node?.type || "");
-    return type.startsWith("VHS_");
-  });
-
-  const cleanups = [];
-  const snapshotVideo = (video) => ({
-    src: String(video?.currentSrc || video?.src || ""),
-    muted: Boolean(video?.muted),
-    paused: Boolean(video?.paused),
-    autoplay: Boolean(video?.autoplay),
-    readyState: Number(video?.readyState || 0),
-    connected: Boolean(video?.isConnected),
-  });
-
-  const wrapMethod = (target, key, label, extra = {}) => {
-    const original = target?.[key];
-    if (typeof original !== "function") return;
-    target[key] = function (...args) {
-      console.log(`[CWIE][VHS][live] ${label}`, {
-        ...extra,
-        args,
-      });
-      return original.apply(this, args);
-    };
-    cleanups.push(() => {
-      target[key] = original;
-    });
-  };
-
-  nodes.forEach((node) => {
-    const base = {
-      nodeId: node?.id,
-      nodeType: node?.type,
-      nodeTitle: node?.title,
-    };
-    wrapMethod(node, "updateParameters", "updateParameters", base);
-
-    const previewWidget = Array.isArray(node?.widgets)
-      ? node.widgets.find((widget) => widget?.name === "videopreview")
-      : null;
-    if (!previewWidget) return;
-
-    wrapMethod(previewWidget, "callback", "videopreview.callback", base);
-    wrapMethod(previewWidget, "updateSource", "videopreview.updateSource", base);
-
-    const video = previewWidget.videoEl;
-    if (!(video instanceof HTMLVideoElement)) return;
-
-    console.log("[CWIE][VHS][live] pre-open", {
-      ...base,
-      ...snapshotVideo(video),
-    });
-
-    for (const eventName of [
-      "mouseenter",
-      "mouseleave",
-      "play",
-      "pause",
-      "volumechange",
-      "loadedmetadata",
-    ]) {
-      const handler = () => {
-        console.log(`[CWIE][VHS][live] video.${eventName}`, {
-          ...base,
-          ...snapshotVideo(video),
-        });
-      };
-      video.addEventListener(eventName, handler);
-      cleanups.push(() => {
-        video.removeEventListener(eventName, handler);
-      });
-    }
-  });
-
-  return () => {
-    while (cleanups.length) {
-      const cleanup = cleanups.pop();
-      try {
-        cleanup?.();
-      } catch (_) {
-        // ignore probe cleanup failures
-      }
-    }
-    nodes.forEach((node) => {
-      const previewWidget = Array.isArray(node?.widgets)
-        ? node.widgets.find((widget) => widget?.name === "videopreview")
-        : null;
-      const video = previewWidget?.videoEl;
-      if (!(video instanceof HTMLVideoElement)) return;
-      console.log("[CWIE][VHS][live] cleanup", {
-        nodeId: node?.id,
-        nodeType: node?.type,
-        nodeTitle: node?.title,
-        ...snapshotVideo(video),
-      });
-    });
-  };
-}
-
 function ensureStyles() {
   if (document.getElementById("cwie-styles")) {
     return;
@@ -843,16 +740,10 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
   let dialogClosed = false;
   let previewToken = 0;
   let previewPaused = false;
-  const cleanupLiveVhsProbe = createLiveVhsProbe(Boolean(state.debug));
 
   const cleanupDialog = () => {
     if (dialogClosed) return;
     dialogClosed = true;
-    try {
-      cleanupLiveVhsProbe?.();
-    } catch (_) {
-      // ignore probe cleanup failures
-    }
     previewToken += 1;
     if (previewTimer) {
       clearTimeout(previewTimer);
