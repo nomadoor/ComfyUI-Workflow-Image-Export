@@ -235,6 +235,7 @@ export function collectVideoElementsFromDom(uiCanvas, options = {}) {
   const elements = [];
   const isVhsLikeVideo = (el) => {
     if (!(el instanceof HTMLVideoElement)) return false;
+    if (el.closest?.(".vhs_preview")) return true;
     if (el.classList?.contains("VHS_loopedvideo")) return true;
     const src = `${el.currentSrc || ""} ${el.src || ""}`.toLowerCase();
     return src.includes("/api/vhs/viewvideo") || src.includes("viewvideo");
@@ -249,20 +250,26 @@ export function collectVideoElementsFromDom(uiCanvas, options = {}) {
       seen.add(el);
       elements.push(el);
       options.debugLog?.("diag.collect", diagnoseDomElement(el, uiCanvas, {
-        selector: "video[src*='viewvideo']",
+        selector: el.closest?.(".vhs_preview") ? ".vhs_preview video" : "video[src*='viewvideo']",
         kind: "video",
         isVhsLike: true,
       }));
     }
   }
 
-  // Standard video elements — require them to be inside a recognised node container.
+  // Standard video elements may be rendered either inside the node subtree or
+  // inside a detached .dom-widget overlay. Collect both; node matching happens
+  // later by graph position.
   for (const el of root.querySelectorAll("video")) {
-    if (el instanceof HTMLVideoElement && !seen.has(el) && isElementInGraphNode(el)) {
+    if (
+      el instanceof HTMLVideoElement &&
+      !seen.has(el) &&
+      (isElementInGraphNode(el) || Boolean(el.closest?.(".dom-widget")))
+    ) {
       seen.add(el);
       elements.push(el);
       options.debugLog?.("diag.collect", diagnoseDomElement(el, uiCanvas, {
-        selector: "video",
+        selector: el.closest?.(".dom-widget") ? ".dom-widget video" : "video",
         kind: "video",
         isVhsLike: false,
       }));
