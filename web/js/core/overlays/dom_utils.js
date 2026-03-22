@@ -233,6 +233,7 @@ export function collectVideoElementsFromDom(uiCanvas, options = {}) {
   const root = getCanvasRoot(uiCanvas);
   const seen = new Set();
   const elements = [];
+  const videoRoots = root && root !== document ? [root, document] : [document];
   const isVhsLikeVideo = (el) => {
     if (!(el instanceof HTMLVideoElement)) return false;
     if (el.closest?.(".vhs_preview")) return true;
@@ -245,34 +246,38 @@ export function collectVideoElementsFromDom(uiCanvas, options = {}) {
   // often do not carry a special class in newer frontends. Collect anything
   // that looks like a VHS preview unconditionally; position-based matching
   // handles the rest.
-  for (const el of root.querySelectorAll("video")) {
-    if (isVhsLikeVideo(el) && !seen.has(el)) {
-      seen.add(el);
-      elements.push(el);
-      options.debugLog?.("diag.collect", diagnoseDomElement(el, uiCanvas, {
-        selector: el.closest?.(".vhs_preview") ? ".vhs_preview video" : "video[src*='viewvideo']",
-        kind: "video",
-        isVhsLike: true,
-      }));
+  for (const searchRoot of videoRoots) {
+    for (const el of searchRoot.querySelectorAll("video")) {
+      if (isVhsLikeVideo(el) && !seen.has(el)) {
+        seen.add(el);
+        elements.push(el);
+        options.debugLog?.("diag.collect", diagnoseDomElement(el, uiCanvas, {
+          selector: el.closest?.(".vhs_preview") ? ".vhs_preview video" : "video[src*='viewvideo']",
+          kind: "video",
+          isVhsLike: true,
+        }));
+      }
     }
   }
 
   // Standard video elements may be rendered either inside the node subtree or
   // inside a detached .dom-widget overlay. Collect both; node matching happens
   // later by graph position.
-  for (const el of root.querySelectorAll("video")) {
-    if (
-      el instanceof HTMLVideoElement &&
-      !seen.has(el) &&
-      (isElementInGraphNode(el) || Boolean(el.closest?.(".dom-widget")))
-    ) {
-      seen.add(el);
-      elements.push(el);
-      options.debugLog?.("diag.collect", diagnoseDomElement(el, uiCanvas, {
-        selector: el.closest?.(".dom-widget") ? ".dom-widget video" : "video",
-        kind: "video",
-        isVhsLike: false,
-      }));
+  for (const searchRoot of videoRoots) {
+    for (const el of searchRoot.querySelectorAll("video")) {
+      if (
+        el instanceof HTMLVideoElement &&
+        !seen.has(el) &&
+        (isElementInGraphNode(el) || Boolean(el.closest?.(".dom-widget")))
+      ) {
+        seen.add(el);
+        elements.push(el);
+        options.debugLog?.("diag.collect", diagnoseDomElement(el, uiCanvas, {
+          selector: el.closest?.(".dom-widget") ? ".dom-widget video" : "video",
+          kind: "video",
+          isVhsLike: false,
+        }));
+      }
     }
   }
 

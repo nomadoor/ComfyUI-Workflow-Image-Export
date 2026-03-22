@@ -841,6 +841,49 @@ function formatCanvasFont(style, fallbackSize = 12) {
   return `${style.fontStyle || ""} ${style.fontVariant || ""} ${style.fontWeight || ""} ${size}px ${style.fontFamily || "sans-serif"}`.trim();
 }
 
+function resolveDirectWidgetMedia(widget, uiCanvas) {
+  if (!(widget instanceof HTMLElement)) return null;
+  const candidates = Array.from(widget.querySelectorAll("canvas, img, video"));
+  if (!candidates.length) return null;
+
+  let best = null;
+  let bestArea = 0;
+
+  for (const el of candidates) {
+    if (
+      !(el instanceof HTMLCanvasElement) &&
+      !(el instanceof HTMLImageElement) &&
+      !(el instanceof HTMLVideoElement)
+    ) {
+      continue;
+    }
+    if (!isEffectivelyVisibleElement(el)) continue;
+    if (el instanceof HTMLVideoElement && (el.readyState || 0) < 1) continue;
+
+    const rect = getDomElementGraphRect(el, uiCanvas);
+    if (!rect || rect.w <= 0 || rect.h <= 0) continue;
+
+    const area = rect.w * rect.h;
+    if (area > bestArea) {
+      best = { element: el, rect };
+      bestArea = area;
+    }
+  }
+
+  if (!best) return null;
+
+  const widgetRect = getDomElementGraphRect(widget, uiCanvas);
+  if (!widgetRect || widgetRect.w <= 0 || widgetRect.h <= 0) return best;
+
+  const widgetArea = widgetRect.w * widgetRect.h;
+  if (widgetArea <= 0) return best;
+
+  // Ignore tiny decorative media; only treat it as a widget preview if it
+  // occupies a meaningful portion of the widget.
+  if (bestArea / widgetArea < 0.2) return null;
+  return best;
+}
+
 /**
  * Draw DOM widget containers onto the export canvas.
  *
@@ -974,10 +1017,25 @@ export async function drawDomWidgetOverlays({
     }
 
     // Attempt foreignObject SVG capture.
+    const directMedia = skipWidgetCapture ? resolveDirectWidgetMedia(widget, uiCanvas) : null;
     const captured = skipWidgetCapture
       ? { canvas: null, stage: "skipped", error: "widget capture skipped" }
       : await captureElementAsCanvas(widget, w, h);
-    if (captured?.canvas) {
+    if (directMedia?.element && directMedia?.rect) {
+      const mx = (directMedia.rect.x - bounds.left) * scale;
+      const my = (directMedia.rect.y - bounds.top) * scale;
+      const mw = directMedia.rect.w * scale;
+      const mh = directMedia.rect.h * scale;
+      exportCtx.drawImage(directMedia.element, mx, my, mw, mh);
+      debugLog?.("diag.draw.widget", diagnoseDomElement(directMedia.element, uiCanvas, {
+        stage: "draw",
+        reason: "direct-media-drawn",
+        exportRect: { x: mx, y: my, w: mw, h: mh },
+        resolvedNodeId: nodeId,
+        kind: "widget-media",
+      }));
+      if (Number.isFinite(nodeId)) coveredNodeIds.add(nodeId);
+    } else if (captured?.canvas) {
       exportCtx.drawImage(captured.canvas, x, y, w, h);
       debugLog?.("diag.draw.widget", diagnoseDomElement(widget, uiCanvas, {
         stage: "draw",
