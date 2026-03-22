@@ -1205,7 +1205,7 @@ export async function renderGraphOffscreen(workflowJson, options = {}) {
       scale: scaleFactor,
       nodeRects,
       debugLog,
-      skipWidgetCapture: true,
+      skipWidgetCapture: "media-only",
       selectedNodeIds: options.selectedNodeIds,
       renderFilter: options.renderFilter || "all",
     }));
