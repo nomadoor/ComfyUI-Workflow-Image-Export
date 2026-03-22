@@ -1173,6 +1173,7 @@ export async function renderGraphOffscreen(workflowJson, options = {}) {
       scale: scaleFactor,
       nodeRects,
       debugLog,
+      skipWidgetCapture: true,
     }));
     await timeSpan(perfLog, "dom.text.overlays", () => drawTextOverlays({
       exportCtx: outputCtx,
