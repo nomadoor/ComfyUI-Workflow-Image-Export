@@ -236,6 +236,29 @@ function copyRenderSettings(fromCanvas, toCanvas) {
   });
 }
 
+function disableCanvasInfoOverlay(canvas) {
+  if (!canvas) return;
+  const forceFalseKeys = [
+    "render_canvas_border",
+    "render_canvas_info",
+    "show_canvas_info",
+    "render_info",
+    "show_info",
+    "draw_info",
+    "render_fps",
+    "show_fps",
+    "show_stats",
+    "render_stats",
+  ];
+  for (const key of forceFalseKeys) {
+    try {
+      if (key in canvas || Object.getOwnPropertyDescriptor(canvas, key)?.writable !== false) {
+        canvas[key] = false;
+      }
+    } catch (_) {}
+  }
+}
+
 function configureGraph(graph, workflowJson) {
   if (!graph) {
     throw new Error("Offscreen render: LGraph is not available.");
@@ -985,7 +1008,7 @@ export async function renderGraphOffscreen(workflowJson, options = {}) {
   const offscreen = new LGraphCanvasRef(canvas, graph);
   offscreen.canvas = canvas;
   offscreen.ctx = ctx;
-  offscreen.render_canvas_border = false;
+  disableCanvasInfoOverlay(offscreen);
   offscreen._cwieScaleFactor = scaleFactor;
   offscreen._cwieTileOffsetX = tileRect?.x || 0;
   offscreen._cwieTileOffsetY = tileRect?.y || 0;
@@ -999,6 +1022,7 @@ export async function renderGraphOffscreen(workflowJson, options = {}) {
   }
 
   copyRenderSettings(app?.canvas, offscreen);
+  disableCanvasInfoOverlay(offscreen);
   if (Number.isFinite(options.nodeOpacity)) {
     applyNodeOpacity(offscreen, options.nodeOpacity / 100, debugLog);
   }

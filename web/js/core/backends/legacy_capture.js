@@ -244,6 +244,29 @@ function copyRenderSettings(fromCanvas, toCanvas) {
   });
 }
 
+function disableCanvasInfoOverlay(canvas) {
+  if (!canvas) return;
+  const forceFalseKeys = [
+    "render_canvas_border",
+    "render_canvas_info",
+    "show_canvas_info",
+    "render_info",
+    "show_info",
+    "draw_info",
+    "render_fps",
+    "show_fps",
+    "show_stats",
+    "render_stats",
+  ];
+  for (const key of forceFalseKeys) {
+    try {
+      if (key in canvas || Object.getOwnPropertyDescriptor(canvas, key)?.writable !== false) {
+        canvas[key] = false;
+      }
+    } catch (_) {}
+  }
+}
+
 function forceExportQuality(offscreen) {
   const setProp = (key, value) => {
     try {
@@ -367,12 +390,17 @@ function findNodeForPoint(nodeRects, x, y) {
   return null;
 }
 
+function normalizeSelectedNodeIds(selectedNodeIds) {
+  if (selectedNodeIds instanceof Set) return selectedNodeIds;
+  if (!Array.isArray(selectedNodeIds)) return null;
+  const ids = new Set(selectedNodeIds.map((id) => Number(id)).filter(Number.isFinite));
+  return ids.size ? ids : null;
+}
+
 function shouldRenderResolvedNode(nodeId, selectedNodeIds, mode) {
   if (!mode || mode === "all") return true;
   if (mode === "none") return false;
-  const ids = Array.isArray(selectedNodeIds)
-    ? new Set(selectedNodeIds.map((id) => Number(id)).filter(Number.isFinite))
-    : null;
+  const ids = normalizeSelectedNodeIds(selectedNodeIds);
   if (!ids?.size || !Number.isFinite(nodeId)) return false;
   const isSelected = ids.has(Number(nodeId));
   if (mode === "selected") return isSelected;
@@ -402,6 +430,7 @@ export function drawVideoOverlays({
   selectedNodeIds = null,
   renderFilter = "all",
 }) {
+  const selectedIdSet = normalizeSelectedNodeIds(selectedNodeIds);
   const canvasEl = uiCanvas?.canvas;
   const ds = uiCanvas?.ds;
   if (!canvasEl || !ds) return;
@@ -469,7 +498,7 @@ export function drawVideoOverlays({
       }));
       continue;
     }
-    if (!shouldRenderResolvedNode(matchedNode.id, selectedNodeIds, renderFilter)) {
+    if (!shouldRenderResolvedNode(matchedNode.id, selectedIdSet, renderFilter)) {
       continue;
     }
 
@@ -511,6 +540,7 @@ export function drawVhsVideoOverlays({
   selectedNodeIds = null,
   renderFilter = "all",
 }) {
+  const selectedIdSet = normalizeSelectedNodeIds(selectedNodeIds);
   const canvasEl = uiCanvas?.canvas;
   const ds = uiCanvas?.ds;
   if (!canvasEl || !ds) return;
@@ -565,7 +595,7 @@ export function drawVhsVideoOverlays({
     const graphW = sw * invScale;
     const graphH = sh * invScale;
     const matchedNode = findNodeForPoint(nodeRects, graphX + graphW * 0.5, graphY + graphH * 0.5);
-    if (!shouldRenderResolvedNode(matchedNode?.id, selectedNodeIds, renderFilter)) {
+    if (!shouldRenderResolvedNode(matchedNode?.id, selectedIdSet, renderFilter)) {
       continue;
     }
 
@@ -970,6 +1000,7 @@ export async function drawDomWidgetOverlays({
   selectedNodeIds = null,
   renderFilter = "all",
 }) {
+  const selectedIdSet = normalizeSelectedNodeIds(selectedNodeIds);
   const coveredNodeIds = new Set();
   const widgets = collectDomWidgetContainers(uiCanvas, { debugLog });
   if (!widgets.length) return coveredNodeIds;
@@ -1007,7 +1038,7 @@ export async function drawDomWidgetOverlays({
       rect,
       getNodeIdFromElement(widget)
     );
-    if (!shouldRenderResolvedNode(nodeId, selectedNodeIds, renderFilter)) {
+    if (!shouldRenderResolvedNode(nodeId, selectedIdSet, renderFilter)) {
       continue;
     }
     const renderedMarkdown = findRenderedMarkdownElement(widget);
@@ -1389,6 +1420,7 @@ export function drawTextOverlays({
   selectedNodeIds = null,
   renderFilter = "all",
 }) {
+  const selectedIdSet = normalizeSelectedNodeIds(selectedNodeIds);
   const elements = collectTextElementsFromDom(uiCanvas, { debugLog });
   const isRenderedMarkdown = (el) =>
     el.classList?.contains("tiptap") ||
@@ -1543,7 +1575,7 @@ export function drawTextOverlays({
       continue;
     }
     const resolvedId = resolveNodeId(rect, nodeId);
-    if (!shouldRenderResolvedNode(resolvedId, selectedNodeIds, renderFilter)) {
+    if (!shouldRenderResolvedNode(resolvedId, selectedIdSet, renderFilter)) {
       continue;
     }
     if (Number.isFinite(resolvedId) && skippedSet.has(resolvedId)) {
@@ -1671,6 +1703,7 @@ export function drawImageOverlays({
   selectedNodeIds = null,
   renderFilter = "all",
 }) {
+  const selectedIdSet = normalizeSelectedNodeIds(selectedNodeIds);
   const elements = collectImageElementsFromDom(uiCanvas, { debugLog });
   if (!elements.length) return;
 
@@ -1684,7 +1717,7 @@ export function drawImageOverlays({
     });
     if (!rect) continue;
     const resolvedId = resolveNodeIdForGraphRect(nodeRects, rect, getNodeIdFromElement(el));
-    if (!shouldRenderResolvedNode(resolvedId, selectedNodeIds, renderFilter)) {
+    if (!shouldRenderResolvedNode(resolvedId, selectedIdSet, renderFilter)) {
       continue;
     }
 
@@ -1850,7 +1883,7 @@ export async function captureLegacy(options = {}) {
     copyRenderSettings(uiCanvas, offscreen);
     forceExportQuality(offscreen);
     const mode = applyBackgroundMode(offscreen, options);
-    offscreen.render_canvas_border = false;
+    disableCanvasInfoOverlay(offscreen);
     if (typeof offscreen.resize === "function") {
       offscreen.resize(width, height);
       debugLog?.("offscreen.resize", { width, height });
