@@ -8,6 +8,7 @@ import {
 import { captureLegacy } from "../core/backends/legacy_capture.js";
 import { triggerDownload } from "../core/download.js";
 import { computeGraphBBox } from "../export/bbox.js";
+import { embedWorkflowInPngBlob } from "../export/png_embed_workflow.js";
 import {
   DEFAULTS,
   getDefaultsFromSettings,
@@ -732,6 +733,8 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
   }
 
   let previewUrl = null;
+  let lastPreviewBlob = null;
+  let lastPreviewKey = null;
   let previewTimer = null;
   let previewIdle = null;
   let previewBusy = false;
@@ -739,6 +742,44 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
   let dialogClosed = false;
   let previewToken = 0;
   let previewPaused = false;
+
+  function buildPreviewState() {
+    const selectedIds = getSelectedNodeIds();
+    const previewFormat = state.format === "webp" ? "webp" : "png";
+    return {
+      ...state,
+      format: previewFormat,
+      embedWorkflow: false,
+      outputResolution: "100%",
+      maxLongEdge: 0,
+      selectedNodeIds: selectedIds,
+      previewFast: true,
+      previewMaxPixels: PREVIEW_MAX_PIXELS,
+    };
+  }
+
+  function getPreviewStateKey(previewState) {
+    return JSON.stringify({
+      format: previewState.format,
+      background: previewState.background,
+      solidColor: previewState.solidColor,
+      padding: previewState.padding,
+      nodeOpacity: previewState.nodeOpacity,
+      scopeSelected: previewState.scopeSelected,
+      scopeOpacity: previewState.scopeOpacity,
+      selectedNodeIds: previewState.selectedNodeIds,
+    });
+  }
+
+  function getWorkflowJsonText() {
+    const graph = app?.graph;
+    if (!graph || typeof graph.serialize !== "function") return null;
+    try {
+      return JSON.stringify(graph.serialize());
+    } catch (_) {
+      return null;
+    }
+  }
 
   const cleanupDialog = () => {
     if (dialogClosed) return;
@@ -754,6 +795,8 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
     }
     previewQueued = false;
     previewBusy = false;
+    lastPreviewBlob = null;
+    lastPreviewKey = null;
     if (previewUrl) {
       try {
         URL.revokeObjectURL(previewUrl);
@@ -769,30 +812,23 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
 
   activeDialogCleanup = cleanupDialog;
 
-  async function renderPreview() {
+  async function renderPreview(previewStateOverride = null, options = {}) {
     if (dialogClosed) return;
-    if (previewPaused) {
+    if (previewPaused && !options.force) {
       previewQueued = true;
       return;
     }
-    if (previewBusy) {
+    if (previewBusy && !options.force) {
       previewQueued = true;
       return;
     }
     const token = previewToken;
-    updateScopeAvailability();
-    updateStateFromControls();
-    const selectedIds = getSelectedNodeIds();
-    const previewState = {
-      ...state,
-      format: "png",
-      embedWorkflow: false,
-      outputResolution: "100%",
-      maxLongEdge: 0,
-      selectedNodeIds: selectedIds,
-      previewFast: true,
-      previewMaxPixels: PREVIEW_MAX_PIXELS,
-    };
+    if (!previewStateOverride) {
+      updateScopeAvailability();
+      updateStateFromControls();
+    }
+    const previewState = previewStateOverride || buildPreviewState();
+    const previewKey = getPreviewStateKey(previewState);
     try {
       previewBusy = true;
       previewFrame.classList.add("is-loading");
@@ -810,11 +846,14 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
         previewBusy = false;
         return;
       }
+      lastPreviewBlob = blob;
+      lastPreviewKey = previewKey;
       if (previewUrl) {
         URL.revokeObjectURL(previewUrl);
       }
       previewUrl = URL.createObjectURL(blob);
       previewImg.src = previewUrl;
+      return blob;
     } catch (error) {
       log?.("preview:error", { message: error?.message || String(error) });
       previewFrame.classList.remove("is-loading");
@@ -1012,7 +1051,8 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
 
     updateScopeAvailability();
     updateStateFromControls();
-    const expectsTiling = state.exceedMode === "tile";
+    const isRasterExport = state.format === "png" || state.format === "webp";
+    const expectsTiling = !isRasterExport && state.exceedMode === "tile";
     if (expectsTiling) {
       exportButton.classList.add("is-progressing");
       exportProgressText.textContent = "0%";
@@ -1023,12 +1063,35 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
     logExportPhase("ui.ready");
     let messageDialogPayload = null;
     try {
-      logExportPhase("capture.start");
-      const blob = await capture({
-        ...state,
-        onProgress: updateExportProgress,
-      });
-      logExportPhase("capture.done");
+      let blob;
+      if (state.format === "png" || state.format === "webp") {
+        const previewState = buildPreviewState();
+        const previewKey = getPreviewStateKey(previewState);
+        logExportPhase("preview.capture.start");
+        blob =
+          lastPreviewBlob && lastPreviewKey === previewKey
+            ? lastPreviewBlob
+            : await renderPreview(previewState, { force: true });
+        logExportPhase("preview.capture.done");
+        if (!blob) {
+          throw new Error("Export failed: preview blob unavailable.");
+        }
+        if (state.format === "png" && state.embedWorkflow) {
+          const workflowJson = getWorkflowJsonText();
+          if (workflowJson) {
+            logExportPhase("embed.workflow.start");
+            blob = await embedWorkflowInPngBlob(blob, workflowJson);
+            logExportPhase("embed.workflow.done");
+          }
+        }
+      } else {
+        logExportPhase("capture.start");
+        blob = await capture({
+          ...state,
+          onProgress: updateExportProgress,
+        });
+        logExportPhase("capture.done");
+      }
       setDefaultsInSettings(state);
       logExportPhase("download.start");
       const resolveExt = () => {
