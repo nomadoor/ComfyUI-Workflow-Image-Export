@@ -780,8 +780,8 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
       return;
     }
     const token = previewToken;
-    updateStateFromControls();
     updateScopeAvailability();
+    updateStateFromControls();
     const selectedIds = getSelectedNodeIds();
     const previewState = {
       ...state,
@@ -1010,8 +1010,8 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
       exportProgressText.textContent = `${percent}%`;
     };
 
-    updateStateFromControls();
     updateScopeAvailability();
+    updateStateFromControls();
     const expectsTiling = state.exceedMode === "tile";
     if (expectsTiling) {
       exportButton.classList.add("is-progressing");

@@ -1149,7 +1149,10 @@ export async function renderGraphOffscreen(workflowJson, options = {}) {
       uiCanvas: uiCanvasDom,
       bounds,
       scale: scaleFactor,
+      nodeRects,
       debugLog,
+      selectedNodeIds: options.selectedNodeIds,
+      renderFilter: options.renderFilter || "all",
     }));
     await timeSpan(perfLog, "dom.video.overlays", () => drawVideoOverlays({
       exportCtx: outputCtx,
@@ -1158,6 +1161,8 @@ export async function renderGraphOffscreen(workflowJson, options = {}) {
       scale: scaleFactor,
       nodeRects,
       debugLog,
+      selectedNodeIds: options.selectedNodeIds,
+      renderFilter: options.renderFilter || "all",
     }));
     await timeSpan(perfLog, "dom.vhs.overlays", () => drawVhsVideoOverlays({
       exportCtx: outputCtx,
@@ -1165,6 +1170,9 @@ export async function renderGraphOffscreen(workflowJson, options = {}) {
       bounds,
       scale: scaleFactor,
       debugLog,
+      nodeRects,
+      selectedNodeIds: options.selectedNodeIds,
+      renderFilter: options.renderFilter || "all",
     }));
     const domWidgetCoveredNodeIds = await timeSpan(perfLog, "dom.widget.overlays", () => drawDomWidgetOverlays({
       exportCtx: outputCtx,
@@ -1174,6 +1182,8 @@ export async function renderGraphOffscreen(workflowJson, options = {}) {
       nodeRects,
       debugLog,
       skipWidgetCapture: true,
+      selectedNodeIds: options.selectedNodeIds,
+      renderFilter: options.renderFilter || "all",
     }));
     await timeSpan(perfLog, "dom.text.overlays", () => drawTextOverlays({
       exportCtx: outputCtx,
@@ -1184,6 +1194,8 @@ export async function renderGraphOffscreen(workflowJson, options = {}) {
       nodeRects,
       skipNodeIds: domWidgetCoveredNodeIds,
       debugLog,
+      selectedNodeIds: options.selectedNodeIds,
+      renderFilter: options.renderFilter || "all",
     }));
   } else {
     // Standard mode (Legacy Capture fallback logic)
