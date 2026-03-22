@@ -122,6 +122,32 @@ function applyPadding(bounds, padding, debugLog) {
   return padded;
 }
 
+function filterNodeRectsBySelected(nodeRects, selectedNodeIds) {
+  const ids = Array.isArray(selectedNodeIds)
+    ? new Set(selectedNodeIds.map((id) => Number(id)).filter(Number.isFinite))
+    : null;
+  if (!ids?.size) return [];
+  return (nodeRects || []).filter((rect) => rect && Number.isFinite(rect.id) && ids.has(rect.id));
+}
+
+function boundsFromNodeRects(nodeRects, debugLog) {
+  if (!nodeRects?.length) return null;
+  let left = nodeRects[0].left;
+  let top = nodeRects[0].top;
+  let right = nodeRects[0].right;
+  let bottom = nodeRects[0].bottom;
+  for (let i = 1; i < nodeRects.length; i += 1) {
+    const rect = nodeRects[i];
+    left = Math.min(left, rect.left);
+    top = Math.min(top, rect.top);
+    right = Math.max(right, rect.right);
+    bottom = Math.max(bottom, rect.bottom);
+  }
+  const bounds = { left, top, right, bottom, width: right - left, height: bottom - top };
+  debugLog?.("bounds.selected.raw", bounds);
+  return bounds;
+}
+
 function ensure2DContext(canvas) {
   return canvas.getContext("2d", { alpha: true });
 }
@@ -216,6 +242,29 @@ function copyRenderSettings(fromCanvas, toCanvas) {
       toCanvas[key] = fromCanvas.constructor[key];
     }
   });
+}
+
+function disableCanvasInfoOverlay(canvas) {
+  if (!canvas) return;
+  const forceFalseKeys = [
+    "render_canvas_border",
+    "render_canvas_info",
+    "show_canvas_info",
+    "render_info",
+    "show_info",
+    "draw_info",
+    "render_fps",
+    "show_fps",
+    "show_stats",
+    "render_stats",
+  ];
+  for (const key of forceFalseKeys) {
+    try {
+      if (key in canvas || Object.getOwnPropertyDescriptor(canvas, key)?.writable !== false) {
+        canvas[key] = false;
+      }
+    } catch (_) {}
+  }
 }
 
 function forceExportQuality(offscreen) {
@@ -341,6 +390,24 @@ function findNodeForPoint(nodeRects, x, y) {
   return null;
 }
 
+function normalizeSelectedNodeIds(selectedNodeIds) {
+  if (selectedNodeIds instanceof Set) return selectedNodeIds;
+  if (!Array.isArray(selectedNodeIds)) return null;
+  const ids = new Set(selectedNodeIds.map((id) => Number(id)).filter(Number.isFinite));
+  return ids.size ? ids : null;
+}
+
+function shouldRenderResolvedNode(nodeId, selectedNodeIds, mode) {
+  if (!mode || mode === "all") return true;
+  if (mode === "none") return false;
+  const ids = normalizeSelectedNodeIds(selectedNodeIds);
+  if (!ids?.size || !Number.isFinite(nodeId)) return false;
+  const isSelected = ids.has(Number(nodeId));
+  if (mode === "selected") return isSelected;
+  if (mode === "unselected") return !isSelected;
+  return true;
+}
+
 function isVideoNodeTitle(title, type) {
   const text = `${title || ""} ${type || ""}`.toLowerCase();
   return text.includes("video");
@@ -353,7 +420,17 @@ function isVhsVideoElement(video) {
   return src.includes("/api/vhs/viewvideo") || src.includes("viewvideo");
 }
 
-export function drawVideoOverlays({ exportCtx, uiCanvas, bounds, scale, nodeRects, debugLog }) {
+export function drawVideoOverlays({
+  exportCtx,
+  uiCanvas,
+  bounds,
+  scale,
+  nodeRects,
+  debugLog,
+  selectedNodeIds = null,
+  renderFilter = "all",
+}) {
+  const selectedIdSet = normalizeSelectedNodeIds(selectedNodeIds);
   const canvasEl = uiCanvas?.canvas;
   const ds = uiCanvas?.ds;
   if (!canvasEl || !ds) return;
@@ -421,6 +498,9 @@ export function drawVideoOverlays({ exportCtx, uiCanvas, bounds, scale, nodeRect
       }));
       continue;
     }
+    if (!shouldRenderResolvedNode(matchedNode.id, selectedIdSet, renderFilter)) {
+      continue;
+    }
 
     const x = (graphX - bounds.left) * scale;
     const y = (graphY - bounds.top) * scale;
@@ -450,7 +530,17 @@ export function drawVideoOverlays({ exportCtx, uiCanvas, bounds, scale, nodeRect
   }
 }
 
-export function drawVhsVideoOverlays({ exportCtx, uiCanvas, bounds, scale, debugLog }) {
+export function drawVhsVideoOverlays({
+  exportCtx,
+  uiCanvas,
+  bounds,
+  scale,
+  debugLog,
+  nodeRects = null,
+  selectedNodeIds = null,
+  renderFilter = "all",
+}) {
+  const selectedIdSet = normalizeSelectedNodeIds(selectedNodeIds);
   const canvasEl = uiCanvas?.canvas;
   const ds = uiCanvas?.ds;
   if (!canvasEl || !ds) return;
@@ -504,6 +594,10 @@ export function drawVhsVideoOverlays({ exportCtx, uiCanvas, bounds, scale, debug
     const graphY = sy * invScale - ds.offset[1];
     const graphW = sw * invScale;
     const graphH = sh * invScale;
+    const matchedNode = findNodeForPoint(nodeRects, graphX + graphW * 0.5, graphY + graphH * 0.5);
+    if (!shouldRenderResolvedNode(matchedNode?.id, selectedIdSet, renderFilter)) {
+      continue;
+    }
 
     const x = (graphX - bounds.left) * scale;
     const y = (graphY - bounds.top) * scale;
@@ -841,6 +935,49 @@ function formatCanvasFont(style, fallbackSize = 12) {
   return `${style.fontStyle || ""} ${style.fontVariant || ""} ${style.fontWeight || ""} ${size}px ${style.fontFamily || "sans-serif"}`.trim();
 }
 
+function resolveDirectWidgetMedia(widget, uiCanvas) {
+  if (!(widget instanceof HTMLElement)) return null;
+  const candidates = Array.from(widget.querySelectorAll("canvas, img, video"));
+  if (!candidates.length) return null;
+
+  let best = null;
+  let bestArea = 0;
+
+  for (const el of candidates) {
+    if (
+      !(el instanceof HTMLCanvasElement) &&
+      !(el instanceof HTMLImageElement) &&
+      !(el instanceof HTMLVideoElement)
+    ) {
+      continue;
+    }
+    if (!isEffectivelyVisibleElement(el)) continue;
+    if (el instanceof HTMLVideoElement && (el.readyState || 0) < 1) continue;
+
+    const rect = getDomElementGraphRect(el, uiCanvas);
+    if (!rect || rect.w <= 0 || rect.h <= 0) continue;
+
+    const area = rect.w * rect.h;
+    if (area > bestArea) {
+      best = { element: el, rect };
+      bestArea = area;
+    }
+  }
+
+  if (!best) return null;
+
+  const widgetRect = getDomElementGraphRect(widget, uiCanvas);
+  if (!widgetRect || widgetRect.w <= 0 || widgetRect.h <= 0) return best;
+
+  const widgetArea = widgetRect.w * widgetRect.h;
+  if (widgetArea <= 0) return best;
+
+  // Ignore tiny decorative media; only treat it as a widget preview if it
+  // occupies a meaningful portion of the widget.
+  if (bestArea / widgetArea < 0.2) return null;
+  return best;
+}
+
 /**
  * Draw DOM widget containers onto the export canvas.
  *
@@ -860,7 +997,12 @@ export async function drawDomWidgetOverlays({
   nodeRects,
   debugLog,
   skipWidgetCapture = false,
+  selectedNodeIds = null,
+  renderFilter = "all",
 }) {
+  const skipAllWidgetCapture = skipWidgetCapture === true;
+  const skipMediaWidgetCapture = skipWidgetCapture === "media-only";
+  const selectedIdSet = normalizeSelectedNodeIds(selectedNodeIds);
   const coveredNodeIds = new Set();
   const widgets = collectDomWidgetContainers(uiCanvas, { debugLog });
   if (!widgets.length) return coveredNodeIds;
@@ -898,6 +1040,9 @@ export async function drawDomWidgetOverlays({
       rect,
       getNodeIdFromElement(widget)
     );
+    if (!shouldRenderResolvedNode(nodeId, selectedIdSet, renderFilter)) {
+      continue;
+    }
     const renderedMarkdown = findRenderedMarkdownElement(widget);
     if (renderedMarkdown) {
       const renderedRect = getDomElementGraphRect(renderedMarkdown, uiCanvas, {
@@ -912,7 +1057,7 @@ export async function drawDomWidgetOverlays({
       const rh = renderedRect.h * scale;
       const captureWidth = Math.max(1, renderedClientRect.width || renderedRect.w || 1);
       const captureHeight = Math.max(1, renderedClientRect.height || renderedRect.h || 1);
-      const captured = skipWidgetCapture
+      const captured = skipAllWidgetCapture
         ? { canvas: null, stage: "skipped", error: "widget capture skipped" }
         : await captureElementAsCanvas(renderedMarkdown, captureWidth, captureHeight, {
           stripLayoutProps: true,
@@ -974,10 +1119,30 @@ export async function drawDomWidgetOverlays({
     }
 
     // Attempt foreignObject SVG capture.
-    const captured = skipWidgetCapture
-      ? { canvas: null, stage: "skipped", error: "widget capture skipped" }
+    const directMedia =
+      skipAllWidgetCapture || skipMediaWidgetCapture
+        ? resolveDirectWidgetMedia(widget, uiCanvas)
+        : null;
+    const shouldSkipCaptureForWidget =
+      skipAllWidgetCapture || (skipMediaWidgetCapture && Boolean(directMedia?.element));
+    const captured = shouldSkipCaptureForWidget
+      ? null
       : await captureElementAsCanvas(widget, w, h);
-    if (captured?.canvas) {
+    if (directMedia?.element && directMedia?.rect) {
+      const mx = (directMedia.rect.x - bounds.left) * scale;
+      const my = (directMedia.rect.y - bounds.top) * scale;
+      const mw = directMedia.rect.w * scale;
+      const mh = directMedia.rect.h * scale;
+      exportCtx.drawImage(directMedia.element, mx, my, mw, mh);
+      debugLog?.("diag.draw.widget", diagnoseDomElement(directMedia.element, uiCanvas, {
+        stage: "draw",
+        reason: "direct-media-drawn",
+        exportRect: { x: mx, y: my, w: mw, h: mh },
+        resolvedNodeId: nodeId,
+        kind: "widget-media",
+      }));
+      if (Number.isFinite(nodeId)) coveredNodeIds.add(nodeId);
+    } else if (captured?.canvas) {
       exportCtx.drawImage(captured.canvas, x, y, w, h);
       debugLog?.("diag.draw.widget", diagnoseDomElement(widget, uiCanvas, {
         stage: "draw",
@@ -991,9 +1156,9 @@ export async function drawDomWidgetOverlays({
     } else {
       debugLog?.("diag.draw.widget", diagnoseDomElement(widget, uiCanvas, {
         stage: "draw",
-        reason: "capture-failed",
-        captureStage: captured?.stage || null,
-        captureError: captured?.error || null,
+        reason: shouldSkipCaptureForWidget ? "capture-skipped-no-fallback" : "capture-failed",
+        captureStage: captured?.stage || (shouldSkipCaptureForWidget ? "skipped" : null),
+        captureError: captured?.error || (shouldSkipCaptureForWidget ? "widget capture skipped" : null),
         exportRect: { x, y, w, h },
         resolvedNodeId: nodeId,
         kind: "widget",
@@ -1259,7 +1424,10 @@ export function drawTextOverlays({
   nodeRects,
   debugLog,
   skipNodeIds = null,
+  selectedNodeIds = null,
+  renderFilter = "all",
 }) {
+  const selectedIdSet = normalizeSelectedNodeIds(selectedNodeIds);
   const elements = collectTextElementsFromDom(uiCanvas, { debugLog });
   const isRenderedMarkdown = (el) =>
     el.classList?.contains("tiptap") ||
@@ -1414,6 +1582,9 @@ export function drawTextOverlays({
       continue;
     }
     const resolvedId = resolveNodeId(rect, nodeId);
+    if (!shouldRenderResolvedNode(resolvedId, selectedIdSet, renderFilter)) {
+      continue;
+    }
     if (Number.isFinite(resolvedId) && skippedSet.has(resolvedId)) {
       continue;
     }
@@ -1529,7 +1700,17 @@ export function drawTextOverlays({
   });
 }
 
-export function drawImageOverlays({ exportCtx, uiCanvas, bounds, scale, debugLog }) {
+export function drawImageOverlays({
+  exportCtx,
+  uiCanvas,
+  bounds,
+  scale,
+  debugLog,
+  nodeRects = null,
+  selectedNodeIds = null,
+  renderFilter = "all",
+}) {
+  const selectedIdSet = normalizeSelectedNodeIds(selectedNodeIds);
   const elements = collectImageElementsFromDom(uiCanvas, { debugLog });
   if (!elements.length) return;
 
@@ -1542,6 +1723,10 @@ export function drawImageOverlays({ exportCtx, uiCanvas, bounds, scale, debugLog
       kind: "image",
     });
     if (!rect) continue;
+    const resolvedId = resolveNodeIdForGraphRect(nodeRects, rect, getNodeIdFromElement(el));
+    if (!shouldRenderResolvedNode(resolvedId, selectedIdSet, renderFilter)) {
+      continue;
+    }
 
     const x = (rect.x - bounds.left) * scale;
     const y = (rect.y - bounds.top) * scale;
@@ -1616,6 +1801,35 @@ function computeExportScale(srcW, srcH, options, debugLog) {
   return { scale, outW, outH };
 }
 
+function applyScopeOpacityFallback(exportCtx, bounds, scale, nodeRects, selectedNodeIds, scopeOpacity, backgroundColor) {
+  const ids = Array.isArray(selectedNodeIds)
+    ? new Set(selectedNodeIds.map((id) => Number(id)).filter(Number.isFinite))
+    : null;
+  if (!exportCtx || !bounds || !ids?.size) return;
+  const dimAlpha = Math.min(1, Math.max(0, Number(scopeOpacity) / 100));
+  const fadeAlpha = 1 - dimAlpha;
+  if (!(fadeAlpha > 0.001)) return;
+  if (!backgroundColor || String(backgroundColor).startsWith("rgba(0, 0, 0, 0")) return;
+
+  exportCtx.save();
+  exportCtx.fillStyle = backgroundColor;
+  exportCtx.globalAlpha = fadeAlpha;
+
+  for (const rect of nodeRects || []) {
+    if (!rect) continue;
+    const rectId = Number(rect.id);
+    if (!Number.isFinite(rectId)) continue;
+    if (ids.has(rectId)) continue;
+    const x = Math.round((rect.left - bounds.left) * scale);
+    const y = Math.round((rect.top - bounds.top) * scale);
+    const w = Math.max(1, Math.round((rect.right - rect.left) * scale));
+    const h = Math.max(1, Math.round((rect.bottom - rect.top) * scale));
+    exportCtx.fillRect(x, y, w, h);
+  }
+
+  exportCtx.restore();
+}
+
 export async function captureLegacy(options = {}) {
   const format = options.format || "png";
   if (format === "svg") {
@@ -1639,7 +1853,15 @@ export async function captureLegacy(options = {}) {
     : null;
 
   const { bounds: graphBounds, nodeRects } = collectGraphBounds(graph, debugLog);
-  const bounds = applyPadding(graphBounds, padding, debugLog);
+  const selectedNodeRects =
+    options?.scopeSelected === true
+      ? filterNodeRectsBySelected(nodeRects, options.selectedNodeIds)
+      : [];
+  const effectiveBoundsSource =
+    options?.scopeSelected === true && selectedNodeRects.length
+      ? boundsFromNodeRects(selectedNodeRects, debugLog)
+      : graphBounds;
+  const bounds = applyPadding(effectiveBoundsSource, padding, debugLog);
   if (!bounds) {
     throw new Error("Legacy capture: bounds not available.");
   }
@@ -1671,7 +1893,7 @@ export async function captureLegacy(options = {}) {
     copyRenderSettings(uiCanvas, offscreen);
     forceExportQuality(offscreen);
     const mode = applyBackgroundMode(offscreen, options);
-    offscreen.render_canvas_border = false;
+    disableCanvasInfoOverlay(offscreen);
     if (typeof offscreen.resize === "function") {
       offscreen.resize(width, height);
       debugLog?.("offscreen.resize", { width, height });
@@ -1763,6 +1985,20 @@ export async function captureLegacy(options = {}) {
       debugLog,
       skipNodeIds: domWidgetCoveredNodeIds,
     });
+
+    if (options?.scopeSelected === true) {
+      applyScopeOpacityFallback(
+        exportCtx,
+        bounds,
+        scale,
+        nodeRects,
+        options.selectedNodeIds,
+        options.scopeOpacity,
+        mode === "solid"
+          ? (options?.solidColor || "#1f1f1f")
+          : (offscreen.bgcolor || offscreen.background_color || "#1f1f1f")
+      );
+    }
 
     const blob = await toBlobAsync(exportCanvas, mime);
     return {
