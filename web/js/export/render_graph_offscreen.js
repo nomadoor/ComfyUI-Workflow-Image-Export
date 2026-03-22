@@ -11,11 +11,14 @@ import {
   drawWidgetTextFallback,
 } from "../core/backends/legacy_capture.js";
 import {
+  collectVideoElementsFromDom,
+  collectDomWidgetContainers,
   getCanvasRoot,
   getDomElementGraphRect,
   getNodeIdFromElement,
   isElementInGraphNode,
   collectDomMediaElements,
+  resolveNodeIdForGraphRect,
 } from "../core/overlays/dom_utils.js";
 
 const PREVIEW_MAX_PIXELS = 2048 * 2048;
@@ -495,6 +498,41 @@ function syncLiveNodeText(exportGraph, liveGraph) {
             // ignore read-only widget height
           }
         }
+        if (Number.isFinite(liveWidget.aspectRatio)) {
+          try {
+            exportWidget.aspectRatio = liveWidget.aspectRatio;
+          } catch (_) {
+            // ignore read-only widget aspect ratio
+          }
+        }
+        if (Number.isFinite(liveWidget.computedHeight)) {
+          try {
+            exportWidget.computedHeight = liveWidget.computedHeight;
+          } catch (_) {
+            // ignore read-only widget computed height
+          }
+        }
+        if (liveWidget.parentEl && exportWidget.parentEl) {
+          try {
+            exportWidget.parentEl.hidden = Boolean(liveWidget.parentEl.hidden);
+          } catch (_) {
+            // ignore hidden sync failures
+          }
+        }
+      }
+    }
+    if (typeof node.computeSize === "function") {
+      try {
+        const nextSize = node.computeSize([node.size?.[0], node.size?.[1]]);
+        if (Array.isArray(nextSize) && nextSize.length >= 2) {
+          if (typeof node.setSize === "function") {
+            node.setSize([Number(nextSize[0]), Number(nextSize[1])]);
+          } else {
+            node.size = [Number(nextSize[0]), Number(nextSize[1])];
+          }
+        }
+      } catch (_) {
+        // ignore computeSize failures from custom nodes
       }
     }
   }
@@ -531,6 +569,78 @@ function syncLiveNodeGeometry(exportGraph, liveGraph) {
       node.size = [Number(liveSize[0]), Number(liveSize[1])];
     }
 
+  }
+}
+
+function syncLiveDomWidgetHeights(exportGraph, uiCanvas) {
+  const exportNodes = exportGraph?._nodes || exportGraph?.nodes || [];
+  if (!exportNodes.length || !uiCanvas) return;
+
+  const exportById = new Map();
+  for (const node of exportNodes) {
+    if (node && Number.isFinite(node.id)) {
+      exportById.set(node.id, node);
+    }
+  }
+  if (!exportById.size) return;
+
+  const nodeRects = collectNodeRects(exportGraph, null);
+  const widgets = collectDomWidgetContainers(uiCanvas);
+  for (const widget of widgets) {
+    if (!(widget instanceof HTMLElement)) continue;
+    if (!widget.querySelector?.("video, img, canvas")) continue;
+
+    const rect = getDomElementGraphRect(widget, uiCanvas);
+    if (!rect || rect.h <= 0) continue;
+
+    const nodeId = resolveNodeIdForGraphRect(
+      nodeRects,
+      rect,
+      getNodeIdFromElement(widget)
+    );
+    if (!Number.isFinite(nodeId)) continue;
+
+    const exportNode = exportById.get(nodeId);
+    if (!exportNode) continue;
+
+    const nodePos = exportNode.pos || exportNode._pos;
+    const nodeSize = exportNode.size || exportNode._size;
+    if (!Array.isArray(nodePos) || !Array.isArray(nodeSize) || nodePos.length < 2 || nodeSize.length < 2) {
+      continue;
+    }
+
+    const requiredHeight = Math.ceil(rect.y + rect.h - Number(nodePos[1]));
+    if (Number.isFinite(requiredHeight) && requiredHeight > Number(nodeSize[1])) {
+      exportNode.size = [Number(nodeSize[0]), requiredHeight];
+    }
+  }
+
+  const videos = collectVideoElementsFromDom(uiCanvas);
+  for (const video of videos) {
+    if (!(video instanceof HTMLVideoElement)) continue;
+    const rect = getDomElementGraphRect(video, uiCanvas);
+    if (!rect || rect.h <= 0) continue;
+
+    const nodeId = resolveNodeIdForGraphRect(
+      nodeRects,
+      rect,
+      getNodeIdFromElement(video)
+    );
+    if (!Number.isFinite(nodeId)) continue;
+
+    const exportNode = exportById.get(nodeId);
+    if (!exportNode) continue;
+
+    const nodePos = exportNode.pos || exportNode._pos;
+    const nodeSize = exportNode.size || exportNode._size;
+    if (!Array.isArray(nodePos) || !Array.isArray(nodeSize) || nodePos.length < 2 || nodeSize.length < 2) {
+      continue;
+    }
+
+    const requiredHeight = Math.ceil(rect.y + rect.h - Number(nodePos[1]));
+    if (Number.isFinite(requiredHeight) && requiredHeight > Number(nodeSize[1])) {
+      exportNode.size = [Number(nodeSize[0]), requiredHeight];
+    }
   }
 }
 
@@ -813,6 +923,7 @@ async function prepareGraph(workflowJson, debugLog) {
   syncLiveNodeGeometry(graph, app?.graph);
   syncLiveNodeMedia(graph, app?.graph, debugLog);
   syncLiveNodeText(graph, app?.graph);
+  syncLiveDomWidgetHeights(graph, app?.canvas);
   syncLiveGroups(graph, app?.graph);
   return { graph, LGraphCanvasRef };
 }

@@ -97,45 +97,58 @@ export async function capture(options = {}) {
     error.code = NODE2_UNSUPPORTED_CODE;
     throw error;
   } else if (normalized.format === "png" || normalized.format === "webp") {
-    const workflowJson = getWorkflowJson();
-    if (!workflowJson) {
-      throw new Error("Capture failed: workflow JSON unavailable.");
-    }
-    const scale = resolveOutputScale(normalized);
     const selectedNodeIds = Array.isArray(normalized.selectedNodeIds)
       ? normalized.selectedNodeIds
       : getSelectedNodeIds();
-    const blob = await exportWorkflowPng(workflowJson, {
-      backgroundMode: normalized.background,
-      backgroundColor: normalized.solidColor,
-      padding: normalized.padding,
-      nodeOpacity: normalized.nodeOpacity,
-      scale,
-      pngCompression: normalized.pngCompression,
-      includeGrid: true,
-      includeDomOverlays: true,
-      debug: normalized.debug,
-      embedWorkflow: false,
-      format: normalized.format,
-      previewFast: Boolean(normalized.previewFast),
-      maxPixels: normalized.previewMaxPixels,
-      scopeSelected: Boolean(normalized.scopeSelected),
-      scopeOpacity: normalized.scopeOpacity,
-      selectedNodeIds,
-      onProgress: normalized.onProgress,
-      exceedMode: normalized.exceedMode,
-      tileBleed: normalized.tileBleed,
-    });
-    const warnings = blob?.cwieWarnings;
-    if (warnings?.length) {
-      console.warn("[workflow-image-export] export warnings", warnings);
+    if (normalized.exceedMode === "tile") {
+      const workflowJson = getWorkflowJson();
+      if (!workflowJson) {
+        throw new Error("Capture failed: workflow JSON unavailable.");
+      }
+      const scale = resolveOutputScale(normalized);
+      const blob = await exportWorkflowPng(workflowJson, {
+        backgroundMode: normalized.background,
+        backgroundColor: normalized.solidColor,
+        padding: normalized.padding,
+        nodeOpacity: normalized.nodeOpacity,
+        scale,
+        pngCompression: normalized.pngCompression,
+        includeGrid: true,
+        includeDomOverlays: true,
+        debug: normalized.debug,
+        embedWorkflow: false,
+        format: normalized.format,
+        previewFast: Boolean(normalized.previewFast),
+        maxPixels: normalized.previewMaxPixels,
+        scopeSelected: Boolean(normalized.scopeSelected),
+        scopeOpacity: normalized.scopeOpacity,
+        selectedNodeIds,
+        onProgress: normalized.onProgress,
+        exceedMode: normalized.exceedMode,
+        tileBleed: normalized.tileBleed,
+      });
+      const warnings = blob?.cwieWarnings;
+      if (warnings?.length) {
+        console.warn("[workflow-image-export] export warnings", warnings);
+      }
+      result = {
+        type: "raster",
+        mime: normalized.format === "webp" ? "image/webp" : "image/png",
+        blob,
+        cwieWarnings: warnings,
+      };
+    } else {
+      result = await captureLegacy({
+        ...normalized,
+        background: normalized.background,
+        solidColor: normalized.solidColor,
+        includeGrid: true,
+        scopeSelected: Boolean(normalized.scopeSelected),
+        scopeOpacity: normalized.scopeOpacity,
+        selectedNodeIds,
+        skipWidgetCapture: true,
+      });
     }
-    result = {
-      type: "raster",
-      mime: normalized.format === "webp" ? "image/webp" : "image/png",
-      blob,
-      cwieWarnings: warnings,
-    };
   } else {
     result = await captureLegacy(normalized);
   }

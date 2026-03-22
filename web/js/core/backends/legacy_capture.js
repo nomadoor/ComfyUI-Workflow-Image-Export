@@ -1154,48 +1154,15 @@ export async function drawDomWidgetOverlays({
       }));
       if (Number.isFinite(nodeId)) coveredNodeIds.add(nodeId);
     } else {
-      const fallbackText = widget.innerText || widget.textContent || "";
-      const style = window.getComputedStyle(widget);
-      const fallbackBackground = resolveOpaqueBackground(widget);
-      const canUseTextFallback =
-        skipAllWidgetCapture &&
-        !shouldSkipGenericWidgetTextFallback(widget) &&
-        fallbackText.trim();
-      const drawn = canUseTextFallback
-        ? drawTextBlockToRect(
-          exportCtx,
-          fallbackText,
-          { x, y, w, h },
-          {
-            fontSize: parsePx(style.fontSize, 12),
-            lineHeight: parsePx(style.lineHeight, parsePx(style.fontSize, 12) * 1.35),
-            paddingLeft: parsePx(style.paddingLeft, 0),
-            paddingTop: parsePx(style.paddingTop, 0),
-            paddingRight: parsePx(style.paddingRight, 0),
-            paddingBottom: parsePx(style.paddingBottom, 0),
-            background: fallbackBackground,
-            color: style.color || "#ffffff",
-            font: formatCanvasFont(style, 12),
-          }
-        )
-        : false;
       debugLog?.("diag.draw.widget", diagnoseDomElement(widget, uiCanvas, {
         stage: "draw",
-        reason: drawn
-          ? "capture-skipped-text-fallback"
-          : shouldSkipCaptureForWidget
-            ? "capture-skipped-no-fallback"
-            : "capture-failed",
+        reason: shouldSkipCaptureForWidget ? "capture-skipped-no-fallback" : "capture-failed",
         captureStage: captured?.stage || (shouldSkipCaptureForWidget ? "skipped" : null),
         captureError: captured?.error || (shouldSkipCaptureForWidget ? "widget capture skipped" : null),
         exportRect: { x, y, w, h },
         resolvedNodeId: nodeId,
-        textPreview: fallbackText.slice(0, 120),
-        effectiveBackground: fallbackBackground,
-        textFallbackSkipped: skipAllWidgetCapture && !canUseTextFallback && Boolean(fallbackText.trim()),
         kind: "widget",
       }));
-      if (drawn && Number.isFinite(nodeId)) coveredNodeIds.add(nodeId);
     }
   }
   return coveredNodeIds;
@@ -1205,18 +1172,6 @@ function parsePx(value, fallback = 0) {
   if (!value) return fallback;
   const num = Number.parseFloat(value);
   return Number.isFinite(num) ? num : fallback;
-}
-
-function shouldSkipGenericWidgetTextFallback(widget) {
-  if (!(widget instanceof HTMLElement)) return false;
-  return Boolean(
-    widget.matches?.(
-      ".widget-markdown, .comfy-markdown-content, .markdown, .markdown-body, .markdown-preview, .markdown-rendered, .tiptap, .ProseMirror, .cm-content, .cm-line, .markdown-editor, pre, textarea, input[type='text'], [contenteditable='true']"
-    ) ||
-    widget.querySelector?.(
-      "textarea, input[type='text'], [contenteditable='true'], .ProseMirror, .cm-content, .cm-line, .markdown-editor, .markdown-rendered, .markdown, .markdown-body, .markdown-preview, .comfy-markdown-content, .widget-markdown, .tiptap, pre"
-    )
-  );
 }
 
 export function drawWidgetTextFallback({ exportCtx, graph, bounds, scale, coveredNodeIds, debugLog }) {
@@ -1942,6 +1897,15 @@ export async function captureLegacy(options = {}) {
     }
     ensureBgCanvas(offscreen, width, height);
     configureTransform(offscreen, bounds, width, height, scale, debugLog);
+
+    applyBackgroundFill(
+      mode,
+      width,
+      height,
+      exportCtx,
+      offscreen.bgctx,
+      options?.solidColor
+    );
 
     if (debug) {
       console.log("[CWIE][Legacy] export:bounds", bounds);
