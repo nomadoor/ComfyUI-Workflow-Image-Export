@@ -1816,7 +1816,10 @@ function applyScopeOpacityFallback(exportCtx, bounds, scale, nodeRects, selected
   exportCtx.globalAlpha = fadeAlpha;
 
   for (const rect of nodeRects || []) {
-    if (!rect || ids.has(Number(rect.id))) continue;
+    if (!rect) continue;
+    const rectId = Number(rect.id);
+    if (!Number.isFinite(rectId)) continue;
+    if (ids.has(rectId)) continue;
     const x = Math.round((rect.left - bounds.left) * scale);
     const y = Math.round((rect.top - bounds.top) * scale);
     const w = Math.max(1, Math.round((rect.right - rect.left) * scale));
