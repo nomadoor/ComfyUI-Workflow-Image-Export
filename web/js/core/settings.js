@@ -2,6 +2,8 @@ import { app } from "/scripts/app.js";
 import { getSettingsAccess } from "./detect.js";
 import { DEFAULTS, normalizeState } from "./settings_state.js";
 
+export { DEFAULTS, normalizeState };
+
 export const SETTING_IDS = {
   format: "WorkflowImageExport.DefaultFormat",
   embedWorkflow: "WorkflowImageExport.EmbedWorkflow",

@@ -58,9 +58,10 @@ function normalizePngCompression(value) {
 }
 
 export function normalizeState(raw) {
+  const hasEmbedWorkflow = Object.prototype.hasOwnProperty.call(raw ?? {}, "embedWorkflow");
   return {
     format: normalizeFormat(raw?.format),
-    embedWorkflow: Boolean(raw?.embedWorkflow),
+    embedWorkflow: hasEmbedWorkflow ? Boolean(raw.embedWorkflow) : DEFAULTS.embedWorkflow,
     background: normalizeBackground(raw?.background),
     solidColor: typeof raw?.solidColor === "string" ? raw.solidColor : DEFAULTS.solidColor,
     nodeOpacity: normalizeNumber(raw?.nodeOpacity, DEFAULTS.nodeOpacity),

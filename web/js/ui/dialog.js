@@ -1090,7 +1090,13 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
         logExportPhase("capture.done");
       }
       setDefaultsInSettings(state);
-      saveLastUsed(toLastUsedState(state));
+      try {
+        saveLastUsed(toLastUsedState(state));
+      } catch (error) {
+        log?.("export:saveLastUsed.error", {
+          message: error?.message || String(error),
+        });
+      }
       logExportPhase("download.start");
       const resolveExt = () => {
         const hint = blob?.cwieFormat;

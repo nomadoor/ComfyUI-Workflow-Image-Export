@@ -3,6 +3,6 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node --test tests/**/*.test.js"
+    "test": "node --test tests/core/settings_state.test.js tests/core/storage.test.js tests/ui/state.test.js tests/smoke/module_imports.test.js"
   }
 }

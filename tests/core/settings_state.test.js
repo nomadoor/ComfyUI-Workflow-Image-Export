@@ -13,6 +13,16 @@ test("normalizeState preserves supported webp format", () => {
   assert.equal(state.format, "webp");
 });
 
+test("normalizeState keeps embed workflow enabled by default when missing", () => {
+  const state = normalizeState({});
+  assert.equal(state.embedWorkflow, true);
+});
+
+test("normalizeState still coerces an explicitly provided embed workflow value", () => {
+  const state = normalizeState({ embedWorkflow: 0 });
+  assert.equal(state.embedWorkflow, false);
+});
+
 test("normalizeState clamps png compression and keeps sane defaults", () => {
   const state = normalizeState({
     pngCompression: 99,

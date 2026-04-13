@@ -73,7 +73,7 @@ test("toLastUsedState serializes only normalized export and scope values", () =>
 
   assert.deepEqual(state, {
     format: "png",
-    embedWorkflow: false,
+    embedWorkflow: true,
     background: "solid",
     solidColor: "#1f1f1f",
     nodeOpacity: 100,
