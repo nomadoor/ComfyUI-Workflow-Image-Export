@@ -9,6 +9,7 @@ import { captureLegacy } from "../core/backends/legacy_capture.js";
 import { triggerDownload } from "../core/download.js";
 import { computeGraphBBox } from "../export/bbox.js";
 import { embedWorkflowInPngBlob } from "../export/png_embed_workflow.js";
+import { loadLastUsed, saveLastUsed } from "../core/storage.js";
 import {
   DEFAULTS,
   getDefaultsFromSettings,
@@ -320,12 +321,36 @@ function isDebugEnabled() {
   return !!window.__cwie__?.debug;
 }
 
-function buildInitialState() {
+function normalizeScopeOpacity(value) {
+  const num = Number.parseInt(value, 10);
+  if (!Number.isFinite(num)) return 40;
+  return Math.min(100, Math.max(0, num));
+}
+
+function normalizeDialogState(raw = {}) {
   return {
-    ...getDefaultsFromSettings(),
+    ...normalizeSettingsState(raw),
     debug: isDebugEnabled(),
+    scopeSelected: Boolean(raw?.scopeSelected),
+    scopeOpacity: normalizeScopeOpacity(raw?.scopeOpacity),
+  };
+}
+
+function buildInitialState() {
+  const defaults = {
+    ...getDefaultsFromSettings(),
     scopeSelected: false,
     scopeOpacity: 40,
+  };
+  const lastUsed = loadLastUsed();
+  return normalizeDialogState(lastUsed ? { ...defaults, ...lastUsed } : defaults);
+}
+
+function toLastUsedState(state) {
+  return {
+    ...normalizeSettingsState(state),
+    scopeSelected: Boolean(state?.scopeSelected),
+    scopeOpacity: normalizeScopeOpacity(state?.scopeOpacity),
   };
 }
 
@@ -1093,6 +1118,7 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
         logExportPhase("capture.done");
       }
       setDefaultsInSettings(state);
+      saveLastUsed(toLastUsedState(state));
       logExportPhase("download.start");
       const resolveExt = () => {
         const hint = blob?.cwieFormat;

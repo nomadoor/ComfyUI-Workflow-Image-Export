@@ -183,10 +183,7 @@ export function registerLegacySettings(log) {
 
 function normalizeFormat(value) {
   const v = String(value ?? "").toLowerCase();
-  if (["png", "webp", "svg"].includes(v)) {
-    return v;
-  }
-  if (v === "png" || v === "webp" || v === "svg") {
+  if (v === "png" || v === "webp") {
     return v;
   }
   return DEFAULTS.format;
