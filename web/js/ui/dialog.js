@@ -16,6 +16,7 @@ import {
   normalizeState as normalizeSettingsState,
   setDefaultsInSettings,
 } from "../core/settings.js";
+import { buildInitialState, toLastUsedState } from "./state.js";
 
 let activeDialog = null;
 let activeMessageDialog = null;
@@ -321,39 +322,6 @@ function isDebugEnabled() {
   return !!window.__cwie__?.debug;
 }
 
-function normalizeScopeOpacity(value) {
-  const num = Number.parseInt(value, 10);
-  if (!Number.isFinite(num)) return 40;
-  return Math.min(100, Math.max(0, num));
-}
-
-function normalizeDialogState(raw = {}) {
-  return {
-    ...normalizeSettingsState(raw),
-    debug: isDebugEnabled(),
-    scopeSelected: Boolean(raw?.scopeSelected),
-    scopeOpacity: normalizeScopeOpacity(raw?.scopeOpacity),
-  };
-}
-
-function buildInitialState() {
-  const defaults = {
-    ...getDefaultsFromSettings(),
-    scopeSelected: false,
-    scopeOpacity: 40,
-  };
-  const lastUsed = loadLastUsed();
-  return normalizeDialogState(lastUsed ? { ...defaults, ...lastUsed } : defaults);
-}
-
-function toLastUsedState(state) {
-  return {
-    ...normalizeSettingsState(state),
-    scopeSelected: Boolean(state?.scopeSelected),
-    scopeOpacity: normalizeScopeOpacity(state?.scopeOpacity),
-  };
-}
-
 function getSelectedNodeIds() {
   const selected =
     app?.canvas?.selected_nodes ||
@@ -392,7 +360,11 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
     return;
   }
 
-  let state = buildInitialState();
+  let state = buildInitialState({
+    defaults: getDefaultsFromSettings(),
+    lastUsed: loadLastUsed(),
+    debugEnabled: isDebugEnabled(),
+  });
 
   const backdrop = document.createElement("div");
   backdrop.className = "cwie-backdrop";
