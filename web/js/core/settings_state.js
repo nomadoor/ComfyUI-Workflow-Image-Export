@@ -43,6 +43,27 @@ function normalizeExceedMode(value) {
   return DEFAULTS.exceedMode;
 }
 
+function normalizeEmbedWorkflow(raw) {
+  const hasEmbedWorkflow = Object.prototype.hasOwnProperty.call(raw ?? {}, "embedWorkflow");
+  if (!hasEmbedWorkflow) {
+    return DEFAULTS.embedWorkflow;
+  }
+
+  const value = raw.embedWorkflow;
+  if (typeof value === "boolean") {
+    return value;
+  }
+
+  const normalized = String(value ?? "").trim().toLowerCase();
+  if (normalized === "true" || normalized === "1") {
+    return true;
+  }
+  if (normalized === "false" || normalized === "0") {
+    return false;
+  }
+  return DEFAULTS.embedWorkflow;
+}
+
 function normalizeNumber(value, fallback) {
   const num = Number.parseInt(value, 10);
   if (Number.isFinite(num) && num >= 0) {
@@ -58,10 +79,9 @@ function normalizePngCompression(value) {
 }
 
 export function normalizeState(raw) {
-  const hasEmbedWorkflow = Object.prototype.hasOwnProperty.call(raw ?? {}, "embedWorkflow");
   return {
     format: normalizeFormat(raw?.format),
-    embedWorkflow: hasEmbedWorkflow ? Boolean(raw.embedWorkflow) : DEFAULTS.embedWorkflow,
+    embedWorkflow: normalizeEmbedWorkflow(raw),
     background: normalizeBackground(raw?.background),
     solidColor: typeof raw?.solidColor === "string" ? raw.solidColor : DEFAULTS.solidColor,
     nodeOpacity: normalizeNumber(raw?.nodeOpacity, DEFAULTS.nodeOpacity),

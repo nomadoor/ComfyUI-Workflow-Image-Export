@@ -7,7 +7,7 @@
 
 幸い、コードを精査すると以下の 3 層に分離できる：
 
-1. **Pure Function 層** — DOM にも ComfyUI にも依存しない関数群。`bbox.js`, `utils.js`（crc32, concatUint8, toUint32）, `png_embed_workflow.js`, `background_modes.js`（一部）, `index.js` 内の `parseHexColor`, `parseRgbColor`, `normalizeSelectedIds`, `shouldTile`, `clampPngCompression`, `adler32Update` など。Node.js + Vitest/Jest でそのまま単体テスト可能。
+1. **Pure Function 層** — DOM にも ComfyUI にも依存しない関数群。`bbox.js`, `utils.js`（crc32, concatUint8, toUint32）, `png_embed_workflow.js`, `background_modes.js`（一部）, `index.js` 内の `parseHexColor`, `parseRgbColor`, `normalizeSelectedIds`, `shouldTile`, `clampPngCompression`, `adler32Update` など。Node.js の組み込みテストランナー（`node --test`）でそのまま単体テスト可能。
 2. **DOM Mock 層** — `document.createElement("canvas")`, `getComputedStyle`, `getBoundingClientRect` 等が必要だが、ComfyUI (`app`, `LGraphCanvas`) には依存しない関数群。`dom_utils.js` の一部、`storage.js`（localStorage mock で十分）、`raster.js`, `download.js`。jsdom + モックで対応可能。
 3. **ComfyUI 統合層** — `app.graph`, `LGraphCanvas`, `LiteGraph` のプロトタイプ操作、実際の canvas 描画パイプライン、DOM widget overlay の capture。実ブラウザ or Playwright が必要。
 
@@ -286,7 +286,7 @@ test_normalizeExportOptions_png_preserves_embed
 | `index.js` — parseHexColor, parseRgbColor, shouldTile, clampPngCompression, normalizeSelectedIds, adler32Update | ~15 | 分岐が多い制御ロジック |
 | `embed.js` — sanitizeWorkflow | ~4 | workflow の互換性を守る |
 
-**合計: 約 50 テスト。Vitest + Node.js のみ。CI 実行時間 < 5 秒。**
+**合計: 約 50 テスト。Node.js の組み込みテストランナーのみ。CI 実行時間 < 5 秒。**
 
 ### Tier 2: 余裕があればやる（jsdom mock 必要）
 
@@ -323,11 +323,11 @@ test_normalizeExportOptions_png_preserves_embed
 │  - dialog 操作 → export → download file 検証          │
 │  - DOM overlay の visual regression (optional)        │
 ├─────────────────────────────────────────────────────┤
-│  Vitest + jsdom (Tier 2)                            │
+│  Node.js test + jsdom/mock (Tier 2)                 │
 │  - DOM mock 付き単体テスト                            │
 │  - dom_utils, storage, configureGraph               │
 ├─────────────────────────────────────────────────────┤
-│  Vitest / Node.js pure (Tier 1) ← ★ ここを最優先     │
+│  node --test / Node.js pure (Tier 1) ← ★ ここを最優先│
 │  - bbox, crc32, PNG embed, color parse, shouldTile  │
 │  - ゼロ依存、最速                                    │
 ├─────────────────────────────────────────────────────┤
@@ -355,11 +355,11 @@ def test_init_exports():
 
 これ以上を Python で書く意味はない。ロジックが JavaScript に 99.9% 集中しているため。
 
-### Vitest で担うべきスコープ（Tier 1 + Tier 2）
+### Node.js 組み込みテストで担うべきスコープ（Tier 1 + Tier 2）
 
 ```
 tests/
-  unit/
+  core/
     bbox.test.js           ← computeGraphBBox, normalizeSize, normalizePos
     utils.test.js          ← crc32, toUint32, concatUint8
     png-embed.test.js      ← embedWorkflowInPngBlob, createPngTextChunk
@@ -574,9 +574,9 @@ test_syncLiveNodeText_syncs_widget_values_object
 ### 6A. 最小構成（Tier 1 のみ、約 50 テスト）
 
 ```
-vitest.config.js
+package.json
 tests/
-  unit/
+  core/
     bbox.test.js             (16 tests)
     utils.test.js            (10 tests)
     png-embed.test.js        (12 tests)
@@ -588,16 +588,15 @@ tests/
 test_init.py                 ← pytest 1 テスト
 ```
 
-**要件**: `vitest`, `@vitest/coverage-v8`。jsdom 不要。CI で 3 秒以内。
+**要件**: Node.js 20+ 推奨。jsdom 不要。CI で 3 秒以内。
 
-**vitest.config.js**:
-```javascript
-export default {
-  test: {
-    include: ["tests/unit/**/*.test.js"],
-    environment: "node",
-  },
-};
+**package.json**:
+```json
+{
+  "scripts": {
+    "test": "node --test tests/core/*.test.js"
+  }
+}
 ```
 
 **この構成だけで守れるもの**:
@@ -611,9 +610,9 @@ export default {
 ### 6B. 中規模構成（Tier 1 + Tier 2、約 87 テスト）
 
 ```
-vitest.config.js
+package.json
 tests/
-  unit/                      ← environment: "node"
+  core/                      ← Node.js 組み込みテスト
     bbox.test.js
     utils.test.js
     png-embed.test.js
@@ -621,7 +620,7 @@ tests/
     export-control.test.js
     adler32.test.js
     sanitize.test.js
-  dom/                       ← environment: "jsdom"
+  dom/                       ← jsdom か軽量スタブ併用
     dom-utils.test.js
     storage.test.js
     background.test.js
@@ -634,20 +633,18 @@ tests/
 test_init.py
 ```
 
-**vitest.config.js**:
-```javascript
-export default {
-  test: {
-    include: ["tests/**/*.test.js"],
-    environmentMatchGlobs: [
-      ["tests/dom/**", "jsdom"],
-      ["tests/unit/**", "node"],
-    ],
-  },
-};
+**package.json**:
+```json
+{
+  "scripts": {
+    "test": "node --test tests/core/*.test.js tests/dom/*.test.js"
+  }
+}
 ```
 
 **追加要件**: `jsdom`。CI で 8 秒以内。
+
+**補足**: Vitest を使う構成も代替案としては成立するが、現行リポジトリの shipped runner は `npm test` → `node --test` なので、まずはそれに合わせる。
 
 **追加で守れるもの**:
 - DOM 上のノード ID 検出
@@ -665,21 +662,21 @@ export default {
 
 ## 前提
 - このリポジトリは ComfyUI custom node で、ロジックの 99% が JavaScript。
-- テストフレームワークは Vitest を使用。
+- テストフレームワークは Node.js の組み込みテストランナー（`node --test`）を使用。
 - `web/js/` 配下の ES Module をテストする。
   一部ファイルは `import { app } from "/scripts/app.js"` のように
   ComfyUI 固有のパスを import しているため、テスト時は
-  vitest.config.js の `resolve.alias` でスタブに差し替える。
+  テスト用の一時ファイルかスタブモジュールに差し替える。
 
 ## Step 1: プロジェクト初期化
-1. `package.json` を作成（`vitest`, `@vitest/coverage-v8` を devDependencies に追加）
-2. `vitest.config.js` を作成
-   - `resolve.alias`: `"/scripts/app.js"` → `"./tests/stubs/app.js"`
-   - environment: unit は `"node"`, dom は `"jsdom"`
-3. `tests/stubs/app.js` を作成:
+1. `package.json` を作成し、`npm test` が `node --test ...` を呼ぶようにする
+2. `tests/stubs/app.js` を作成:
    ```javascript
    export const app = { graph: null, canvas: null };
    ```
+3. `"/scripts/app.js"` を参照するテスト対象については、Node から直接 import できるように
+   一時ディレクトリへミラーして import specifier を書き換えるか、
+   代替の import smoke テストを用意する
 
 ## Step 2: ヘルパー作成
 1. `tests/helpers/minimal-png.js`:
@@ -692,28 +689,32 @@ export default {
 ## Step 3: Tier 1 テスト実装
 以下のファイルを順に実装。各テストケースの仕様は上記テストケース一覧に従う。
 
-1. `tests/unit/bbox.test.js`
+1. `tests/core/bbox.test.js`
    - `web/js/export/bbox.js` から `computeGraphBBox` を直接 import
    - normalizeSize, normalizePos は export されていないため、
      computeGraphBBox 経由で間接テストする
-2. `tests/unit/utils.test.js`
-3. `tests/unit/png-embed.test.js`
+2. `tests/core/utils.test.js`
+3. `tests/core/png-embed.test.js`
    - `embedWorkflowInPngBlob` は async。`Blob` は `node:buffer` から import。
    - 結果の Blob を `arrayBuffer()` → Uint8Array に変換して chunk 構造を検証
-4. `tests/unit/color-parse.test.js`
+4. `tests/core/color-parse.test.js`
    - parseHexColor, parseRgbColor は export されていない。
      → 選択肢 A: テスト用に export を追加（小さな変更）
      → 選択肢 B: `export/index.js` 全体を import し間接テスト
      推奨: 選択肢 A（テスト容易性のため）
-5. `tests/unit/export-control.test.js`
+5. `tests/core/export-control.test.js`
    - 同上。shouldTile 等も現状 unexported。テスト用 export 追加推奨。
-6. `tests/unit/sanitize.test.js`
+6. `tests/core/sanitize.test.js`
    - `embed.js` の `sanitizeWorkflow` も unexported → export 追加
 
 ## Step 4: Tier 2 テスト実装（余裕があれば）
 1. `tests/dom/dom-utils.test.js` — jsdom 環境
 2. `tests/dom/storage.test.js` — localStorage mock
 3. `tests/dom/graph-config.test.js` — mock graph オブジェクト
+
+## 補足
+- Vitest を使う構成も可能だが、その場合はこの文書のコマンド例を `npm test` / `node --test` から Vitest 用へ読み替えること。
+- 現行リポジトリでは `npm test` が Node.js 組み込みテストを起動するので、まずはその前提で揃える。
 
 ## 重要な注意事項
 - `index.js` 内の多くの関数は現状 unexported。

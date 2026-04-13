@@ -23,6 +23,18 @@ test("normalizeState still coerces an explicitly provided embed workflow value",
   assert.equal(state.embedWorkflow, false);
 });
 
+test("normalizeState handles legacy string embed workflow values", () => {
+  assert.equal(normalizeState({ embedWorkflow: "true" }).embedWorkflow, true);
+  assert.equal(normalizeState({ embedWorkflow: "1" }).embedWorkflow, true);
+  assert.equal(normalizeState({ embedWorkflow: "false" }).embedWorkflow, false);
+  assert.equal(normalizeState({ embedWorkflow: "0" }).embedWorkflow, false);
+});
+
+test("normalizeState falls back to the default for unknown embed workflow strings", () => {
+  const state = normalizeState({ embedWorkflow: "maybe" });
+  assert.equal(state.embedWorkflow, DEFAULTS.embedWorkflow);
+});
+
 test("normalizeState clamps png compression and keeps sane defaults", () => {
   const state = normalizeState({
     pngCompression: 99,
