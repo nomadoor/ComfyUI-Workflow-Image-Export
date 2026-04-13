@@ -9,12 +9,14 @@ import { captureLegacy } from "../core/backends/legacy_capture.js";
 import { triggerDownload } from "../core/download.js";
 import { computeGraphBBox } from "../export/bbox.js";
 import { embedWorkflowInPngBlob } from "../export/png_embed_workflow.js";
+import { loadLastUsed, saveLastUsed } from "../core/storage.js";
 import {
   DEFAULTS,
   getDefaultsFromSettings,
   normalizeState as normalizeSettingsState,
   setDefaultsInSettings,
 } from "../core/settings.js";
+import { buildInitialState, toLastUsedState } from "./state.js";
 
 let activeDialog = null;
 let activeMessageDialog = null;
@@ -320,15 +322,6 @@ function isDebugEnabled() {
   return !!window.__cwie__?.debug;
 }
 
-function buildInitialState() {
-  return {
-    ...getDefaultsFromSettings(),
-    debug: isDebugEnabled(),
-    scopeSelected: false,
-    scopeOpacity: 40,
-  };
-}
-
 function getSelectedNodeIds() {
   const selected =
     app?.canvas?.selected_nodes ||
@@ -367,7 +360,11 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
     return;
   }
 
-  let state = buildInitialState();
+  let state = buildInitialState({
+    defaults: getDefaultsFromSettings(),
+    lastUsed: loadLastUsed(),
+    debugEnabled: isDebugEnabled(),
+  });
 
   const backdrop = document.createElement("div");
   backdrop.className = "cwie-backdrop";
@@ -1093,6 +1090,13 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
         logExportPhase("capture.done");
       }
       setDefaultsInSettings(state);
+      try {
+        saveLastUsed(toLastUsedState(state));
+      } catch (error) {
+        log?.("export:saveLastUsed.error", {
+          message: error?.message || String(error),
+        });
+      }
       logExportPhase("download.start");
       const resolveExt = () => {
         const hint = blob?.cwieFormat;

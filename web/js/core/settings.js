@@ -1,5 +1,8 @@
 import { app } from "/scripts/app.js";
 import { getSettingsAccess } from "./detect.js";
+import { DEFAULTS, normalizeState } from "./settings_state.js";
+
+export { DEFAULTS, normalizeState };
 
 export const SETTING_IDS = {
   format: "WorkflowImageExport.DefaultFormat",
@@ -12,19 +15,6 @@ export const SETTING_IDS = {
   maxLongEdge: "WorkflowImageExport.MaxLongEdge",
   exceedMode: "WorkflowImageExport.ExceedMode",
   pngCompression: "WorkflowImageExport.PngCompression",
-};
-
-export const DEFAULTS = {
-  format: "png",
-  embedWorkflow: true,
-  background: "ui",
-  solidColor: "#1f1f1f",
-  nodeOpacity: 100,
-  padding: 100,
-  outputResolution: "auto",
-  maxLongEdge: 4096,
-  exceedMode: "tile",
-  pngCompression: 7,
 };
 
 const CAT = "Workflow Image Export";
@@ -179,70 +169,6 @@ export function registerLegacySettings(log) {
   }
   legacyRegistered = true;
   log?.("legacy settings registered");
-}
-
-function normalizeFormat(value) {
-  const v = String(value ?? "").toLowerCase();
-  if (["png", "webp", "svg"].includes(v)) {
-    return v;
-  }
-  if (v === "png" || v === "webp" || v === "svg") {
-    return v;
-  }
-  return DEFAULTS.format;
-}
-
-function normalizeBackground(value) {
-  const v = String(value ?? "").toLowerCase();
-  if (["ui", "transparent", "solid"].includes(v)) {
-    return v;
-  }
-  return DEFAULTS.background;
-}
-
-function normalizeResolution(value) {
-  const v = String(value ?? "").toLowerCase();
-  if (v === "auto" || v === "100%" || v === "200%") {
-    return v;
-  }
-  return DEFAULTS.outputResolution;
-}
-
-function normalizeExceedMode(value) {
-  const v = String(value ?? "").toLowerCase();
-  if (v === "downscale" || v === "tile") {
-    return v;
-  }
-  return DEFAULTS.exceedMode;
-}
-
-function normalizeNumber(value, fallback) {
-  const num = Number.parseInt(value, 10);
-  if (Number.isFinite(num) && num >= 0) {
-    return num;
-  }
-  return fallback;
-}
-
-function normalizePngCompression(value) {
-  const num = Number.parseInt(value, 10);
-  if (!Number.isFinite(num)) return DEFAULTS.pngCompression;
-  return Math.min(9, Math.max(0, num));
-}
-
-export function normalizeState(raw) {
-  return {
-    format: normalizeFormat(raw?.format),
-    embedWorkflow: Boolean(raw?.embedWorkflow),
-    background: normalizeBackground(raw?.background),
-    solidColor: typeof raw?.solidColor === "string" ? raw.solidColor : DEFAULTS.solidColor,
-    nodeOpacity: normalizeNumber(raw?.nodeOpacity, DEFAULTS.nodeOpacity),
-    padding: normalizeNumber(raw?.padding, DEFAULTS.padding),
-    outputResolution: normalizeResolution(raw?.outputResolution),
-    maxLongEdge: normalizeNumber(raw?.maxLongEdge, DEFAULTS.maxLongEdge),
-    exceedMode: normalizeExceedMode(raw?.exceedMode),
-    pngCompression: normalizePngCompression(raw?.pngCompression),
-  };
 }
 
 export function getDefaultsFromSettings() {
