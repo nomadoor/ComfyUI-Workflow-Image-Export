@@ -1,8 +1,8 @@
 import { app } from "/scripts/app.js";
 import { computeGraphBBox } from "./bbox.mjs";
 import { applyBackgroundMode, getExportBackgroundFillColor } from "./background_modes.mjs";
+import { collectNodeRects } from "../core/backends/legacy_bounds.mjs";
 import {
-  collectNodeRects,
   drawDomWidgetOverlays,
   drawImageOverlays,
   drawTextOverlays,
