@@ -722,8 +722,7 @@ export async function renderGraphOffscreen(workflowJson, options = {}) {
 
   let _exportOk = false;
   try {
-  // [CWIE] v3: Resize is disabled by default to prevent double-scaling.
-  // Explicitly enabled only if options.enableOffscreenResize is set.
+  // Keep resize opt-in; current ComfyUI/LiteGraph can double-scale offscreen canvases.
   if (offscreen.resize && options.enableOffscreenResize) {
     offscreen.resize(deviceW, deviceH);
   }
@@ -734,43 +733,20 @@ export async function renderGraphOffscreen(workflowJson, options = {}) {
     applyNodeOpacity(offscreen, options.nodeOpacity / 100, debugLog);
   }
   applyBackgroundMode(offscreen, options);
-  // [CWIE] Export Decoupling:
-  // If useNativeUiBackground is TRUE, we DO NOT decouple. We let LiteGraph draw the UI background as is.
-  // If FALSE (Solid/Transparent), we force transparency and enable grid only if requested.
-  // Variables (isUiMode, etc) are defined at top of function.
   const useNativeUiBackground = isUiMode && includeGrid;
 
   if (offscreen && !useNativeUiBackground) {
-    offscreen.background_image = null; // No patterns to prevent artifacts
-    offscreen.show_grid = includeGrid; // Respect grid option
-    offscreen.render_background = true; // Must be true to draw grid
+    offscreen.background_image = null;
+    offscreen.show_grid = includeGrid;
+    offscreen.render_background = true;
     offscreen.clear_background = true;
     offscreen.always_render_background = false;
 
-    // Force transparent background so we can composite over our solid internal background
+    // Draw LiteGraph grid/links over a transparent backing, then composite it
+    // over the requested export background below.
     offscreen.clear_background_color = "rgba(0,0,0,0)";
     offscreen.bgcolor = "rgba(0,0,0,0)";
     offscreen.background_color = "rgba(0,0,0,0)";
-
-    // If we are in "ui" mode but NO GRID, we might want manual fill?
-    // Actually valid cases:
-    // 1. UI + Grid -> Native (handled by else implicit)
-    // 2. UI + No Grid -> Solid fill (handled here: bg=transparent, fill later? No wait)
-    // If UI + No Grid, we usually want the UI *color* but no lines.
-    // applyBackgroundMode has set the color.
-    // If we set transparent here, we lose the UI color.
-    // So if isUiMode && !includeGrid:
-    // We arrive here. We set transparent.
-    // Then in manual fill, getExportBackgroundFillColor(options) will return UI color?
-    // Let's check getExportBackgroundFillColor.
-    // It returns options.backgroundColor.
-    // In UI mode, applyBackgroundMode sets offscreen colors but maybe didn't set options.backgroundColor?
-    // We need to ensure Manual Fill gets the right color if we are stripping it here.
-    // But wait, the user instructions say: "UI mode (ComfyUI match) needs native background".
-    // If includeGrid is false, maybe we still want native background just without grid?
-    // User said: "backgroundMode='ui' && includeGrid=true ... result identical to UI".
-    // If includeGrid=false, maybe we don't care as much about patterns?
-    // Let's stick to the requested logic: useNativeUiBackground = isUiMode && includeGrid.
   }
   configureTransform(offscreen, bbox, padding);
   configureVisibleArea(offscreen, bbox, tileBounds);
@@ -796,8 +772,7 @@ export async function renderGraphOffscreen(workflowJson, options = {}) {
     await document.fonts.ready;
   }
 
-  // --- Revert Single Buffer: Use original Multi-Canvas approach for safety ---
-  // [CWIE] v3: Override devicePixelRatio during draw to ensure LiteGraph consistency
+  // Override devicePixelRatio during draw to keep LiteGraph canvas math stable.
   const restoreDpr = overrideDevicePixelRatio(uiPxRatio, debug ? console.log : null);
   try {
     await timeSpan(perfLog, "offscreen.draw", () => offscreen.draw(true, true));
@@ -807,7 +782,6 @@ export async function renderGraphOffscreen(workflowJson, options = {}) {
 
   // Composite on a fresh canvas so overlays are not affected by LiteGraph
   // transform/clip state that might linger on the original context.
-  // [CWIE] Output Canvas: Always use CSS size (logical size)
   const outputCanvas = document.createElement("canvas");
   outputCanvas.width = cssW;
   outputCanvas.height = cssH;
@@ -816,38 +790,15 @@ export async function renderGraphOffscreen(workflowJson, options = {}) {
     throw new Error("Offscreen render: output 2d context not available.");
   }
 
-  // [CWIE] Manual Background Fill
-  // If we are using Native UI Background, we skip this manual fill because offscreen.draw() did it.
-  // Variables (isUiMode, etc) are already defined above within this function scope.
-
   if (!useNativeUiBackground) {
     const bgColor = getExportBackgroundFillColor(options);
     if (bgColor) {
       outputCtx.fillStyle = bgColor;
-      // Fill full logical size
       outputCtx.fillRect(0, 0, outputCanvas.width, outputCanvas.height);
     }
-    // [CWIE] Custom Grid Removed -> Using Native LiteGraph Grid
-    // (The grid is now drawn by offscreen.draw() because we set render_background=true + show_grid=true)
-    // If we wanted a simple grid for solid mode, we would call it here.
-    // However, we rely on the native grid drawing (though we clear background color to transparent).
-    // Wait, if we cleared background color to transparent in !useNativeUiBackground,
-    // does LiteGraph still draw the grid? 
-    // Yes, because `show_grid=true` and `render_background=true`.
-    // It draws grid lines over the transparent background.
-    // Then we fillRect the solid color BEHIND it?
-    // No, here we fillRect on outputCtx BEFORE drawing the offscreen canvas.
-    // So:
-    // 1. outputCtx filled with solid color (if !useNativeUiBackground)
-    // 2. offscreen canvas (transparent bg + grid lines) drawn ON TOP.
-    // This works perfectly for Solid Mode too!
   }
 
-  // [CWIE] Custom Grid Removed -> Using Native LiteGraph Grid
-  // (The grid is now drawn by offscreen.draw() because we set render_background=true + show_grid=true)
-
-  // [CWIE] Downscale Composition: Draw high-res HiDPI canvas into logical-res output context
-  // drawImage(source, sx, sy, sWidth, sHeight, dx, dy, dWidth, dHeight)
+  // Draw high-res HiDPI canvas into the logical-size output canvas.
   outputCtx.drawImage(canvas, 0, 0, deviceW, deviceH, 0, 0, cssW, cssH);
 
   if (debug) {
@@ -967,8 +918,6 @@ export async function renderGraphOffscreen(workflowJson, options = {}) {
         coveredNodeIds: null,
         debugLog,
       }));
-      // [CWIE] v3: Downscale high-res text overlay to CSS-sized output
-      // [CWIE] v3: Downscale high-res text overlay to CSS-sized output
       outputCtx.drawImage(textOverlay, 0, 0, deviceW, deviceH, 0, 0, cssW, cssH);
     }
     if (mediaMode === "force") {
@@ -981,7 +930,6 @@ export async function renderGraphOffscreen(workflowJson, options = {}) {
         debugLog,
       }));
 
-      // Always run drawVideoThumbnails (it handles Preview/Export logic internally)
       await timeSpan(perfLog, "fallback.video.thumbs", () => drawVideoThumbnails({
         exportCtx: outputCtx,
         graph,
@@ -1016,8 +964,6 @@ export async function renderGraphOffscreen(workflowJson, options = {}) {
   }
 }
 
-// --- Helper Classes & Functions ---
-
 function drawVideoPlaceholder(ctx, x, y, w, h) {
   ctx.save();
   ctx.fillStyle = "rgba(0, 0, 0, 0.2)";
@@ -1039,7 +985,6 @@ function drawVideoPlaceholder(ctx, x, y, w, h) {
 
 const bgImageCache = new Map();
 
-// VHS support disabled for now.
 const lastVideoSrcByNodeId = new Map();
 
 function sanitizeMediaUrl(url) {
@@ -1116,8 +1061,6 @@ function looksLikeFilename(value) {
   if (/^\d+(\.\d+)?$/.test(trimmed)) return false;
   return trimmed.length > 4;
 }
-
-// VHS helpers removed.
 
 function buildApiViewUrl(ref) {
   if (!ref?.filename) return null;
@@ -1631,13 +1574,11 @@ async function drawVideoThumbnails({ exportCtx, graph, nodeRects, bounds, scale,
       continue;
     }
 
-    // Step 1: The Heist (Steal live assets)
-    // Always attempt to steal first, as it's the fastest and most accurate.
-    let drawable = resolveVideoDrawable(node); // Check exported node props (unlikely to have video el)
+    let drawable = resolveVideoDrawable(node);
     if (!drawable) {
       const liveNode = findLiveNodeById(node.id);
       if (liveNode) {
-        drawable = resolveVideoDrawable(liveNode); // Check live node (High probability)
+        drawable = resolveVideoDrawable(liveNode);
         if (drawable && debugLog && logged < 5) debugLog(`video.thumbnail.steal`, { id: node.id, type: "direct" });
       }
     }
@@ -1730,7 +1671,6 @@ async function drawVideoThumbnails({ exportCtx, graph, nodeRects, bounds, scale,
     if (typeof drawable === "string") {
       drawable = null;
     }
-    // VHS support disabled for now.
     if (!drawable && debugLog && logged < 5) {
       debugLog("video.thumbnail.miss_detail", {
         id: node.id,
