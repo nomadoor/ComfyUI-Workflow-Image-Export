@@ -4,12 +4,14 @@ import { applyBackgroundMode, getExportBackgroundFillColor } from "./background_
 import { collectNodeRects } from "../core/backends/legacy_bounds.mjs";
 import {
   drawDomWidgetOverlays,
-  drawImageOverlays,
   drawTextOverlays,
-  drawVideoOverlays,
-  drawVhsVideoOverlays,
   drawWidgetTextFallback,
 } from "../core/backends/legacy_capture.mjs";
+import {
+  drawImageOverlays,
+  drawVideoOverlays,
+  drawVhsVideoOverlays,
+} from "../core/backends/legacy_media_overlays.mjs";
 import {
   collectVideoElementsFromDom,
   collectDomWidgetContainers,
