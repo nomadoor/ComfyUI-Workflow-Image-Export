@@ -7,7 +7,7 @@ import {
   drawDomWidgetOverlays,
   drawTextOverlays,
   drawWidgetTextFallback,
-} from "../core/backends/legacy_capture.mjs";
+} from "../core/backends/legacy_dom_text_overlays.mjs";
 import {
   drawImageOverlays,
   drawVideoOverlays,
