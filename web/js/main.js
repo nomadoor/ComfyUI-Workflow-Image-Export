@@ -1,6 +1,6 @@
 import { app } from "/scripts/app.js";
-import { installLegacyCanvasMenuItem } from "./core/menu.js";
-import { registerLegacySettings } from "./core/settings.js";
+import { installLegacyCanvasMenuItem } from "./core/menu.mjs";
+import { registerLegacySettings } from "./core/settings.mjs";
 
 let debugEnabled = localStorage.getItem("cwie.debug") === "1";
 let usedOfficialMenu = false;
@@ -41,14 +41,14 @@ let dialogPreloaded = false;
 function preloadDialogModule() {
   if (dialogPreloaded) return;
   dialogPreloaded = true;
-  import("./ui/dialog.js").catch(() => {
+  import("./ui/dialog.mjs").catch(() => {
     // ignore preload errors
   });
 }
 
 async function openDialog(log) {
   try {
-    const mod = await import("./ui/dialog.js");
+    const mod = await import("./ui/dialog.mjs");
     const openExportDialog = mod?.openExportDialog;
     if (typeof openExportDialog !== "function") {
       throw new Error("workflow-image-export: openExportDialog not available");

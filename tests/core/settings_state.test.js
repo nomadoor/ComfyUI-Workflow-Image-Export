@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { DEFAULTS, normalizeState } from "../../web/js/core/settings_state.js";
+import { DEFAULTS, normalizeState } from "../../web/js/core/settings_state.mjs";
 
 test("normalizeState falls back to png when legacy svg format is encountered", () => {
   const state = normalizeState({ format: "svg" });

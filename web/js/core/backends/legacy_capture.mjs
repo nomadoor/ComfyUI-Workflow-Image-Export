@@ -9,8 +9,10 @@ import {
   getDomElementGraphRect,
   getNodeIdFromElement,
   resolveNodeIdForGraphRect,
-} from "../overlays/dom_utils.js";
-import { toBlobAsync } from "../utils.js";
+} from "../overlays/dom_utils.mjs";
+import { createExportDragAndScale } from "../graph_transform.mjs";
+import { toBlobAsync } from "../utils.mjs";
+import { resolveUiBackgroundColor } from "../../export/background_modes.mjs";
 
 export function collectNodeRects(graph, debugLog) {
   const rects = [];
@@ -152,6 +154,60 @@ function ensure2DContext(canvas) {
   return canvas.getContext("2d", { alpha: true });
 }
 
+function setCanvasPixelSize(canvas, width, height) {
+  if (!canvas) return;
+  if (canvas.width !== width) {
+    canvas.width = width;
+  }
+  if (canvas.height !== height) {
+    canvas.height = height;
+  }
+  canvas.style.width = `${width}px`;
+  canvas.style.height = `${height}px`;
+}
+
+function syncOffscreenCanvasSize(offscreen, canvas, width, height) {
+  setCanvasPixelSize(canvas, width, height);
+  const ctx = ensure2DContext(canvas);
+  if (offscreen) {
+    offscreen.canvas = canvas;
+    offscreen.ctx = ctx;
+  }
+  return ctx;
+}
+
+function overrideDevicePixelRatio(tempDpr, debugLog) {
+  const w = window;
+  const hadOwn = Object.prototype.hasOwnProperty.call(w, "devicePixelRatio");
+  const prevDesc = Object.getOwnPropertyDescriptor(w, "devicePixelRatio");
+  let active = false;
+
+  try {
+    Object.defineProperty(w, "devicePixelRatio", {
+      configurable: true,
+      get: () => tempDpr,
+    });
+    active = true;
+    debugLog?.("dpr.override", { tempDpr });
+  } catch (error) {
+    debugLog?.("dpr.override.failed", { message: String(error) });
+  }
+
+  return () => {
+    if (!active) return;
+    try {
+      if (hadOwn && prevDesc) {
+        Object.defineProperty(w, "devicePixelRatio", prevDesc);
+      } else {
+        delete w.devicePixelRatio;
+      }
+      debugLog?.("dpr.restore", { ok: true });
+    } catch (error) {
+      debugLog?.("dpr.restore.failed", { message: String(error) });
+    }
+  };
+}
+
 function ensureBgCanvas(offscreen, width, height) {
   // NOTE: call this AFTER offscreen.resize(), because resize may recreate bgcanvas.
   if (!offscreen.bgcanvas) {
@@ -182,6 +238,15 @@ function applyBackgroundFill(mode, width, height, exportCtx, bgctx, solidColor) 
     exportCtx.fillRect(0, 0, width, height);
     if (bgctx) {
       bgctx.fillStyle = solid;
+      bgctx.fillRect(0, 0, width, height);
+    }
+  }
+  if (mode === "ui") {
+    const uiColor = resolveUiBackgroundColor("#1f1f1f");
+    exportCtx.fillStyle = uiColor;
+    exportCtx.fillRect(0, 0, width, height);
+    if (bgctx) {
+      bgctx.fillStyle = uiColor;
       bgctx.fillRect(0, 0, width, height);
     }
   }
@@ -267,6 +332,44 @@ function disableCanvasInfoOverlay(canvas) {
   }
 }
 
+function createPerfLogger(enabled) {
+  if (!enabled) return null;
+  const start = performance.now?.() ?? Date.now();
+  let last = start;
+  return (label, payload = null) => {
+    const now = performance.now?.() ?? Date.now();
+    const entry = {
+      stepMs: Math.round((now - last) * 10) / 10,
+      totalMs: Math.round((now - start) * 10) / 10,
+      ...(payload || {}),
+    };
+    last = now;
+    console.log(`[CWIE][Legacy][perf] ${label}`, entry);
+  };
+}
+
+function measurePerf(perfLog, label, fn) {
+  if (!perfLog) return fn();
+  const start = performance.now?.() ?? Date.now();
+  try {
+    return fn();
+  } finally {
+    const now = performance.now?.() ?? Date.now();
+    perfLog(label, { durationMs: Math.round((now - start) * 10) / 10 });
+  }
+}
+
+async function measurePerfAsync(perfLog, label, fn) {
+  if (!perfLog) return fn();
+  const start = performance.now?.() ?? Date.now();
+  try {
+    return await fn();
+  } finally {
+    const now = performance.now?.() ?? Date.now();
+    perfLog(label, { durationMs: Math.round((now - start) * 10) / 10 });
+  }
+}
+
 function forceExportQuality(offscreen) {
   const setProp = (key, value) => {
     try {
@@ -299,9 +402,24 @@ function forceExportQuality(offscreen) {
 
 function applyBackgroundMode(offscreen, options) {
   const mode = options?.background || "ui";
-  if (mode === "ui") return "ui";
-  offscreen.render_background = false;
-  offscreen.clear_background = false;
+  if (offscreen && "_pattern" in offscreen) {
+    offscreen._pattern = null;
+  }
+  if (mode === "ui") {
+    const uiColor = resolveUiBackgroundColor("#1f1f1f");
+    offscreen.render_background = true;
+    offscreen.clear_background = true;
+    offscreen.always_render_background = true;
+    offscreen.bgcolor = uiColor;
+    offscreen.background_color = uiColor;
+    offscreen.clear_background_color = uiColor;
+    return "ui";
+  }
+  // LiteGraph draws links on the background pass in some frontend builds.
+  // Keep that pass enabled, but replace the native canvas/grid background.
+  offscreen.render_background = true;
+  offscreen.clear_background = true;
+  offscreen.always_render_background = true;
   offscreen.background_image = null;
   offscreen.show_grid = false;
   if (mode === "solid") {
@@ -314,7 +432,7 @@ function applyBackgroundMode(offscreen, options) {
   if (mode === "transparent") {
     offscreen.bgcolor = "rgba(0, 0, 0, 0)";
     offscreen.background_color = "rgba(0, 0, 0, 0)";
-    offscreen.clear_background_color = null;
+    offscreen.clear_background_color = "rgba(0, 0, 0, 0)";
     return mode;
   }
   return "ui";
@@ -330,12 +448,13 @@ function configureTransform(offscreen, bounds, viewportW, viewportH, scale, debu
   };
 
   if (offscreen.ds) {
-    offscreen.ds.scale = scale;
+    const transform = createExportDragAndScale(bounds, scale);
+    offscreen.ds.scale = transform.scale;
     if (!Array.isArray(offscreen.ds.offset)) {
       offscreen.ds.offset = [0, 0];
     }
-    offscreen.ds.offset[0] = -bounds.left * scale;
-    offscreen.ds.offset[1] = -bounds.top * scale;
+    offscreen.ds.offset[0] = transform.offset[0];
+    offscreen.ds.offset[1] = transform.offset[1];
     debugLog?.("ds", {
       scale: offscreen.ds.scale,
       offset: Array.isArray(offscreen.ds.offset) ? [...offscreen.ds.offset] : null,
@@ -1851,8 +1970,20 @@ export async function captureLegacy(options = {}) {
       console.log(`[CWIE][Legacy][dbg] ${label}`, payload);
     }
     : null;
+  const perfLog = createPerfLogger(debug);
+  perfLog?.("start", {
+    format,
+    background: options.background || "ui",
+    padding,
+    outputResolution: options.outputResolution || "100%",
+    skipWidgetCapture: options?.skipWidgetCapture === true,
+  });
 
-  const { bounds: graphBounds, nodeRects } = collectGraphBounds(graph, debugLog);
+  const { bounds: graphBounds, nodeRects } = measurePerf(
+    perfLog,
+    "bounds.collect",
+    () => collectGraphBounds(graph, debugLog)
+  );
   const selectedNodeRects =
     options?.scopeSelected === true
       ? filterNodeRectsBySelected(nodeRects, options.selectedNodeIds)
@@ -1872,9 +2003,8 @@ export async function captureLegacy(options = {}) {
   debugLog?.("export.size", { width, height });
 
   const exportCanvas = document.createElement("canvas");
-  exportCanvas.width = width;
-  exportCanvas.height = height;
-  const exportCtx = ensure2DContext(exportCanvas);
+  setCanvasPixelSize(exportCanvas, width, height);
+  let exportCtx = ensure2DContext(exportCanvas);
   if (!exportCtx) {
     throw new Error("Legacy capture: export context missing.");
   }
@@ -1885,29 +2015,41 @@ export async function captureLegacy(options = {}) {
     throw new Error("Legacy capture: LGraphCanvas constructor not available.");
   }
 
+  const restoreDpr = overrideDevicePixelRatio(1, debugLog);
   const offscreen = new LGraphCanvasRef(exportCanvas, graph);
   offscreen.canvas = exportCanvas;
   offscreen.ctx = exportCtx;
 
   try {
-    copyRenderSettings(uiCanvas, offscreen);
-    forceExportQuality(offscreen);
-    const mode = applyBackgroundMode(offscreen, options);
-    disableCanvasInfoOverlay(offscreen);
-    if (typeof offscreen.resize === "function") {
-      offscreen.resize(width, height);
-      debugLog?.("offscreen.resize", { width, height });
-    }
-    ensureBgCanvas(offscreen, width, height);
-    configureTransform(offscreen, bounds, width, height, scale, debugLog);
+    const mode = measurePerf(perfLog, "offscreen.setup", () => {
+      copyRenderSettings(uiCanvas, offscreen);
+      forceExportQuality(offscreen);
+      disableCanvasInfoOverlay(offscreen);
+      if (typeof offscreen.resize === "function") {
+        offscreen.resize(width, height);
+        debugLog?.("offscreen.resize", { width, height });
+      }
+      exportCtx = syncOffscreenCanvasSize(offscreen, exportCanvas, width, height);
+      if (!exportCtx) {
+        throw new Error("Legacy capture: export context missing after resize.");
+      }
+      ensureBgCanvas(offscreen, width, height);
+      const nextMode = applyBackgroundMode(offscreen, options);
+      configureTransform(offscreen, bounds, width, height, scale, debugLog);
+      return nextMode;
+    });
 
-    applyBackgroundFill(
-      mode,
-      width,
-      height,
-      exportCtx,
-      offscreen.bgctx,
-      options?.solidColor
+    measurePerf(
+      perfLog,
+      "background.fill",
+      () => applyBackgroundFill(
+        mode,
+        width,
+        height,
+        exportCtx,
+        offscreen.bgctx,
+        options?.solidColor
+      )
     );
 
     if (debug) {
@@ -1951,22 +2093,38 @@ export async function captureLegacy(options = {}) {
       logDomMedia(debugLog, uiCanvas);
     }
 
-    await drawOffscreen(offscreen, {
-      mode,
-      width,
-      height,
-      exportCtx,
-      bgctx: offscreen.bgctx,
-      solidColor: options?.solidColor,
-      resetTransform: () => configureTransform(offscreen, bounds, width, height, scale, debugLog),
-    });
-    drawImageOverlays({ exportCtx, uiCanvas, bounds, scale, debugLog });
-    drawVideoOverlays({ exportCtx, uiCanvas, bounds, scale, nodeRects, debugLog });
-    drawVhsVideoOverlays({ exportCtx, uiCanvas, bounds, scale, debugLog });
+    await measurePerfAsync(
+      perfLog,
+      "offscreen.draw",
+      () => drawOffscreen(offscreen, {
+        mode,
+        width,
+        height,
+        exportCtx,
+        bgctx: offscreen.bgctx,
+        solidColor: options?.solidColor,
+        resetTransform: () => configureTransform(offscreen, bounds, width, height, scale, debugLog),
+      })
+    );
+    measurePerf(
+      perfLog,
+      "dom.image.overlays",
+      () => drawImageOverlays({ exportCtx, uiCanvas, bounds, scale, debugLog })
+    );
+    measurePerf(
+      perfLog,
+      "dom.video.overlays",
+      () => drawVideoOverlays({ exportCtx, uiCanvas, bounds, scale, nodeRects, debugLog })
+    );
+    measurePerf(
+      perfLog,
+      "dom.vhs.overlays",
+      () => drawVhsVideoOverlays({ exportCtx, uiCanvas, bounds, scale, debugLog })
+    );
     const domWidgetCoveredNodeIds =
       options?.skipDomWidgetOverlays === true
         ? new Set()
-        : await drawDomWidgetOverlays({
+        : await measurePerfAsync(perfLog, "dom.widget.overlays", () => drawDomWidgetOverlays({
           exportCtx,
           uiCanvas,
           bounds,
@@ -1974,33 +2132,55 @@ export async function captureLegacy(options = {}) {
           nodeRects,
           debugLog,
           skipWidgetCapture: options?.skipWidgetCapture === true,
-        });
-    drawTextOverlays({
-      exportCtx,
-      uiCanvas,
-      graph,
-      bounds,
-      scale,
-      nodeRects,
-      debugLog,
-      skipNodeIds: domWidgetCoveredNodeIds,
-    });
-
-    if (options?.scopeSelected === true) {
-      applyScopeOpacityFallback(
+        }));
+    measurePerf(
+      perfLog,
+      "dom.text.overlays",
+      () => drawTextOverlays({
         exportCtx,
+        uiCanvas,
+        graph,
         bounds,
         scale,
         nodeRects,
-        options.selectedNodeIds,
-        options.scopeOpacity,
-        mode === "solid"
-          ? (options?.solidColor || "#1f1f1f")
-          : (offscreen.bgcolor || offscreen.background_color || "#1f1f1f")
+        debugLog,
+        skipNodeIds: domWidgetCoveredNodeIds,
+      })
+    );
+
+    if (options?.scopeSelected === true) {
+      measurePerf(
+        perfLog,
+        "scope.opacity",
+        () => applyScopeOpacityFallback(
+          exportCtx,
+          bounds,
+          scale,
+          nodeRects,
+          options.selectedNodeIds,
+          options.scopeOpacity,
+          mode === "solid"
+            ? (options?.solidColor || "#1f1f1f")
+            : (offscreen.bgcolor || offscreen.background_color || "#1f1f1f")
+        )
       );
     }
 
-    const blob = await toBlobAsync(exportCanvas, mime);
+    if (options?.deferBlob === true) {
+      perfLog?.("toBlob.deferred");
+      perfLog?.("done", { width, height, deferredBlob: true });
+      return {
+        type: "raster",
+        mime,
+        blob: null,
+        canvas: exportCanvas,
+        width,
+        height,
+      };
+    }
+
+    const blob = await measurePerfAsync(perfLog, "toBlob", () => toBlobAsync(exportCanvas, mime));
+    perfLog?.("done", { width, height });
     return {
       type: "raster",
       mime,
@@ -2012,5 +2192,6 @@ export async function captureLegacy(options = {}) {
     try { if (typeof offscreen.stopRendering === "function") offscreen.stopRendering(); } catch (_) {}
     try { if (typeof offscreen.setCanvas === "function") offscreen.setCanvas(null); } catch (_) {}
     try { if (typeof offscreen.unbind_events === "function") offscreen.unbind_events(); } catch (_) {}
+    restoreDpr?.();
   }
 }

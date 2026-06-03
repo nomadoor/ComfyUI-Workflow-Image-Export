@@ -113,11 +113,31 @@ test("main.js import graph resolves successfully", async (t) => {
   assert.equal(typeof module, "object");
 });
 
-test("dialog.js import graph resolves successfully", async (t) => {
-  const { tempRoot, module } = await importMirroredModule("web/js/ui/dialog.js");
+test("dialog.mjs import graph resolves successfully", async (t) => {
+  const { tempRoot, module } = await importMirroredModule("web/js/ui/dialog.mjs");
   t.after(async () => {
     await fs.rm(tempRoot, { recursive: true, force: true });
   });
 
   assert.equal(typeof module.openExportDialog, "function");
+});
+
+test("main.js is the only ComfyUI auto-loaded JS entry under web/js", async () => {
+  const webJsRoot = path.join(REPO_ROOT, "web", "js");
+  const jsFiles = [];
+
+  async function walk(dir) {
+    const entries = await fs.readdir(dir, { withFileTypes: true });
+    for (const entry of entries) {
+      const fullPath = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        await walk(fullPath);
+      } else if (entry.isFile() && entry.name.endsWith(".js")) {
+        jsFiles.push(toPosix(path.relative(REPO_ROOT, fullPath)));
+      }
+    }
+  }
+
+  await walk(webJsRoot);
+  assert.deepEqual(jsFiles.sort(), ["web/js/main.js"]);
 });

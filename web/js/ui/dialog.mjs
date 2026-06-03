@@ -4,19 +4,26 @@ import {
   detectBackendType,
   isNode2UnsupportedError,
   isWebpHugeUnsupportedError,
-} from "../core/capture/index.js";
-import { captureLegacy } from "../core/backends/legacy_capture.js";
-import { triggerDownload } from "../core/download.js";
-import { computeGraphBBox } from "../export/bbox.js";
-import { embedWorkflowInPngBlob } from "../export/png_embed_workflow.js";
-import { loadLastUsed, saveLastUsed } from "../core/storage.js";
+} from "../core/capture/index.mjs";
+import { captureLegacy } from "../core/backends/legacy_capture.mjs";
+import { triggerDownload } from "../core/download.mjs";
+import { computeGraphBBox } from "../export/bbox.mjs";
+import { shouldTile } from "../export/limits.mjs";
+import { embedWorkflowInPngBlob } from "../export/png_embed_workflow.mjs";
+import { loadLastUsed, saveLastUsed } from "../core/storage.mjs";
+import {
+  createWorkflowSignature,
+  getSelectedNodeIdsFromApp,
+  getWorkflowJsonTextFromApp,
+} from "../core/workflow_state.mjs";
+import { toBlobAsync } from "../core/utils.mjs";
 import {
   DEFAULTS,
   getDefaultsFromSettings,
   normalizeState as normalizeSettingsState,
   setDefaultsInSettings,
-} from "../core/settings.js";
-import { buildInitialState, toLastUsedState } from "./state.js";
+} from "../core/settings.mjs";
+import { buildInitialState, toLastUsedState } from "./state.mjs";
 
 let activeDialog = null;
 let activeMessageDialog = null;
@@ -323,26 +330,7 @@ function isDebugEnabled() {
 }
 
 function getSelectedNodeIds() {
-  const selected =
-    app?.canvas?.selected_nodes ||
-    app?.canvas?.selectedNodes ||
-    app?.graph?.selected_nodes ||
-    null;
-  if (!selected) return [];
-  if (selected instanceof Map) {
-    return Array.from(selected.keys()).map((id) => Number(id)).filter(Number.isFinite);
-  }
-  if (Array.isArray(selected)) {
-    return selected
-      .map((node) => node?.id)
-      .filter((id) => Number.isFinite(id));
-  }
-  if (typeof selected === "object") {
-    return Object.keys(selected)
-      .map((id) => Number(id))
-      .filter(Number.isFinite);
-  }
-  return [];
+  return getSelectedNodeIdsFromApp(app);
 }
 
 export function openExportDialog({ onExportStarted, onExportFinished, log } = {}) {
@@ -393,6 +381,12 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
   previewImg.className = "cwie-preview-image";
   previewImg.alt = "Export preview";
 
+  const previewCanvas = document.createElement("canvas");
+  previewCanvas.className = "cwie-preview-canvas";
+  previewCanvas.setAttribute("aria-label", "Export preview");
+  previewCanvas.width = 0;
+  previewCanvas.height = 0;
+
   const previewLoading = document.createElement("div");
   previewLoading.className = "cwie-preview-loading";
   previewLoading.innerHTML = `
@@ -401,6 +395,7 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
   `;
 
   previewFrame.appendChild(previewImg);
+  previewFrame.appendChild(previewCanvas);
   previewFrame.appendChild(previewLoading);
   previewPane.appendChild(previewFrame);
 
@@ -558,17 +553,6 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
         "Workflow embedding is disabled for WebP.";
       return;
     }
-  }
-
-  const TILE_THRESHOLD_EDGE = 6144;
-  const TILE_THRESHOLD_PIXELS = 24 * 1024 * 1024;
-  const MAX_CANVAS_EDGE = 16384;
-
-  function shouldTile(width, height) {
-    const w = Math.max(1, Math.ceil(width));
-    const h = Math.max(1, Math.ceil(height));
-    if (Math.max(w, h) > MAX_CANVAS_EDGE) return true;
-    return w * h > TILE_THRESHOLD_PIXELS || Math.max(w, h) > TILE_THRESHOLD_EDGE;
   }
 
   let webpBlocked = false;
@@ -730,8 +714,7 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
   }
 
   let previewUrl = null;
-  let lastPreviewBlob = null;
-  let lastPreviewKey = null;
+  let previewSnapshot = null;
   let previewTimer = null;
   let previewIdle = null;
   let previewBusy = false;
@@ -743,6 +726,7 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
   function buildPreviewState() {
     const selectedIds = getSelectedNodeIds();
     const previewFormat = state.format === "webp" ? "webp" : "png";
+    const workflowJsonText = getWorkflowJsonText();
     return {
       ...state,
       format: previewFormat,
@@ -752,6 +736,8 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
       selectedNodeIds: selectedIds,
       previewFast: true,
       previewMaxPixels: PREVIEW_MAX_PIXELS,
+      workflowSignature: createWorkflowSignature(workflowJsonText),
+      workflowJsonText,
     };
   }
 
@@ -765,17 +751,12 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
       scopeSelected: previewState.scopeSelected,
       scopeOpacity: previewState.scopeOpacity,
       selectedNodeIds: previewState.selectedNodeIds,
+      workflowSignature: previewState.workflowSignature,
     });
   }
 
   function getWorkflowJsonText() {
-    const graph = app?.graph;
-    if (!graph || typeof graph.serialize !== "function") return null;
-    try {
-      return JSON.stringify(graph.serialize());
-    } catch (_) {
-      return null;
-    }
+    return getWorkflowJsonTextFromApp(app);
   }
 
   const cleanupDialog = () => {
@@ -792,8 +773,7 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
     }
     previewQueued = false;
     previewBusy = false;
-    lastPreviewBlob = null;
-    lastPreviewKey = null;
+    previewSnapshot = null;
     if (previewUrl) {
       try {
         URL.revokeObjectURL(previewUrl);
@@ -805,9 +785,38 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
     if (previewImg) {
       previewImg.src = "";
     }
+    if (previewCanvas) {
+      previewCanvas.width = 0;
+      previewCanvas.height = 0;
+    }
   };
 
   activeDialogCleanup = cleanupDialog;
+
+  function drawPreviewCanvas(sourceCanvas) {
+    if (!sourceCanvas?.width || !sourceCanvas?.height) return false;
+    previewCanvas.width = sourceCanvas.width;
+    previewCanvas.height = sourceCanvas.height;
+    const ctx = previewCanvas.getContext("2d", { alpha: true });
+    if (!ctx) return false;
+    ctx.clearRect(0, 0, previewCanvas.width, previewCanvas.height);
+    ctx.drawImage(sourceCanvas, 0, 0);
+    if (previewImg.src) {
+      previewImg.src = "";
+    }
+    previewFrame.classList.remove("is-loading");
+    return true;
+  }
+
+  async function encodePreviewSnapshot(snapshot, fallbackState = null) {
+    if (!snapshot) return null;
+    if (snapshot.blob) return snapshot.blob;
+    if (!snapshot.canvas) return null;
+    const mime = snapshot.mime || (fallbackState?.format === "webp" ? "image/webp" : "image/png");
+    const encoded = await toBlobAsync(snapshot.canvas, mime);
+    snapshot.blob = encoded;
+    return encoded;
+  }
 
   async function renderPreview(previewStateOverride = null, options = {}) {
     if (dialogClosed) return;
@@ -832,25 +841,40 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
       const previewResult = await captureLegacy({
         ...previewState,
         skipWidgetCapture: true,
+        deferBlob: true,
       });
       const blob = previewResult?.blob || null;
+      const canvas = previewResult?.canvas || null;
       if (dialogClosed || token !== previewToken) {
         previewFrame.classList.remove("is-loading");
         return;
       }
-      if (!blob) {
+      if (!blob && !canvas) {
         previewFrame.classList.remove("is-loading");
         previewBusy = false;
         return;
       }
-      lastPreviewBlob = blob;
-      lastPreviewKey = previewKey;
+      previewSnapshot = {
+        blob,
+        canvas,
+        key: previewKey,
+        mime: previewResult?.mime || (previewState.format === "webp" ? "image/webp" : "image/png"),
+        state: previewState,
+      };
+      if (canvas && drawPreviewCanvas(canvas)) {
+        if (previewUrl) {
+          URL.revokeObjectURL(previewUrl);
+          previewUrl = null;
+        }
+        return previewSnapshot;
+      }
+      const displayBlob = blob || await encodePreviewSnapshot(previewSnapshot, previewState);
       if (previewUrl) {
         URL.revokeObjectURL(previewUrl);
       }
-      previewUrl = URL.createObjectURL(blob);
+      previewUrl = URL.createObjectURL(displayBlob);
       previewImg.src = previewUrl;
-      return blob;
+      return previewSnapshot;
     } catch (error) {
       log?.("preview:error", { message: error?.message || String(error) });
       previewFrame.classList.remove("is-loading");
@@ -1065,16 +1089,20 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
         const previewState = buildPreviewState();
         const previewKey = getPreviewStateKey(previewState);
         logExportPhase("preview.capture.start");
-        blob =
-          lastPreviewBlob && lastPreviewKey === previewKey
-            ? lastPreviewBlob
+        const snapshot =
+          previewSnapshot?.key === previewKey
+            ? previewSnapshot
             : await renderPreview(previewState, { force: true });
+        blob = await encodePreviewSnapshot(snapshot, previewState);
         logExportPhase("preview.capture.done");
         if (!blob) {
           throw new Error("Export failed: preview blob unavailable.");
         }
         if (state.format === "png" && state.embedWorkflow) {
-          const workflowJson = getWorkflowJsonText();
+          const workflowJson =
+            previewSnapshot?.key === previewKey
+              ? previewSnapshot.state?.workflowJsonText
+              : previewState.workflowJsonText || getWorkflowJsonText();
           if (workflowJson) {
             logExportPhase("embed.workflow.start");
             blob = await embedWorkflowInPngBlob(blob, workflowJson);

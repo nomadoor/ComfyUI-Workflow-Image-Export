@@ -7,6 +7,7 @@ This file defines working rules for coding agents in this repository.
 - This is a ComfyUI frontend extension for exporting workflow images.
 - Python is only the custom-node entry point: `__init__.py` exposes `WEB_DIRECTORY`.
 - The product code is JavaScript under `web/js/`, with styles under `web/css/`.
+- `web/js/main.js` is the only ComfyUI extension entry file. Supporting browser modules should use `.mjs` so ComfyUI does not auto-load them as standalone extensions.
 - Current repair focus is ComfyUI Classic / LiteGraph legacy export.
 - Node 2.0 support is not part of the legacy repair path. Treat it as a future backend with a different architecture.
 
@@ -35,6 +36,7 @@ This file defines working rules for coding agents in this repository.
 - Keep rendering backends separate from UI dialog code.
 - Keep DOM widget/media overlay handling best-effort and isolated from the core raster export path.
 - Do not duplicate constants such as tile thresholds, max canvas edge, or default settings across modules unless there is a clear reason.
+- Do not add new supporting `.js` files under `web/`; use `.mjs` unless the file is intentionally a ComfyUI extension entry.
 - Do not introduce Vue or a build step just for the current legacy repair. The existing extension is loaded directly as browser ES modules.
 
 ## Testing

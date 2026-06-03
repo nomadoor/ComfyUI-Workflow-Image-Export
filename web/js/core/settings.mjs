@@ -1,6 +1,6 @@
 import { app } from "/scripts/app.js";
-import { getSettingsAccess } from "./detect.js";
-import { DEFAULTS, normalizeState } from "./settings_state.js";
+import { getSettingsAccess } from "./detect.mjs";
+import { DEFAULTS, normalizeState } from "./settings_state.mjs";
 
 export { DEFAULTS, normalizeState };
 

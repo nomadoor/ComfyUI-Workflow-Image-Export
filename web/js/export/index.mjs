@@ -1,18 +1,15 @@
-import { toBlobAsync, toUint32, concatUint8, crc32 } from "../core/utils.js";
+import { toBlobAsync, toUint32, concatUint8, crc32 } from "../core/utils.mjs";
 
 import {
   resolveUiBackgroundColor,
   resolveSolidBackgroundColor,
   EXTRACT_BG_1,
   EXTRACT_BG_2,
-} from "./background_modes.js";
-import { computeOffscreenBBox, renderGraphOffscreen } from "./render_graph_offscreen.js";
-import { embedWorkflowInPngBlob } from "./png_embed_workflow.js";
+} from "./background_modes.mjs";
+import { computeOffscreenBBox, renderGraphOffscreen } from "./render_graph_offscreen.mjs";
+import { embedWorkflowInPngBlob } from "./png_embed_workflow.mjs";
+import { TILE_SIZE, shouldTile } from "./limits.mjs";
 
-const TILE_THRESHOLD_EDGE = 6144;
-const TILE_THRESHOLD_PIXELS = 24 * 1024 * 1024;
-const TILE_SIZE = 2048;
-const MAX_CANVAS_EDGE = 16384;
 const ADLER_MOD = 65521;
 const ADLER_NMAX = 5552;
 
@@ -54,7 +51,7 @@ function clampPngCompression(value) {
 async function resolvePako() {
   if (window?.pako) return window.pako;
   try {
-    const mod = await import("../vendor/pako.min.js");
+    const mod = await import("../vendor/pako.min.mjs");
     return mod?.default || mod?.pako || window?.pako || null;
   } catch (_) {
     return null;
@@ -156,16 +153,6 @@ function scaleCanvas(baseCanvas, scale) {
 function normalizeSelectedIds(value) {
   if (!Array.isArray(value)) return [];
   return value.map((id) => Number(id)).filter(Number.isFinite);
-}
-
-function shouldTile(width, height) {
-  const w = Math.max(1, Math.ceil(width));
-  const h = Math.max(1, Math.ceil(height));
-  if (Math.max(w, h) > MAX_CANVAS_EDGE) return true;
-  return (
-    w * h > TILE_THRESHOLD_PIXELS ||
-    Math.max(w, h) > TILE_THRESHOLD_EDGE
-  );
 }
 
 function createPngChunk(type, data) {

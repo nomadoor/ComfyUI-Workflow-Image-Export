@@ -1,5 +1,5 @@
 import { app } from "/scripts/app.js";
-import { toUint32, concatUint8, crc32 } from "../utils.js";
+import { toUint32, concatUint8, crc32 } from "../utils.mjs";
 
 function sanitizeWorkflow(raw) {
   if (!raw || typeof raw !== "object") {

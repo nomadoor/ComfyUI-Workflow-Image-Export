@@ -57,12 +57,16 @@
   justify-content: center;
 }
 
-.cwie-preview-image {
+.cwie-preview-image,
+.cwie-preview-canvas {
   display: block;
   max-width: 100%;
   max-height: 100%;
-  object-fit: contain;
   border-radius: 0.5rem;
+}
+
+.cwie-preview-image {
+  object-fit: contain;
 }
 
 .cwie-preview-frame.is-transparent {
@@ -112,7 +116,9 @@
 }
 
 .cwie-preview-image:not([src]),
-.cwie-preview-image[src=""] {
+.cwie-preview-image[src=""],
+.cwie-preview-canvas:not([width]),
+.cwie-preview-canvas[width="0"] {
   display: none;
 }
 

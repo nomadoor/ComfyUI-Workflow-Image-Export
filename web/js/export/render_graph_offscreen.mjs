@@ -1,6 +1,6 @@
 import { app } from "/scripts/app.js";
-import { computeGraphBBox } from "./bbox.js";
-import { applyBackgroundMode, getExportBackgroundFillColor } from "./background_modes.js";
+import { computeGraphBBox } from "./bbox.mjs";
+import { applyBackgroundMode, getExportBackgroundFillColor } from "./background_modes.mjs";
 import {
   collectNodeRects,
   drawDomWidgetOverlays,
@@ -9,7 +9,7 @@ import {
   drawVideoOverlays,
   drawVhsVideoOverlays,
   drawWidgetTextFallback,
-} from "../core/backends/legacy_capture.js";
+} from "../core/backends/legacy_capture.mjs";
 import {
   collectVideoElementsFromDom,
   collectDomWidgetContainers,
@@ -19,7 +19,7 @@ import {
   isElementInGraphNode,
   collectDomMediaElements,
   resolveNodeIdForGraphRect,
-} from "../core/overlays/dom_utils.js";
+} from "../core/overlays/dom_utils.mjs";
 
 const PREVIEW_MAX_PIXELS = 2048 * 2048;
 
@@ -1382,17 +1382,7 @@ export async function renderGraphOffscreen(workflowJson, options = {}) {
         nodeRects,
         bounds,
         scale: scaleFactor,
-        debugLog, // debugLog is available in local scope? lines 926/979 suggest yes. Wait, debugLog isn't defined in renderGraphOffscreen scope shown.
-        // Checking previous file content... debugLog is NOT in renderGraphOffscreen arguments?
-        // Ah, `debug` is in options. `debugLog` variable?
-        // In lines 938/979 of original file, it passes `debugLog`.
-        // Let's check where `debugLog` comes from. It must be `perfLog` or `console.log`?
-        // In previous view `renderGraphOffscreen(workflowJson, options)`, no `debugLog`.
-        // But `drawImageOverlays({ ... debugLog })`.
-        // Let's assume the surrounding code is correct and just modify the condition.
-        // Wait, line 943 (original) passes `debugLog`.
-        // I will just keep the body same, only wrapping IF.
-        // Actually, I can just change the IF condition.
+        debugLog,
       }));
 
       // Always run drawVideoThumbnails (it handles Preview/Export logic internally)
