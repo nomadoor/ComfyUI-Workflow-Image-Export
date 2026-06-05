@@ -15,6 +15,88 @@ import {
   shouldRenderResolvedNode,
 } from "./legacy_overlay_utils.mjs";
 
+function findGraphNodeById(graph, id) {
+  if (!Number.isFinite(id)) return null;
+  const nodes = graph?._nodes || graph?.nodes || [];
+  return nodes.find((node) => node && Number.isFinite(node.id) && node.id === id) || null;
+}
+
+function findNodeRectById(nodeRects, id) {
+  if (!Number.isFinite(id)) return null;
+  return (nodeRects || []).find((rect) => rect && Number.isFinite(rect.id) && rect.id === id) || null;
+}
+
+function resolveVideoNodeFromElement({ video, uiCanvas, nodeRects, graphRect, graph }) {
+  const directId = getNodeIdFromElement(video);
+  let nodeRect = findNodeRectById(nodeRects, directId);
+  if (!nodeRect && graphRect) {
+    const resolvedId = resolveNodeIdForGraphRect(nodeRects, graphRect, directId);
+    nodeRect = findNodeRectById(nodeRects, resolvedId);
+  }
+  if (!nodeRect || !isVideoNodeTitle(nodeRect.title, nodeRect.type)) {
+    return null;
+  }
+  return {
+    nodeRect,
+    liveNode: findGraphNodeById(graph || uiCanvas?.graph, nodeRect.id),
+  };
+}
+
+function computeVideoPreviewGraphRect(nodeRect, liveNode = null) {
+  if (!nodeRect) return null;
+  const nodeW = nodeRect.right - nodeRect.left;
+  const nodeH = nodeRect.bottom - nodeRect.top;
+  if (nodeW <= 4 || nodeH <= 4) return null;
+
+  const titleHeight = window?.LiteGraph?.NODE_TITLE_HEIGHT || 30;
+  const nodeWidgetHeight = window?.LiteGraph?.NODE_WIDGET_HEIGHT || 20;
+  const widgets = Array.isArray(liveNode?.widgets) ? liveNode.widgets : [];
+  const widgetStartY = Number.isFinite(liveNode?.widgets_start_y)
+    ? liveNode.widgets_start_y
+    : titleHeight;
+
+  let maxWidgetBottom = widgetStartY;
+  for (const widget of widgets) {
+    if (!widget) continue;
+    const wy = Number.isFinite(widget.y) ? widget.y : maxWidgetBottom;
+    const wh = Number.isFinite(widget.height) && widget.height > 0 ? widget.height : nodeWidgetHeight;
+    maxWidgetBottom = Math.max(maxWidgetBottom, wy + wh + 4);
+  }
+
+  const padX = 1;
+  const padY = 2;
+  const previewTop = Math.max(titleHeight, maxWidgetBottom);
+  const w = nodeW - padX * 2;
+  const h = nodeH - previewTop - padY;
+  if (w <= 4 || h <= 4) return null;
+  return {
+    x: nodeRect.left + padX,
+    y: nodeRect.top + previewTop,
+    w,
+    h,
+  };
+}
+
+function drawVideoIntoGraphRect({ exportCtx, video, graphRect, bounds, scale }) {
+  const x = (graphRect.x - bounds.left) * scale;
+  const y = (graphRect.y - bounds.top) * scale;
+  const w = graphRect.w * scale;
+  const h = graphRect.h * scale;
+
+  const sourceW = video.videoWidth || 0;
+  const sourceH = video.videoHeight || 0;
+  if (sourceW > 0 && sourceH > 0) {
+    const fit = Math.min(w / sourceW, h / sourceH);
+    const fitW = sourceW * fit;
+    const fitH = sourceH * fit;
+    exportCtx.drawImage(video, x + (w - fitW) / 2, y + (h - fitH) / 2, fitW, fitH);
+    return { x: x + (w - fitW) / 2, y: y + (h - fitH) / 2, w: fitW, h: fitH };
+  }
+
+  exportCtx.drawImage(video, x, y, w, h);
+  return { x, y, w, h };
+}
+
 export function drawVideoOverlays({
   exportCtx,
   uiCanvas,
@@ -22,6 +104,7 @@ export function drawVideoOverlays({
   scale,
   nodeRects,
   debugLog,
+  graph = null,
   selectedNodeIds = null,
   renderFilter = "all",
 }) {
@@ -49,8 +132,56 @@ export function drawVideoOverlays({
       }));
       continue;
     }
+
+    const drawNodeFallback = (reason, graphRect = null) => {
+      const resolved = resolveVideoNodeFromElement({ video, uiCanvas, nodeRects, graphRect, graph });
+      if (!resolved) {
+        debugLog?.("diag.draw.video", diagnoseDomElement(video, uiCanvas, {
+          stage: "draw",
+          reason: `${reason}:no-node-id-fallback`,
+          readyState: video.readyState,
+          kind: "video",
+        }));
+        return false;
+      }
+      if (!shouldRenderResolvedNode(resolved.nodeRect.id, selectedIdSet, renderFilter)) {
+        return true;
+      }
+      const previewRect = computeVideoPreviewGraphRect(resolved.nodeRect, resolved.liveNode);
+      if (!previewRect) return false;
+      try {
+        const exportRect = drawVideoIntoGraphRect({ exportCtx, video, graphRect: previewRect, bounds, scale });
+        debugLog?.("diag.draw.video", diagnoseDomElement(video, uiCanvas, {
+          stage: "draw",
+          reason,
+          readyState: video.readyState,
+          graphRect: previewRect,
+          exportRect,
+          matchedNode: {
+            id: resolved.nodeRect.id,
+            title: resolved.nodeRect.title,
+            type: resolved.nodeRect.type,
+          },
+          kind: "video",
+        }));
+        return true;
+      } catch (error) {
+        debugLog?.("diag.draw.video", diagnoseDomElement(video, uiCanvas, {
+          stage: "draw",
+          reason: `${reason}:drawImage-error`,
+          readyState: video.readyState,
+          message: error?.message || String(error),
+          kind: "video",
+        }));
+        return false;
+      }
+    };
+
     const vrect = video.getBoundingClientRect();
-    if (!vrect.width || !vrect.height) continue;
+    if (!vrect.width || !vrect.height) {
+      drawNodeFallback("node-fallback-zero-dom-rect");
+      continue;
+    }
 
     if (
       vrect.right < rect.left - 1 ||
@@ -58,12 +189,7 @@ export function drawVideoOverlays({
       vrect.bottom < rect.top - 1 ||
       vrect.top > rect.bottom + 1
     ) {
-      debugLog?.("diag.draw.video", diagnoseDomElement(video, uiCanvas, {
-        stage: "draw",
-        reason: "off-canvas-viewport",
-        readyState: video.readyState,
-        kind: "video",
-      }));
+      drawNodeFallback("node-fallback-off-canvas-viewport");
       continue;
     }
 
@@ -76,19 +202,13 @@ export function drawVideoOverlays({
     const graphY = sy * invScale - ds.offset[1];
     const graphW = sw * invScale;
     const graphH = sh * invScale;
+    const graphRect = { x: graphX, y: graphY, w: graphW, h: graphH };
 
     const matchedNode = findNodeForPoint(nodeRects, graphX + graphW * 0.5, graphY + graphH * 0.5);
     if (!matchedNode || !isVideoNodeTitle(matchedNode.title, matchedNode.type)) {
-      debugLog?.("diag.draw.video", diagnoseDomElement(video, uiCanvas, {
-        stage: "draw",
-        reason: !matchedNode ? "no-node-at-position" : "non-video-node",
-        readyState: video.readyState,
-        graphRect: { x: graphX, y: graphY, w: graphW, h: graphH },
-        matchedNode: matchedNode
-          ? { id: matchedNode.id, title: matchedNode.title, type: matchedNode.type }
-          : null,
-        kind: "video",
-      }));
+      if (drawNodeFallback(!matchedNode ? "node-fallback-no-node-at-position" : "node-fallback-non-video-node", graphRect)) {
+        continue;
+      }
       continue;
     }
     if (!shouldRenderResolvedNode(matchedNode.id, selectedIdSet, renderFilter)) {

@@ -246,7 +246,7 @@ export async function captureLegacy(options = {}) {
     measurePerf(
       perfLog,
       "dom.video.overlays",
-      () => drawVideoOverlays({ exportCtx, uiCanvas, bounds, scale, nodeRects, debugLog })
+      () => drawVideoOverlays({ exportCtx, uiCanvas, graph, bounds, scale, nodeRects, debugLog })
     );
     measurePerf(
       perfLog,

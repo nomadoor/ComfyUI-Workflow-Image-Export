@@ -737,6 +737,7 @@ export async function renderGraphOffscreen(workflowJson, options = {}) {
     await timeSpan(perfLog, "dom.video.overlays", () => drawVideoOverlays({
       exportCtx: outputCtx,
       uiCanvas: uiCanvasDom,
+      graph,
       bounds,
       scale: scaleFactor,
       nodeRects,
