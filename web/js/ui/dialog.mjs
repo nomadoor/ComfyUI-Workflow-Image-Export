@@ -28,6 +28,10 @@ import {
   getPreviewMime,
   getPreviewStateKey,
 } from "./preview_state.mjs";
+import {
+  resolveBlobExtension,
+  resolveWorkflowName,
+} from "./export_filename.mjs";
 
 let activeDialog = null;
 let activeMessageDialog = null;
@@ -151,41 +155,6 @@ function createToggle() {
   wrapper.appendChild(slider);
 
   return { wrapper, input };
-}
-
-function sanitizeFilename(value) {
-  const text = String(value || "").trim();
-  if (!text) return "";
-  return text
-    .replace(/[<>:"/\\|?*\x00-\x1F]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function resolveWorkflowName() {
-  const graph = app?.graph;
-  const candidates = [
-    graph?.name,
-    graph?.title,
-    graph?.workflow_name,
-    graph?.workflowName,
-    graph?.extra?.workflow_name,
-    graph?.extra?.name,
-    graph?.config?.name,
-    graph?.config?.title,
-    graph?._config?.name,
-    graph?._config?.title,
-  ];
-  for (const candidate of candidates) {
-    const cleaned = sanitizeFilename(candidate);
-    if (cleaned) return cleaned;
-  }
-  const docTitle = sanitizeFilename(document?.title || "");
-  if (docTitle) {
-    const stripped = docTitle.replace(/\s*-\s*ComfyUI\s*$/i, "").trim();
-    if (stripped) return stripped;
-  }
-  return "workflow";
 }
 
 function createRadioGroup(name, options) {
@@ -1104,19 +1073,11 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
         });
       }
       logExportPhase("download.start");
-      const resolveExt = () => {
-        const hint = blob?.cwieFormat;
-        if (typeof hint === "string" && hint.trim()) {
-          return hint.trim().toLowerCase();
-        }
-        const type = String(blob?.type || "").toLowerCase();
-        if (type.includes("png")) return "png";
-        if (type.includes("webp")) return "webp";
-        if (type.includes("svg")) return "svg";
-        return state.format || "png";
-      };
-      const ext = resolveExt();
-      const baseName = resolveWorkflowName();
+      const ext = resolveBlobExtension(blob, state.format || "png");
+      const baseName = resolveWorkflowName({
+        graph: app?.graph,
+        documentTitle: document?.title || "",
+      });
       await triggerDownload({
         blob,
         filename: `${baseName}.${ext}`,
