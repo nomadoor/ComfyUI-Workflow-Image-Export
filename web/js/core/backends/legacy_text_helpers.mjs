@@ -120,6 +120,11 @@ export function isEffectivelyVisibleElement(el) {
   return true;
 }
 
+export function sanitizeInlineStyleValue(value) {
+  if (!value) return "";
+  return String(value).toLowerCase().includes("url(") ? "" : value;
+}
+
 function cloneWithInlineStyles(src, options = {}, depth = 0) {
   const MAX_DEPTH = 100;
   if (depth > MAX_DEPTH) return src.cloneNode(false);
@@ -148,7 +153,7 @@ function cloneWithInlineStyles(src, options = {}, depth = 0) {
         )) {
           continue;
         }
-        const val = computed.getPropertyValue(prop);
+        const val = sanitizeInlineStyleValue(computed.getPropertyValue(prop));
         if (val) style += `${prop}:${val};`;
       } catch (_) {}
     }

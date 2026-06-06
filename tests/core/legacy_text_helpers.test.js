@@ -1,7 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { isEffectivelyVisibleElement } from "../../web/js/core/backends/legacy_text_helpers.mjs";
+import {
+  isEffectivelyVisibleElement,
+  sanitizeInlineStyleValue,
+} from "../../web/js/core/backends/legacy_text_helpers.mjs";
 
 class MockHTMLElement {
   constructor(style = {}) {
@@ -75,4 +78,10 @@ test("isEffectivelyVisibleElement rejects disconnected elements", () => {
   el.isConnected = false;
 
   assert.equal(isEffectivelyVisibleElement(el), false);
+});
+
+test("sanitizeInlineStyleValue drops external URL style values", () => {
+  assert.equal(sanitizeInlineStyleValue("url(https://example.test/image.png)"), "");
+  assert.equal(sanitizeInlineStyleValue("linear-gradient(red, blue), URL(/local.png)"), "");
+  assert.equal(sanitizeInlineStyleValue("rgb(32, 32, 36)"), "rgb(32, 32, 36)");
 });
