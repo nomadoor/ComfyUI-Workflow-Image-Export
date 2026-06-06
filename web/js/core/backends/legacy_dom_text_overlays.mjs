@@ -529,6 +529,8 @@ export function drawTextOverlays({
     el.classList?.contains("markdown-editor") ||
     el.getAttribute?.("contenteditable") === "true" ||
     el instanceof HTMLTextAreaElement;
+  const isSingleLineInput = (el) =>
+    el instanceof HTMLInputElement && el.type !== "hidden";
 
   const elementsByGroup = new Map();
   const noNode = [];
@@ -629,6 +631,9 @@ export function drawTextOverlays({
   }
 
   for (const el of filtered) {
+    if (isSingleLineInput(el)) {
+      continue;
+    }
     if (!isEffectivelyVisibleElement(el)) {
       continue;
     }
@@ -719,9 +724,7 @@ export function drawTextOverlays({
     const text =
       el instanceof HTMLTextAreaElement
         ? el.value
-        : el instanceof HTMLInputElement
-          ? el.value
-          : el.innerText || el.textContent || "";
+        : el.innerText || el.textContent || "";
 
     if (!text.trim()) {
       skippedEmpty += 1;
