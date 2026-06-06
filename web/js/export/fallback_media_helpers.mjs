@@ -562,7 +562,7 @@ export function computePreviewRect({ rect, node, bounds, scale }) {
     return null;
   }
 
-  const x = (rect.left + padX - bounds.left) * scale;
+  const x = (rect.left + padX + deltaX - bounds.left) * scale;
   const y = (rect.top + previewTop - bounds.top) * scale;
   const w = availableW * scale;
   const h = availableH * scale;
