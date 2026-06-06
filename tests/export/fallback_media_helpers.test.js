@@ -76,25 +76,31 @@ test("shouldRenderResolvedNode matches numeric node ids against string Set ids",
 
 test("computePreviewRect projects x from the live node position", async (t) => {
   const { computePreviewRect } = await importFallbackMediaHelpers(t);
-  globalThis.window = {
-    LiteGraph: {
-      NODE_TITLE_HEIGHT: 30,
-      NODE_WIDGET_HEIGHT: 20,
-    },
-  };
+  const originalWindow = globalThis.window;
 
-  const result = computePreviewRect({
-    rect: { left: 100, top: 50, right: 300, bottom: 250 },
-    node: {
-      id: 42,
-      pos: [125, 50],
-      widgets_start_y: 30,
-      widgets: [],
-    },
-    bounds: { left: 80, top: 40 },
-    scale: 2,
-  });
+  try {
+    globalThis.window = {
+      LiteGraph: {
+        NODE_TITLE_HEIGHT: 30,
+        NODE_WIDGET_HEIGHT: 20,
+      },
+    };
 
-  assert.equal(result.x, 92);
-  assert.equal(result.debug.deltaX, 25);
+    const result = computePreviewRect({
+      rect: { left: 100, top: 50, right: 300, bottom: 250 },
+      node: {
+        id: 42,
+        pos: [125, 50],
+        widgets_start_y: 30,
+        widgets: [],
+      },
+      bounds: { left: 80, top: 40 },
+      scale: 2,
+    });
+
+    assert.equal(result.x, 92);
+    assert.equal(result.debug.deltaX, 25);
+  } finally {
+    globalThis.window = originalWindow;
+  }
 });
