@@ -2,6 +2,7 @@ export const TILE_THRESHOLD_EDGE = 6144;
 export const TILE_THRESHOLD_PIXELS = 24 * 1024 * 1024;
 export const TILE_SIZE = 2048;
 export const MAX_CANVAS_EDGE = 16384;
+export const PREVIEW_MAX_PIXELS = 1024 * 1024;
 
 export function normalizeCanvasDimension(value) {
   const num = Math.ceil(Number(value));

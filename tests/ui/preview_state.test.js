@@ -2,11 +2,11 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
-  PREVIEW_MAX_PIXELS,
   buildPreviewState,
   getPreviewMime,
   getPreviewStateKey,
 } from "../../web/js/ui/preview_state.mjs";
+import { PREVIEW_MAX_PIXELS } from "../../web/js/export/limits.mjs";
 
 test("buildPreviewState forces preview-safe export options", () => {
   const state = buildPreviewState({

@@ -32,8 +32,7 @@ import {
   drawVideoOverlays,
   drawVhsVideoOverlays,
 } from "../core/backends/legacy_media_overlays.mjs";
-
-const PREVIEW_MAX_PIXELS = 2048 * 2048;
+import { PREVIEW_MAX_PIXELS } from "./limits.mjs";
 
 function getNowMs() {
   if (typeof performance !== "undefined" && typeof performance.now === "function") {

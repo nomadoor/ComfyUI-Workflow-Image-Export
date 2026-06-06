@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 
 import {
   MAX_CANVAS_EDGE,
+  PREVIEW_MAX_PIXELS,
   TILE_THRESHOLD_EDGE,
   TILE_THRESHOLD_PIXELS,
   isHugeRasterExport,
@@ -27,4 +28,8 @@ test("shouldTile detects edge, pixel, and hard canvas limits", () => {
 test("isHugeRasterExport includes output scale", () => {
   assert.equal(isHugeRasterExport({ width: 3000, height: 3000, scale: 1 }), false);
   assert.equal(isHugeRasterExport({ width: 3000, height: 3000, scale: 2 }), true);
+});
+
+test("PREVIEW_MAX_PIXELS is shared preview budget", () => {
+  assert.equal(PREVIEW_MAX_PIXELS, 1024 * 1024);
 });
