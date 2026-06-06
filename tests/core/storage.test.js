@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { clearLastUsed, loadLastUsed, saveLastUsed } from "../../web/js/core/storage.js";
+import { clearLastUsed, loadLastUsed, saveLastUsed } from "../../web/js/core/storage.mjs";
 
 function createLocalStorageMock() {
   const store = new Map();

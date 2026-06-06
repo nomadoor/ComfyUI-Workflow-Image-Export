@@ -1,4 +1,4 @@
-import { normalizeState } from "../core/settings_state.js";
+import { normalizeState } from "../core/settings_state.mjs";
 
 export function normalizeScopeOpacity(value) {
   const num = Number.parseInt(value, 10);

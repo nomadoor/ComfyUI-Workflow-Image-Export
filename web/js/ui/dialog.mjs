@@ -4,25 +4,48 @@ import {
   detectBackendType,
   isNode2UnsupportedError,
   isWebpHugeUnsupportedError,
-} from "../core/capture/index.js";
-import { captureLegacy } from "../core/backends/legacy_capture.js";
-import { triggerDownload } from "../core/download.js";
-import { computeGraphBBox } from "../export/bbox.js";
-import { embedWorkflowInPngBlob } from "../export/png_embed_workflow.js";
-import { loadLastUsed, saveLastUsed } from "../core/storage.js";
+} from "../core/capture/index.mjs";
+import { captureLegacy } from "../core/backends/legacy_capture.mjs";
+import { triggerDownload } from "../core/download.mjs";
+import { computeGraphBBox } from "../export/bbox.mjs";
+import { embedWorkflowInPngBlob } from "../export/png_embed_workflow.mjs";
+import { loadLastUsed, saveLastUsed } from "../core/storage.mjs";
+import {
+  getSelectedNodeIdsFromApp,
+  getWorkflowJsonTextFromApp,
+} from "../core/workflow_state.mjs";
+import { toBlobAsync } from "../core/utils.mjs";
 import {
   DEFAULTS,
   getDefaultsFromSettings,
   normalizeState as normalizeSettingsState,
   setDefaultsInSettings,
-} from "../core/settings.js";
-import { buildInitialState, toLastUsedState } from "./state.js";
+} from "../core/settings.mjs";
+import { buildInitialState, toLastUsedState } from "./state.mjs";
+import {
+  buildPreviewState as buildPreviewStateForDialog,
+  getPreviewMime,
+  getPreviewStateKey,
+} from "./preview_state.mjs";
+import {
+  resolveBlobExtension,
+  resolveWorkflowName,
+} from "./export_filename.mjs";
+import {
+  evaluateWebpAvailability,
+  getOutputResolutionScale,
+} from "./webp_availability.mjs";
+import {
+  createCaretIcon,
+  createRadioGroup,
+  createRow,
+  createSelect,
+  createToggle,
+} from "./elements.mjs";
 
 let activeDialog = null;
 let activeMessageDialog = null;
 let activeDialogCleanup = null;
-
-const PREVIEW_MAX_PIXELS = 1024 * 1024;
 
 function ensureStyles() {
   if (document.getElementById("cwie-styles")) {
@@ -101,248 +124,12 @@ function openMessageDialog({ title, message }) {
   activeMessageDialog = backdrop;
 }
 
-function createRow(labelText, inputElement, options = {}) {
-  const row = document.createElement("div");
-  row.className = "cwie-row";
-
-  const label = document.createElement("label");
-  label.textContent = labelText;
-
-  const labelWrap = document.createElement("div");
-  labelWrap.className = "cwie-row-label";
-  labelWrap.appendChild(label);
-
-  if (options.helpText) {
-    const help = document.createElement("button");
-    help.type = "button";
-    help.className = "cwie-help";
-    help.textContent = "?";
-    help.setAttribute("data-help", options.helpText);
-    help.setAttribute("aria-label", options.helpText);
-    labelWrap.appendChild(help);
-  }
-
-  row.appendChild(labelWrap);
-  row.appendChild(inputElement);
-
-  return row;
-}
-
-function createToggle() {
-  const wrapper = document.createElement("label");
-  wrapper.className = "cwie-toggle";
-
-  const input = document.createElement("input");
-  input.type = "checkbox";
-
-  const slider = document.createElement("span");
-  slider.className = "cwie-toggle-slider";
-
-  wrapper.appendChild(input);
-  wrapper.appendChild(slider);
-
-  return { wrapper, input };
-}
-
-function sanitizeFilename(value) {
-  const text = String(value || "").trim();
-  if (!text) return "";
-  return text
-    .replace(/[<>:"/\\|?*\x00-\x1F]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function resolveWorkflowName() {
-  const graph = app?.graph;
-  const candidates = [
-    graph?.name,
-    graph?.title,
-    graph?.workflow_name,
-    graph?.workflowName,
-    graph?.extra?.workflow_name,
-    graph?.extra?.name,
-    graph?.config?.name,
-    graph?.config?.title,
-    graph?._config?.name,
-    graph?._config?.title,
-  ];
-  for (const candidate of candidates) {
-    const cleaned = sanitizeFilename(candidate);
-    if (cleaned) return cleaned;
-  }
-  const docTitle = sanitizeFilename(document?.title || "");
-  if (docTitle) {
-    const stripped = docTitle.replace(/\s*-\s*ComfyUI\s*$/i, "").trim();
-    if (stripped) return stripped;
-  }
-  return "workflow";
-}
-
-function createRadioGroup(name, options) {
-  const group = document.createElement("div");
-  group.className = "cwie-radio-group";
-
-  const inputs = new Map();
-
-  for (const option of options) {
-    const label = document.createElement("label");
-    label.className = "cwie-radio";
-
-    const input = document.createElement("input");
-    input.type = "radio";
-    input.name = name;
-    input.value = option.value;
-
-    const text = document.createElement("span");
-    text.textContent = option.label;
-
-    label.appendChild(input);
-    label.appendChild(text);
-    group.appendChild(label);
-
-    inputs.set(option.value, input);
-  }
-
-  return { group, inputs };
-}
-
-function createCaretIcon() {
-  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-  svg.setAttribute("viewBox", "0 0 12 12");
-  svg.setAttribute("width", "12");
-  svg.setAttribute("height", "12");
-  svg.setAttribute("aria-hidden", "true");
-  const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
-  path.setAttribute("d", "M3 4l3 3 3-3");
-  path.setAttribute("fill", "none");
-  path.setAttribute("stroke", "currentColor");
-  path.setAttribute("stroke-width", "1.5");
-  path.setAttribute("stroke-linecap", "round");
-  path.setAttribute("stroke-linejoin", "round");
-  svg.appendChild(path);
-  return svg;
-}
-
-function createSelect(name, options) {
-  const wrapper = document.createElement("details");
-  wrapper.className = "cwie-select";
-  wrapper.dataset.select = name;
-
-  const summary = document.createElement("summary");
-  summary.className = "cwie-select-summary";
-
-  const labelGroup = document.createElement("span");
-  labelGroup.className = "cwie-select-labels";
-
-  options.forEach((option) => {
-    const label = document.createElement("span");
-    label.className = "cwie-select-label";
-    label.dataset.value = option.value;
-    label.textContent = option.label;
-    labelGroup.appendChild(label);
-  });
-
-  const caret = document.createElement("span");
-  caret.className = "cwie-caret";
-  caret.appendChild(createCaretIcon());
-
-  summary.appendChild(labelGroup);
-  summary.appendChild(caret);
-
-  const menu = document.createElement("div");
-  menu.className = "cwie-select-options";
-
-  const items = new Map();
-  let currentValue = options[0]?.value ?? "";
-  const changeHandlers = new Set();
-
-  options.forEach((option) => {
-    const optionLabel = document.createElement("label");
-    optionLabel.className = "cwie-select-option";
-    const input = document.createElement("input");
-    input.type = "radio";
-    input.name = `cwie-select-${name}`;
-    input.value = option.value;
-    const text = document.createElement("span");
-    text.textContent = option.label;
-    optionLabel.appendChild(input);
-    optionLabel.appendChild(text);
-    items.set(option.value, input);
-    menu.appendChild(optionLabel);
-  });
-
-  wrapper.appendChild(summary);
-  wrapper.appendChild(menu);
-
-  function setValue(value) {
-    currentValue = value;
-    const input = items.get(value);
-    if (input) {
-      input.checked = true;
-    }
-  }
-
-  function getValue() {
-    const checked = wrapper.querySelector("input[type=radio]:checked");
-    return checked?.value ?? currentValue;
-  }
-
-  function onChange(handler) {
-    changeHandlers.add(handler);
-  }
-
-  function setDisabled(disabled) {
-    wrapper.toggleAttribute("data-disabled", disabled);
-    wrapper.querySelectorAll("input").forEach((input) => {
-      input.disabled = disabled;
-    });
-  }
-
-  wrapper.addEventListener("change", (event) => {
-    if (event.target && event.target.matches("input[type=radio]")) {
-      currentValue = event.target.value;
-      changeHandlers.forEach((handler) => handler(currentValue));
-      wrapper.removeAttribute("open");
-    }
-  });
-
-  setValue(currentValue);
-
-  return {
-    root: wrapper,
-    setValue,
-    getValue,
-    onChange,
-    setDisabled,
-  };
-}
-
 function isDebugEnabled() {
   return !!window.__cwie__?.debug;
 }
 
 function getSelectedNodeIds() {
-  const selected =
-    app?.canvas?.selected_nodes ||
-    app?.canvas?.selectedNodes ||
-    app?.graph?.selected_nodes ||
-    null;
-  if (!selected) return [];
-  if (selected instanceof Map) {
-    return Array.from(selected.keys()).map((id) => Number(id)).filter(Number.isFinite);
-  }
-  if (Array.isArray(selected)) {
-    return selected
-      .map((node) => node?.id)
-      .filter((id) => Number.isFinite(id));
-  }
-  if (typeof selected === "object") {
-    return Object.keys(selected)
-      .map((id) => Number(id))
-      .filter(Number.isFinite);
-  }
-  return [];
+  return getSelectedNodeIdsFromApp(app);
 }
 
 export function openExportDialog({ onExportStarted, onExportFinished, log } = {}) {
@@ -393,6 +180,12 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
   previewImg.className = "cwie-preview-image";
   previewImg.alt = "Export preview";
 
+  const previewCanvas = document.createElement("canvas");
+  previewCanvas.className = "cwie-preview-canvas";
+  previewCanvas.setAttribute("aria-label", "Export preview");
+  previewCanvas.width = 0;
+  previewCanvas.height = 0;
+
   const previewLoading = document.createElement("div");
   previewLoading.className = "cwie-preview-loading";
   previewLoading.innerHTML = `
@@ -401,6 +194,7 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
   `;
 
   previewFrame.appendChild(previewImg);
+  previewFrame.appendChild(previewCanvas);
   previewFrame.appendChild(previewLoading);
   previewPane.appendChild(previewFrame);
 
@@ -560,17 +354,6 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
     }
   }
 
-  const TILE_THRESHOLD_EDGE = 6144;
-  const TILE_THRESHOLD_PIXELS = 24 * 1024 * 1024;
-  const MAX_CANVAS_EDGE = 16384;
-
-  function shouldTile(width, height) {
-    const w = Math.max(1, Math.ceil(width));
-    const h = Math.max(1, Math.ceil(height));
-    if (Math.max(w, h) > MAX_CANVAS_EDGE) return true;
-    return w * h > TILE_THRESHOLD_PIXELS || Math.max(w, h) > TILE_THRESHOLD_EDGE;
-  }
-
   let webpBlocked = false;
   let webpCheckToken = 0;
   let webpCheckTimer = null;
@@ -589,47 +372,36 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
     if (exportButton) exportButton.disabled = true;
     webpNote.textContent = "Checking WebP size…";
 
-      const graph = app?.graph;
-      if (!graph) {
-        webpBlocked = false;
-        webpNote.textContent = "";
-        if (exportButton) exportButton.disabled = false;
-        return;
-      }
+    const graph = app?.graph;
+    if (!graph) {
+      webpBlocked = false;
+      webpNote.textContent = "";
+      if (exportButton) exportButton.disabled = false;
+      return;
+    }
 
-      try {
-        const selectedIds = getSelectedNodeIds();
-        const scale = state.outputResolution === "200%" ? 2 : 1;
-        const bbox = computeGraphBBox(graph, {
-          padding: state.padding,
-          selectedNodeIds: selectedIds,
-          useSelectionOnly: Boolean(state.scopeSelected),
-        });
-        if (token !== webpCheckToken) return;
-        if (!bbox) {
-          webpBlocked = false;
-          webpNote.textContent = "";
-          if (exportButton) exportButton.disabled = false;
-          return;
-        }
-        const w = bbox.width * scale;
-        const h = bbox.height * scale;
-        const huge = shouldTile(w, h);
-        webpBlocked = huge;
-        if (huge) {
-          webpNote.textContent =
-            `WebP is unavailable for huge exports (${Math.round(w)}x${Math.round(h)}). Use PNG or reduce size.`;
-        } else {
-          webpNote.textContent = "";
-        }
-        if (exportButton) exportButton.disabled = webpBlocked;
-      } catch (error) {
-        if (token !== webpCheckToken) return;
-        webpBlocked = false;
-        webpNote.textContent = "";
-        if (exportButton) exportButton.disabled = false;
-        log?.("webp:check.error", { message: error?.message || String(error) });
-      }
+    try {
+      const bbox = computeGraphBBox(graph, {
+        padding: state.padding,
+        selectedNodeIds: getSelectedNodeIds(),
+        useSelectionOnly: Boolean(state.scopeSelected),
+      });
+      if (token !== webpCheckToken) return;
+      const result = evaluateWebpAvailability({
+        format: formatValue,
+        bbox,
+        scale: getOutputResolutionScale(state.outputResolution),
+      });
+      webpBlocked = result.blocked;
+      webpNote.textContent = result.message;
+      if (exportButton) exportButton.disabled = webpBlocked;
+    } catch (error) {
+      if (token !== webpCheckToken) return;
+      webpBlocked = false;
+      webpNote.textContent = "";
+      if (exportButton) exportButton.disabled = false;
+      log?.("webp:check.error", { message: error?.message || String(error) });
+    }
   }
 
   function scheduleWebpCheck(delay = 350) {
@@ -730,8 +502,7 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
   }
 
   let previewUrl = null;
-  let lastPreviewBlob = null;
-  let lastPreviewKey = null;
+  let previewSnapshot = null;
   let previewTimer = null;
   let previewIdle = null;
   let previewBusy = false;
@@ -741,41 +512,15 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
   let previewPaused = false;
 
   function buildPreviewState() {
-    const selectedIds = getSelectedNodeIds();
-    const previewFormat = state.format === "webp" ? "webp" : "png";
-    return {
-      ...state,
-      format: previewFormat,
-      embedWorkflow: false,
-      outputResolution: "100%",
-      maxLongEdge: 0,
-      selectedNodeIds: selectedIds,
-      previewFast: true,
-      previewMaxPixels: PREVIEW_MAX_PIXELS,
-    };
-  }
-
-  function getPreviewStateKey(previewState) {
-    return JSON.stringify({
-      format: previewState.format,
-      background: previewState.background,
-      solidColor: previewState.solidColor,
-      padding: previewState.padding,
-      nodeOpacity: previewState.nodeOpacity,
-      scopeSelected: previewState.scopeSelected,
-      scopeOpacity: previewState.scopeOpacity,
-      selectedNodeIds: previewState.selectedNodeIds,
+    return buildPreviewStateForDialog({
+      state,
+      selectedNodeIds: getSelectedNodeIds(),
+      workflowJsonText: getWorkflowJsonText(),
     });
   }
 
   function getWorkflowJsonText() {
-    const graph = app?.graph;
-    if (!graph || typeof graph.serialize !== "function") return null;
-    try {
-      return JSON.stringify(graph.serialize());
-    } catch (_) {
-      return null;
-    }
+    return getWorkflowJsonTextFromApp(app);
   }
 
   const cleanupDialog = () => {
@@ -792,8 +537,7 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
     }
     previewQueued = false;
     previewBusy = false;
-    lastPreviewBlob = null;
-    lastPreviewKey = null;
+    previewSnapshot = null;
     if (previewUrl) {
       try {
         URL.revokeObjectURL(previewUrl);
@@ -805,9 +549,38 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
     if (previewImg) {
       previewImg.src = "";
     }
+    if (previewCanvas) {
+      previewCanvas.width = 0;
+      previewCanvas.height = 0;
+    }
   };
 
   activeDialogCleanup = cleanupDialog;
+
+  function drawPreviewCanvas(sourceCanvas) {
+    if (!sourceCanvas?.width || !sourceCanvas?.height) return false;
+    previewCanvas.width = sourceCanvas.width;
+    previewCanvas.height = sourceCanvas.height;
+    const ctx = previewCanvas.getContext("2d", { alpha: true });
+    if (!ctx) return false;
+    ctx.clearRect(0, 0, previewCanvas.width, previewCanvas.height);
+    ctx.drawImage(sourceCanvas, 0, 0);
+    if (previewImg.src) {
+      previewImg.src = "";
+    }
+    previewFrame.classList.remove("is-loading");
+    return true;
+  }
+
+  async function encodePreviewSnapshot(snapshot, fallbackState = null) {
+    if (!snapshot) return null;
+    if (snapshot.blob) return snapshot.blob;
+    if (!snapshot.canvas) return null;
+    const mime = snapshot.mime || (fallbackState?.format === "webp" ? "image/webp" : "image/png");
+    const encoded = await toBlobAsync(snapshot.canvas, mime);
+    snapshot.blob = encoded;
+    return encoded;
+  }
 
   async function renderPreview(previewStateOverride = null, options = {}) {
     if (dialogClosed) return;
@@ -832,25 +605,40 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
       const previewResult = await captureLegacy({
         ...previewState,
         skipWidgetCapture: true,
+        deferBlob: true,
       });
       const blob = previewResult?.blob || null;
+      const canvas = previewResult?.canvas || null;
       if (dialogClosed || token !== previewToken) {
         previewFrame.classList.remove("is-loading");
         return;
       }
-      if (!blob) {
+      if (!blob && !canvas) {
         previewFrame.classList.remove("is-loading");
         previewBusy = false;
         return;
       }
-      lastPreviewBlob = blob;
-      lastPreviewKey = previewKey;
+      previewSnapshot = {
+        blob,
+        canvas,
+        key: previewKey,
+        mime: previewResult?.mime || getPreviewMime(previewState),
+        state: previewState,
+      };
+      if (canvas && drawPreviewCanvas(canvas)) {
+        if (previewUrl) {
+          URL.revokeObjectURL(previewUrl);
+          previewUrl = null;
+        }
+        return previewSnapshot;
+      }
+      const displayBlob = blob || await encodePreviewSnapshot(previewSnapshot, previewState);
       if (previewUrl) {
         URL.revokeObjectURL(previewUrl);
       }
-      previewUrl = URL.createObjectURL(blob);
+      previewUrl = URL.createObjectURL(displayBlob);
       previewImg.src = previewUrl;
-      return blob;
+      return previewSnapshot;
     } catch (error) {
       log?.("preview:error", { message: error?.message || String(error) });
       previewFrame.classList.remove("is-loading");
@@ -1065,16 +853,20 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
         const previewState = buildPreviewState();
         const previewKey = getPreviewStateKey(previewState);
         logExportPhase("preview.capture.start");
-        blob =
-          lastPreviewBlob && lastPreviewKey === previewKey
-            ? lastPreviewBlob
+        const snapshot =
+          previewSnapshot?.key === previewKey
+            ? previewSnapshot
             : await renderPreview(previewState, { force: true });
+        blob = await encodePreviewSnapshot(snapshot, previewState);
         logExportPhase("preview.capture.done");
         if (!blob) {
           throw new Error("Export failed: preview blob unavailable.");
         }
         if (state.format === "png" && state.embedWorkflow) {
-          const workflowJson = getWorkflowJsonText();
+          const workflowJson =
+            previewSnapshot?.key === previewKey
+              ? previewSnapshot.state?.workflowJsonText
+              : previewState.workflowJsonText || getWorkflowJsonText();
           if (workflowJson) {
             logExportPhase("embed.workflow.start");
             blob = await embedWorkflowInPngBlob(blob, workflowJson);
@@ -1098,19 +890,11 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
         });
       }
       logExportPhase("download.start");
-      const resolveExt = () => {
-        const hint = blob?.cwieFormat;
-        if (typeof hint === "string" && hint.trim()) {
-          return hint.trim().toLowerCase();
-        }
-        const type = String(blob?.type || "").toLowerCase();
-        if (type.includes("png")) return "png";
-        if (type.includes("webp")) return "webp";
-        if (type.includes("svg")) return "svg";
-        return state.format || "png";
-      };
-      const ext = resolveExt();
-      const baseName = resolveWorkflowName();
+      const ext = resolveBlobExtension(blob, state.format || "png");
+      const baseName = resolveWorkflowName({
+        graph: app?.graph,
+        documentTitle: document?.title || "",
+      });
       await triggerDownload({
         blob,
         filename: `${baseName}.${ext}`,

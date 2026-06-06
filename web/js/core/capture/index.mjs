@@ -1,9 +1,14 @@
 import { app } from "/scripts/app.js";
-import { detectBackend } from "../detect.js";
-import { captureLegacy } from "../backends/legacy_capture.js";
-import { applyBackground, downscaleIfNeeded } from "../postprocess/raster.js";
-import { exportWorkflowPng } from "../../export/index.js";
-import { embedWorkflowInPngBlob } from "../../export/png_embed_workflow.js";
+import { detectBackend } from "../detect.mjs";
+import { captureLegacy } from "../backends/legacy_capture.mjs";
+import { applyBackground, downscaleIfNeeded } from "../postprocess/raster.mjs";
+import { exportWorkflowPng } from "../../export/index.mjs";
+import { embedWorkflowInPngBlob } from "../../export/png_embed_workflow.mjs";
+import {
+  getSelectedNodeIdsFromApp,
+  getWorkflowJsonFromApp,
+  toWorkflowJsonString,
+} from "../workflow_state.mjs";
 
 export const NODE2_UNSUPPORTED_CODE = "NODE2_UNSUPPORTED";
 export const WEBP_HUGE_UNSUPPORTED_CODE = "WEBP_HUGE_UNSUPPORTED";
@@ -45,46 +50,11 @@ function resolveOutputScale(options) {
 }
 
 function getWorkflowJson() {
-  const graph = app?.graph;
-  if (!graph || typeof graph.serialize !== "function") {
-    return null;
-  }
-  return graph.serialize();
+  return getWorkflowJsonFromApp(app);
 }
 
 function getSelectedNodeIds() {
-  const selected =
-    app?.canvas?.selected_nodes ||
-    app?.canvas?.selectedNodes ||
-    app?.graph?.selected_nodes ||
-    null;
-  if (!selected) return [];
-  if (selected instanceof Map) {
-    return Array.from(selected.keys()).map((id) => Number(id)).filter(Number.isFinite);
-  }
-  if (Array.isArray(selected)) {
-    return selected
-      .map((node) => node?.id)
-      .filter((id) => Number.isFinite(id));
-  }
-  if (typeof selected === "object") {
-    return Object.keys(selected)
-      .map((id) => Number(id))
-      .filter(Number.isFinite);
-  }
-  return [];
-}
-
-function toWorkflowJsonString(workflowJson) {
-  if (!workflowJson) return null;
-  if (typeof workflowJson === "string") {
-    return workflowJson;
-  }
-  try {
-    return JSON.stringify(workflowJson);
-  } catch (_) {
-    return null;
-  }
+  return getSelectedNodeIdsFromApp(app);
 }
 
 export async function capture(options = {}) {

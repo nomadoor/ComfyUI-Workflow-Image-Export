@@ -1,3 +1,5 @@
+import { canvasPointToGraph as transformCanvasPointToGraph } from "../graph_transform.mjs";
+
 const NODE_SELECTORS = [
   ".comfy-node",
   ".litegraph-node",
@@ -319,7 +321,7 @@ export function canvasPointToGraph(uiCanvas, x, y) {
   }
   const ds = uiCanvas?.ds;
   if (!ds) return [x, y];
-  return [x / ds.scale - ds.offset[0], y / ds.scale - ds.offset[1]];
+  return transformCanvasPointToGraph([x, y], ds);
 }
 
 export function getEffectivePxRatio(canvas) {
