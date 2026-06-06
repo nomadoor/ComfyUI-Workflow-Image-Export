@@ -3,6 +3,6 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node --test tests/core/settings_state.test.js tests/core/storage.test.js tests/core/workflow_state.test.js tests/core/graph_transform.test.js tests/core/legacy_widget_text_fallback.test.js tests/export/limits.test.js tests/ui/state.test.js tests/smoke/module_imports.test.js"
+    "test": "node --test tests/core/settings_state.test.js tests/core/storage.test.js tests/core/workflow_state.test.js tests/core/graph_transform.test.js tests/core/legacy_widget_text_fallback.test.js tests/export/limits.test.js tests/ui/state.test.js tests/ui/preview_state.test.js tests/smoke/module_imports.test.js"
   }
 }

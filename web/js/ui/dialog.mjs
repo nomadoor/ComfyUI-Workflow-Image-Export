@@ -12,7 +12,6 @@ import { shouldTile } from "../export/limits.mjs";
 import { embedWorkflowInPngBlob } from "../export/png_embed_workflow.mjs";
 import { loadLastUsed, saveLastUsed } from "../core/storage.mjs";
 import {
-  createWorkflowSignature,
   getSelectedNodeIdsFromApp,
   getWorkflowJsonTextFromApp,
 } from "../core/workflow_state.mjs";
@@ -24,12 +23,15 @@ import {
   setDefaultsInSettings,
 } from "../core/settings.mjs";
 import { buildInitialState, toLastUsedState } from "./state.mjs";
+import {
+  buildPreviewState as buildPreviewStateForDialog,
+  getPreviewMime,
+  getPreviewStateKey,
+} from "./preview_state.mjs";
 
 let activeDialog = null;
 let activeMessageDialog = null;
 let activeDialogCleanup = null;
-
-const PREVIEW_MAX_PIXELS = 1024 * 1024;
 
 function ensureStyles() {
   if (document.getElementById("cwie-styles")) {
@@ -724,34 +726,10 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
   let previewPaused = false;
 
   function buildPreviewState() {
-    const selectedIds = getSelectedNodeIds();
-    const previewFormat = state.format === "webp" ? "webp" : "png";
-    const workflowJsonText = getWorkflowJsonText();
-    return {
-      ...state,
-      format: previewFormat,
-      embedWorkflow: false,
-      outputResolution: "100%",
-      maxLongEdge: 0,
-      selectedNodeIds: selectedIds,
-      previewFast: true,
-      previewMaxPixels: PREVIEW_MAX_PIXELS,
-      workflowSignature: createWorkflowSignature(workflowJsonText),
-      workflowJsonText,
-    };
-  }
-
-  function getPreviewStateKey(previewState) {
-    return JSON.stringify({
-      format: previewState.format,
-      background: previewState.background,
-      solidColor: previewState.solidColor,
-      padding: previewState.padding,
-      nodeOpacity: previewState.nodeOpacity,
-      scopeSelected: previewState.scopeSelected,
-      scopeOpacity: previewState.scopeOpacity,
-      selectedNodeIds: previewState.selectedNodeIds,
-      workflowSignature: previewState.workflowSignature,
+    return buildPreviewStateForDialog({
+      state,
+      selectedNodeIds: getSelectedNodeIds(),
+      workflowJsonText: getWorkflowJsonText(),
     });
   }
 
@@ -858,7 +836,7 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
         blob,
         canvas,
         key: previewKey,
-        mime: previewResult?.mime || (previewState.format === "webp" ? "image/webp" : "image/png"),
+        mime: previewResult?.mime || getPreviewMime(previewState),
         state: previewState,
       };
       if (canvas && drawPreviewCanvas(canvas)) {
