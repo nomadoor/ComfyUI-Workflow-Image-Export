@@ -1,9 +1,27 @@
+let rowControlIdCounter = 0;
+
+function findRowControl(inputElement) {
+  const selector = "input, select, textarea, button";
+  if (!inputElement) return null;
+  if (inputElement.matches?.(selector)) return inputElement;
+  return inputElement.querySelector?.(selector) || null;
+}
+
 export function createRow(labelText, inputElement, options = {}) {
   const row = document.createElement("div");
   row.className = "cwie-row";
 
   const label = document.createElement("label");
   label.textContent = labelText;
+
+  const control = findRowControl(inputElement);
+  if (control) {
+    if (!control.id) {
+      rowControlIdCounter += 1;
+      control.id = `cwie-control-${rowControlIdCounter}`;
+    }
+    label.htmlFor = control.id;
+  }
 
   const labelWrap = document.createElement("div");
   labelWrap.className = "cwie-row-label";
