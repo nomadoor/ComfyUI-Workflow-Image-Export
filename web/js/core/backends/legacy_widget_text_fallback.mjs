@@ -81,7 +81,7 @@ export function drawWidgetTextFallback({ exportCtx, graph, bounds, scale, covere
           : null,
       });
     }
-    const standardWidgetTypes = ["string", "combo", "number", "toggle", "button", "slider"];
+    const standardWidgetTypes = ["string", "text", "combo", "number", "toggle", "button", "slider"];
     const multilineWidgetTypes = ["textarea", "markdown", "customtext"];
     for (let index = 0; index < widgets.length; index += 1) {
       const widget = widgets[index];
