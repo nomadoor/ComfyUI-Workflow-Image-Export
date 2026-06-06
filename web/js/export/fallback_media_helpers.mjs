@@ -27,7 +27,12 @@ const bgImageCache = new Map();
 export const lastVideoSrcByNodeId = new Map();
 
 export function normalizeSelectedNodeIds(selectedNodeIds) {
-  if (selectedNodeIds instanceof Set) return selectedNodeIds;
+  if (selectedNodeIds instanceof Set) {
+    const ids = new Set(
+      Array.from(selectedNodeIds, (id) => Number(id)).filter(Number.isFinite)
+    );
+    return ids.size ? ids : null;
+  }
   if (!Array.isArray(selectedNodeIds)) return null;
   const ids = new Set(selectedNodeIds.map((id) => Number(id)).filter(Number.isFinite));
   return ids.size ? ids : null;
