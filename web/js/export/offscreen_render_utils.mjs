@@ -1,14 +1,25 @@
 export function applyRenderFilter(graph, selectedNodeIds, mode) {
   if (!graph || !mode || mode === "all") return;
+  const nodes = graph?._nodes || graph?.nodes || [];
+  if (mode === "none") {
+    if (typeof graph.remove === "function") {
+      nodes.forEach((node) => {
+        try {
+          graph.remove(node);
+        } catch (_) {}
+      });
+    } else if (Array.isArray(graph._nodes)) {
+      graph._nodes = [];
+    }
+    return;
+  }
   const ids = Array.isArray(selectedNodeIds)
     ? new Set(selectedNodeIds.map((id) => Number(id)).filter(Number.isFinite))
     : null;
   if (!ids || !ids.size) return;
-  const nodes = graph?._nodes || graph?.nodes || [];
   const shouldKeep = (node) => {
     if (!node || !Number.isFinite(node.id)) return false;
     const isSelected = ids.has(node.id);
-    if (mode === "none") return false;
     if (mode === "selected") return isSelected;
     if (mode === "unselected") return !isSelected;
     return true;
