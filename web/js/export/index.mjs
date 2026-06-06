@@ -235,6 +235,7 @@ export async function exportWorkflowPng(workflowJson, options = {}) {
   if (huge) {
     renderOptions = {
       ...renderOptions,
+      renderScaleFactor: scale,
       includeDomOverlays: false,
       mediaMode: "off",
     };
