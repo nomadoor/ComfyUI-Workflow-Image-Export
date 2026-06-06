@@ -86,6 +86,14 @@ function syncLiveNodeText(exportGraph, liveGraph) {
   const exportNodes = exportGraph?._nodes || exportGraph?.nodes || [];
   const liveById = buildNodeIdMap(liveGraph);
   if (!liveById.size || !exportNodes.length) return;
+  const multilineWidgetTypes = new Set(["textarea", "markdown", "customtext"]);
+  const shouldSyncWidgetValue = (exportWidget, liveWidget) => {
+    const type = String(exportWidget?.type || liveWidget?.type || "").toLowerCase();
+    if (exportWidget?.options?.multiline === true || liveWidget?.options?.multiline === true) {
+      return true;
+    }
+    return multilineWidgetTypes.has(type);
+  };
 
   for (const node of exportNodes) {
     if (!node || !Number.isFinite(node.id)) continue;
@@ -112,6 +120,13 @@ function syncLiveNodeText(exportGraph, liveGraph) {
         const exportWidget = node.widgets[i];
         const liveWidget = liveNode.widgets[i];
         if (!exportWidget || !liveWidget) continue;
+        const widgetsValueKey =
+          widgetsValuesKeys && widgetsValuesKeys[i] !== undefined
+            ? widgetsValuesKeys[i]
+            : null;
+        const originalName = exportWidget.name;
+        const originalLabel = exportWidget.label;
+        const originalOptionsName = exportWidget.options?.name;
         const widgetName =
           exportWidget.name ||
           liveWidget.name ||
@@ -129,11 +144,10 @@ function syncLiveNodeText(exportGraph, liveGraph) {
         }
         if (
           value === undefined &&
-          widgetsValuesKeys &&
-          widgetsValuesKeys[i] !== undefined &&
-          widgetsValues[widgetsValuesKeys[i]] !== undefined
+          widgetsValueKey !== null &&
+          widgetsValues[widgetsValueKey] !== undefined
         ) {
-          value = widgetsValues[widgetsValuesKeys[i]];
+          value = widgetsValues[widgetsValueKey];
         }
         if (value === undefined && liveNode.properties && typeof liveNode.properties === "object") {
           if (widgetName && liveNode.properties[widgetName] !== undefined) {
@@ -141,7 +155,7 @@ function syncLiveNodeText(exportGraph, liveGraph) {
           }
         }
 
-        if (value !== undefined) {
+        if (value !== undefined && shouldSyncWidgetValue(exportWidget, liveWidget)) {
           if (typeof exportWidget.setValue === "function") {
             try {
               exportWidget.setValue(value);
@@ -159,6 +173,27 @@ function syncLiveNodeText(exportGraph, liveGraph) {
               } catch (_) {}
             }
           }
+        }
+        const labelName =
+          originalName ||
+          originalLabel ||
+          originalOptionsName ||
+          widgetsValueKey ||
+          widgetName;
+        if (labelName && typeof labelName === "string") {
+          try {
+            exportWidget.name = labelName;
+          } catch (_) {}
+          if (exportWidget.options && typeof exportWidget.options === "object") {
+            try {
+              exportWidget.options.name = originalOptionsName || labelName;
+            } catch (_) {}
+          }
+        }
+        if (originalLabel !== undefined) {
+          try {
+            exportWidget.label = originalLabel;
+          } catch (_) {}
         }
         if (Number.isFinite(liveWidget.y)) {
           try {
