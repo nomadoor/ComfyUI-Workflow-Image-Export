@@ -104,6 +104,29 @@ async function renderTransparentFallback(workflowJson, options, warnings) {
   return recovered;
 }
 
+async function embedWorkflowIfEnabled(blob, { workflowJson, enabled, warnings, perfLog }) {
+  if (!enabled) return blob;
+  const json = toWorkflowJsonString(workflowJson);
+  if (!json) {
+    warnings.push("embed:failed");
+    return blob;
+  }
+  try {
+    const embedded = await timeSpan(
+      perfLog,
+      "embed.workflow",
+      () => embedWorkflowInPngBlob(blob, json)
+    );
+    if (embedded) {
+      return embedded;
+    }
+    warnings.push("embed:failed");
+  } catch (error) {
+    warnings.push(`embed:failed${error?.message ? `:${error.message}` : ""}`);
+  }
+  return blob;
+}
+
 export async function exportWorkflowPng(workflowJson, options = {}) {
   const warnings = [];
   const onProgress = typeof options.onProgress === "function" ? options.onProgress : null;
@@ -136,13 +159,11 @@ export async function exportWorkflowPng(workflowJson, options = {}) {
   const nodeOpacity = Number.isFinite(nodeOpacityRaw)
     ? Math.min(100, Math.max(0, nodeOpacityRaw))
     : 100;
-  // [CWIE] v3: Fixed Ratio & Tile Bleed - Declarations moved below (consolidated)
   const previewFast = Boolean(options.previewFast);
   const pngCompression = clampPngCompression(options.pngCompression);
   const perfLog = createPerfLogger(debug, "[CWIE][ExportPng][perf]");
   perfLog?.("start", { format, scale, previewFast, backgroundMode, pngCompression });
 
-  // [CWIE] v3: Compute unified export settings
   const exportPxRatioRaw = Number(options.exportPxRatio);
   const exportPxRatio = Number.isFinite(exportPxRatioRaw)
     ? Math.min(4, Math.max(1, exportPxRatioRaw))
@@ -163,19 +184,17 @@ export async function exportWorkflowPng(workflowJson, options = {}) {
     includeGrid,
     padding,
     includeDomOverlays: options.includeDomOverlays !== false,
-    uiPxRatio: exportPxRatio,     // Fixed DPR (Zoom Invariant)
-    tileBleed,                   // Tile Bleed
-    mediaMode,                   // Media Render Mode
+    uiPxRatio: exportPxRatio,
+    tileBleed,
+    mediaMode,
     debug,
     selectedNodeIds,
     cropToSelection: scopeSelected,
     previewFast,
-    maxPixels: 0, // Max pixels is only used for previewFast, otherwise it's 0
+    maxPixels: 0,
     scale,
     nodeOpacity,
   };
-
-
 
   let bboxOverride = null;
   if (!previewFast) {
@@ -216,9 +235,8 @@ export async function exportWorkflowPng(workflowJson, options = {}) {
   if (huge) {
     renderOptions = {
       ...renderOptions,
-      includeDomOverlays: false, // Force disable overlays
-      // skipTextFallback: true, // Keep text valid in huge mode
-      mediaMode: "off",          // Force disable media
+      includeDomOverlays: false,
+      mediaMode: "off",
     };
   }
 
@@ -272,29 +290,12 @@ export async function exportWorkflowPng(workflowJson, options = {}) {
       })
     );
     reportProgress?.(1);
-    if (options.embedWorkflow !== false) {
-      const json = toWorkflowJsonString(workflowJson);
-      if (json) {
-        try {
-          const embedded = await timeSpan(
-            perfLog,
-            "embed.workflow",
-            () => embedWorkflowInPngBlob(blob, json)
-          );
-          if (embedded) {
-            blob = embedded;
-          } else {
-            warnings.push("embed:failed");
-          }
-        } catch (error) {
-          warnings.push(
-            `embed:failed${error?.message ? `:${error.message}` : ""}`
-          );
-        }
-      } else {
-        warnings.push("embed:failed");
-      }
-    }
+    blob = await embedWorkflowIfEnabled(blob, {
+      workflowJson,
+      enabled: options.embedWorkflow !== false,
+      warnings,
+      perfLog,
+    });
     if (forcePng) {
       const withType = blob?.type === "image/png" ? blob : new Blob([blob], { type: "image/png" });
       withType.cwieFormat = "png";
@@ -330,29 +331,12 @@ export async function exportWorkflowPng(workflowJson, options = {}) {
         })
       );
       reportProgress?.(1);
-      if (options.embedWorkflow !== false) {
-        const json = toWorkflowJsonString(workflowJson);
-        if (json) {
-          try {
-            const embedded = await timeSpan(
-              perfLog,
-              "embed.workflow",
-              () => embedWorkflowInPngBlob(blob, json)
-            );
-            if (embedded) {
-              blob = embedded;
-            } else {
-              warnings.push("embed:failed");
-            }
-          } catch (error) {
-            warnings.push(
-              `embed:failed${error?.message ? `:${error.message}` : ""}`
-            );
-          }
-        } else {
-          warnings.push("embed:failed");
-        }
-      }
+      blob = await embedWorkflowIfEnabled(blob, {
+        workflowJson,
+        enabled: options.embedWorkflow !== false,
+        warnings,
+        perfLog,
+      });
       if (warnings.length) {
         blob.cwieWarnings = warnings;
       }
@@ -459,29 +443,12 @@ export async function exportWorkflowPng(workflowJson, options = {}) {
   const mime = format === "webp" ? "image/webp" : "image/png";
   let blob = await timeSpan(perfLog, "toBlob", () => toBlobAsync(finalCanvas, mime));
 
-  if (options.embedWorkflow !== false && format !== "webp") {
-    const json = toWorkflowJsonString(workflowJson);
-    if (json) {
-      try {
-        const embedded = await timeSpan(
-          perfLog,
-          "embed.workflow",
-          () => embedWorkflowInPngBlob(blob, json)
-        );
-        if (embedded) {
-          blob = embedded;
-        } else {
-          warnings.push("embed:failed");
-        }
-      } catch (error) {
-        warnings.push(
-          `embed:failed${error?.message ? `:${error.message}` : ""}`
-        );
-      }
-    } else {
-      warnings.push("embed:failed");
-    }
-  }
+  blob = await embedWorkflowIfEnabled(blob, {
+    workflowJson,
+    enabled: options.embedWorkflow !== false && format !== "webp",
+    warnings,
+    perfLog,
+  });
 
   if (warnings.length) {
     blob.cwieWarnings = warnings;
