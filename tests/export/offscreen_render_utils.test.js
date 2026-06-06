@@ -1,7 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { applyRenderFilter } from "../../web/js/export/offscreen_render_utils.mjs";
+import {
+  applyLinkFilter,
+  applyRenderFilter,
+} from "../../web/js/export/offscreen_render_utils.mjs";
 
 test("applyRenderFilter removes all nodes for none mode without selected ids", () => {
   const graph = {
@@ -35,4 +38,46 @@ test("applyRenderFilter preserves selected filtering behavior", () => {
   applyRenderFilter(graph, [2], "selected");
 
   assert.deepEqual(graph._nodes, [{ id: 2 }]);
+});
+
+test("applyLinkFilter clears Map links for none mode without selected ids", () => {
+  const graph = {
+    links: new Map([
+      [1, { origin_id: 1, target_id: 2 }],
+      [2, { origin_id: 2, target_id: 3 }],
+    ]),
+  };
+
+  applyLinkFilter(graph, null, "none");
+
+  assert.equal(graph.links instanceof Map, true);
+  assert.equal(graph.links.size, 0);
+});
+
+test("applyLinkFilter clears object links for none mode without selected ids", () => {
+  const graph = {
+    links: {
+      1: { origin_id: 1, target_id: 2 },
+      2: { origin_id: 2, target_id: 3 },
+    },
+  };
+
+  applyLinkFilter(graph, [], "none");
+
+  assert.deepEqual(graph.links, {});
+});
+
+test("applyLinkFilter preserves selected link filtering behavior", () => {
+  const graph = {
+    links: {
+      1: { origin_id: 1, target_id: 2 },
+      2: { origin_id: 2, target_id: 3 },
+    },
+  };
+
+  applyLinkFilter(graph, [1, 2], "selected");
+
+  assert.deepEqual(graph.links, {
+    1: { origin_id: 1, target_id: 2 },
+  });
 });

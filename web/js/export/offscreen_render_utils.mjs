@@ -38,6 +38,14 @@ export function applyRenderFilter(graph, selectedNodeIds, mode) {
 
 export function applyLinkFilter(graph, selectedNodeIds, mode) {
   if (!graph || !mode || mode === "all") return;
+  if (mode === "none") {
+    if (graph.links instanceof Map) {
+      graph.links = new Map();
+    } else if (graph.links && typeof graph.links === "object") {
+      graph.links = {};
+    }
+    return;
+  }
   const ids = Array.isArray(selectedNodeIds)
     ? new Set(selectedNodeIds.map((id) => Number(id)).filter(Number.isFinite))
     : null;
@@ -51,7 +59,6 @@ export function applyLinkFilter(graph, selectedNodeIds, mode) {
   };
 
   const keepLink = (link) => {
-    if (mode === "none") return false;
     const [a, b] = getEndpoints(link);
     const aSel = Number.isFinite(a) && ids.has(a);
     const bSel = Number.isFinite(b) && ids.has(b);
