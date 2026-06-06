@@ -8,8 +8,10 @@ import {
 } from "./background_modes.mjs";
 import { computeOffscreenBBox, renderGraphOffscreen } from "./render_graph_offscreen.mjs";
 import { embedWorkflowInPngBlob } from "./png_embed_workflow.mjs";
-import { TILE_SIZE, shouldTile } from "./limits.mjs";
-import { clampPngCompression, encodePngFromTiles } from "./tiled_png_encoder.mjs";
+import { shouldTile } from "./limits.mjs";
+import { clampPngCompression } from "./tiled_png_encoder.mjs";
+import { isCanvasTransparent, recoverTransparentCanvas } from "./transparent_recovery.mjs";
+import { renderTiled, renderTiledPng } from "./tiled_render.mjs";
 
 function getNowMs() {
   if (typeof performance !== "undefined" && typeof performance.now === "function") {
@@ -51,70 +53,6 @@ function toWorkflowJsonString(workflowJson) {
   }
 }
 
-function parseHexColor(color) {
-  if (!color || typeof color !== "string") return null;
-  const hex = color.trim().replace("#", "");
-  if (hex.length === 3) {
-    const r = parseInt(hex[0] + hex[0], 16);
-    const g = parseInt(hex[1] + hex[1], 16);
-    const b = parseInt(hex[2] + hex[2], 16);
-    if (![r, g, b].every((v) => Number.isFinite(v) && v >= 0 && v <= 255)) {
-      return null;
-    }
-    return { r, g, b };
-  }
-  if (hex.length === 6) {
-    const r = parseInt(hex.slice(0, 2), 16);
-    const g = parseInt(hex.slice(2, 4), 16);
-    const b = parseInt(hex.slice(4, 6), 16);
-    if (![r, g, b].every((v) => Number.isFinite(v) && v >= 0 && v <= 255)) {
-      return null;
-    }
-    return { r, g, b };
-  }
-  return null;
-}
-
-function parseRgbColor(color) {
-  if (!color || typeof color !== "string") return null;
-  const match = color.match(/rgba?\(([^)]+)\)/i);
-  if (!match) return null;
-  const parts = match[1].split(",").map((v) => v.trim());
-  if (parts.length < 3) return null;
-  const r = Number.parseFloat(parts[0]);
-  const g = Number.parseFloat(parts[1]);
-  const b = Number.parseFloat(parts[2]);
-  if (![r, g, b].every((v) => Number.isFinite(v))) return null;
-  return { r, g, b };
-}
-
-function parseColorToRgb(color) {
-  return parseHexColor(color) || parseRgbColor(color);
-}
-
-function isCanvasTransparent(canvas) {
-  if (!canvas) return false;
-  const sampleSize = 16;
-  const sample = document.createElement("canvas");
-  sample.width = sampleSize;
-  sample.height = sampleSize;
-  const sampleCtx = sample.getContext("2d", { alpha: true });
-  if (!sampleCtx) return false;
-  try {
-    sampleCtx.clearRect(0, 0, sampleSize, sampleSize);
-    sampleCtx.drawImage(canvas, 0, 0, sampleSize, sampleSize);
-    const data = sampleCtx.getImageData(0, 0, sampleSize, sampleSize).data;
-    for (let i = 3; i < data.length; i += 4) {
-      if (data[i] < 255) {
-        return true;
-      }
-    }
-    return false;
-  } catch (_) {
-    return false;
-  }
-}
-
 function scaleCanvas(baseCanvas, scale) {
   const s = Number(scale) || 1;
   if (!Number.isFinite(s) || s <= 0 || s === 1) {
@@ -137,135 +75,6 @@ function normalizeSelectedIds(value) {
   return value.map((id) => Number(id)).filter(Number.isFinite);
 }
 
-async function renderTiled(workflowJson, options, bboxOverride, onProgress, perfLog) {
-  const baseWidth = Math.max(1, Math.ceil(bboxOverride.width));
-  const baseHeight = Math.max(1, Math.ceil(bboxOverride.height));
-  const tiledCanvas = document.createElement("canvas");
-  tiledCanvas.width = baseWidth;
-  tiledCanvas.height = baseHeight;
-  const tiledCtx = tiledCanvas.getContext("2d", { alpha: true });
-  if (!tiledCtx) {
-    return renderOnce(workflowJson, { ...options, bboxOverride });
-  }
-
-  // --- Fix D: Solid Background Fill ---
-  if (options.backgroundMode === "solid" && options.backgroundColor) {
-    tiledCtx.fillStyle = options.backgroundColor;
-    tiledCtx.fillRect(0, 0, baseWidth, baseHeight);
-  }
-
-  const tilesX = Math.ceil(baseWidth / TILE_SIZE);
-  const tilesY = Math.ceil(baseHeight / TILE_SIZE);
-  const totalTiles = Math.max(1, tilesX * tilesY);
-
-  // [CWIE] v3: Tile Bleed Implementation
-  // [CWIE] v3: Tile Bleed Implementation (Center Crop)
-  const bleed = Number.isFinite(Number(options.tileBleed)) ? Math.max(0, Number(options.tileBleed)) : 64;
-
-  perfLog?.("tile.render.start", { width: baseWidth, height: baseHeight, tilesX, tilesY, totalTiles, bleed });
-
-  let completedTiles = 0;
-  for (let y = 0; y < baseHeight; y += TILE_SIZE) {
-    for (let x = 0; x < baseWidth; x += TILE_SIZE) {
-      // Logical tile size
-      const w = Math.min(TILE_SIZE, baseWidth - x);
-      const h = Math.min(TILE_SIZE, baseHeight - y);
-
-      // Expanded rect with bleed
-      const ex = Math.max(0, x - bleed);
-      const ey = Math.max(0, y - bleed);
-      const ew = Math.min(baseWidth - ex, w + (x - ex) + bleed);
-      const eh = Math.min(baseHeight - ey, h + (y - ey) + bleed);
-
-      const expandedRect = {
-        x: ex,
-        y: ey,
-        width: ew,
-        height: eh,
-      };
-
-      const expandedCanvas = await renderOnce(workflowJson, {
-        ...options,
-        bboxOverride,
-        tileRect: expandedRect,
-        previewFast: false,
-        maxPixels: 0,
-      });
-
-      // Crop source coords from bleeding canvas (Source X/Y)
-      const sx = x - ex;
-      const sy = y - ey;
-
-      // Draw cropped tile to final canvas
-      // tiledCtx.drawImage(image, sx, sy, sWidth, sHeight, dx, dy, dWidth, dHeight)
-      tiledCtx.drawImage(expandedCanvas, sx, sy, w, h, x, y, w, h);
-
-      completedTiles += 1;
-      if (onProgress) {
-        onProgress(completedTiles / totalTiles);
-      }
-    }
-  }
-  perfLog?.("tile.render.done");
-  return tiledCanvas;
-}
-
-async function renderTiledPng(workflowJson, options, bboxOverride, onProgress, perfLog, compressionLevel) {
-  if (!bboxOverride) {
-    const canvas = await renderOnce(workflowJson, options);
-    return toBlobAsync(canvas, "image/png");
-  }
-  const baseWidth = Math.max(1, Math.ceil(bboxOverride.width));
-  const baseHeight = Math.max(1, Math.ceil(bboxOverride.height));
-
-  const tilesX = Math.ceil(baseWidth / TILE_SIZE);
-  const tilesY = Math.ceil(baseHeight / TILE_SIZE);
-
-  // [CWIE] v3: Tile Bleed for PNG
-  const bleed = Number.isFinite(Number(options.tileBleed)) ? Math.max(0, Number(options.tileBleed)) : 64;
-  if (options.debug) {
-    console.log(`[CWIE][Export] Tiled export: mode=png, tiles=${tilesX}x${tilesY}, size=${baseWidth}x${baseHeight}, ratio=${options.uiPxRatio}, bleed=${bleed}`);
-  }
-
-  return encodePngFromTiles(
-    baseWidth,
-    baseHeight,
-    async (x, y, w, h) => {
-      // Expanded rect with bleed
-      const ex = Math.max(0, x - bleed);
-      const ey = Math.max(0, y - bleed);
-      const ew = Math.min(baseWidth - ex, w + (x - ex) + bleed);
-      const eh = Math.min(baseHeight - ey, h + (y - ey) + bleed);
-
-      const expandedRect = { x: ex, y: ey, width: ew, height: eh };
-
-      const expandedCanvas = await renderOnce(workflowJson, {
-        ...options,
-        bboxOverride,
-        tileRect: expandedRect,
-        previewFast: false,
-        maxPixels: 0,
-      });
-
-      const sx = x - ex;
-      const sy = y - ey;
-
-      // Crop to returning canvas
-      const cropCanvas = document.createElement("canvas");
-      cropCanvas.width = w;
-      cropCanvas.height = h;
-      const cropCtx = cropCanvas.getContext("2d", { alpha: true });
-      if (cropCtx) {
-        cropCtx.drawImage(expandedCanvas, sx, sy, w, h, 0, 0, w, h);
-      }
-      return cropCanvas;
-    },
-    onProgress,
-    perfLog,
-    compressionLevel
-  );
-}
-
 async function renderOnce(workflowJson, options) {
   const rendered = await renderGraphOffscreen(workflowJson, options);
   try {
@@ -279,78 +88,6 @@ async function renderOnce(workflowJson, options) {
   } finally {
     rendered.cleanup?.();
   }
-}
-
-function recoverTransparentCanvas(canvasA, canvasB, colorA, colorB) {
-  const rgbA = parseColorToRgb(colorA);
-  const rgbB = parseColorToRgb(colorB);
-  if (!rgbA || !rgbB) return null;
-
-  const w = canvasA.width;
-  const h = canvasA.height;
-  if (w !== canvasB.width || h !== canvasB.height) return null;
-
-  const ctxA = canvasA.getContext("2d", { alpha: true });
-  const ctxB = canvasB.getContext("2d", { alpha: true });
-  if (!ctxA || !ctxB) return null;
-
-  let dataA;
-  let dataB;
-  try {
-    dataA = ctxA.getImageData(0, 0, w, h).data;
-    dataB = ctxB.getImageData(0, 0, w, h).data;
-  } catch (_) {
-    return null;
-  }
-
-  const output = new ImageData(w, h);
-  const out = output.data;
-
-  const b1 = [rgbA.r, rgbA.g, rgbA.b];
-  const b2 = [rgbB.r, rgbB.g, rgbB.b];
-
-  for (let i = 0; i < dataA.length; i += 4) {
-    const c1 = [dataA[i], dataA[i + 1], dataA[i + 2]];
-    const c2 = [dataB[i], dataB[i + 1], dataB[i + 2]];
-    const alphas = [];
-    for (let c = 0; c < 3; c += 1) {
-      const denom = b1[c] - b2[c];
-      if (denom === 0) continue;
-      const alpha = 1 - (c1[c] - c2[c]) / denom;
-      if (Number.isFinite(alpha)) {
-        alphas.push(alpha);
-      }
-    }
-    let alpha = alphas.length
-      ? alphas.reduce((sum, v) => sum + v, 0) / alphas.length
-      : 1;
-    alpha = Math.min(1, Math.max(0, alpha));
-
-    if (alpha <= 0.001) {
-      out[i] = 0;
-      out[i + 1] = 0;
-      out[i + 2] = 0;
-      out[i + 3] = 0;
-      continue;
-    }
-
-    const invAlpha = 1 / alpha;
-    const r = (c1[0] - (1 - alpha) * b1[0]) * invAlpha;
-    const g = (c1[1] - (1 - alpha) * b1[1]) * invAlpha;
-    const b = (c1[2] - (1 - alpha) * b1[2]) * invAlpha;
-    out[i] = Math.min(255, Math.max(0, Math.round(r)));
-    out[i + 1] = Math.min(255, Math.max(0, Math.round(g)));
-    out[i + 2] = Math.min(255, Math.max(0, Math.round(b)));
-    out[i + 3] = Math.min(255, Math.max(0, Math.round(alpha * 255)));
-  }
-
-  const canvas = document.createElement("canvas");
-  canvas.width = w;
-  canvas.height = h;
-  const ctx = canvas.getContext("2d", { alpha: true });
-  if (!ctx) return null;
-  ctx.putImageData(output, 0, 0);
-  return canvas;
 }
 
 async function renderTransparentFallback(workflowJson, options, warnings) {
@@ -524,7 +261,15 @@ export async function exportWorkflowPng(workflowJson, options = {}) {
     let blob = await timeSpan(
       perfLog,
       "tile.png",
-      () => renderTiledPng(workflowJson, renderOptions, bboxOverride, reportProgress, perfLog, pngCompression)
+      () => renderTiledPng({
+        workflowJson,
+        options: renderOptions,
+        bboxOverride,
+        onProgress: reportProgress,
+        perfLog,
+        compressionLevel: pngCompression,
+        renderOnce,
+      })
     );
     reportProgress?.(1);
     if (options.embedWorkflow !== false) {
@@ -574,7 +319,15 @@ export async function exportWorkflowPng(workflowJson, options = {}) {
       let blob = await timeSpan(
         perfLog,
         "tile.png.fast",
-        () => renderTiledPng(workflowJson, renderOptions, bboxOverride, reportProgress, perfLog, pngCompression)
+        () => renderTiledPng({
+          workflowJson,
+          options: renderOptions,
+          bboxOverride,
+          onProgress: reportProgress,
+          perfLog,
+          compressionLevel: pngCompression,
+          renderOnce,
+        })
       );
       reportProgress?.(1);
       if (options.embedWorkflow !== false) {
@@ -616,7 +369,14 @@ export async function exportWorkflowPng(workflowJson, options = {}) {
       const canvas = await timeSpan(
         perfLog,
         label || "render.tiled",
-        () => renderTiled(workflowJson, opts, bboxOverride, reportProgress, perfLog)
+        () => renderTiled({
+          workflowJson,
+          options: opts,
+          bboxOverride,
+          onProgress: reportProgress,
+          perfLog,
+          renderOnce,
+        })
       );
       reportProgress?.(1);
       return canvas;
