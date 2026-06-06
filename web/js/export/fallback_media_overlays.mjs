@@ -28,6 +28,24 @@ function drawVideoPlaceholder(ctx, x, y, w, h) {
 const bgImageCache = new Map();
 const lastVideoSrcByNodeId = new Map();
 
+function normalizeSelectedNodeIds(selectedNodeIds) {
+  if (selectedNodeIds instanceof Set) return selectedNodeIds;
+  if (!Array.isArray(selectedNodeIds)) return null;
+  const ids = new Set(selectedNodeIds.map((id) => Number(id)).filter(Number.isFinite));
+  return ids.size ? ids : null;
+}
+
+function shouldRenderResolvedNode(nodeId, selectedNodeIds, mode) {
+  if (!mode || mode === "all") return true;
+  if (mode === "none") return false;
+  const ids = normalizeSelectedNodeIds(selectedNodeIds);
+  if (!ids?.size || !Number.isFinite(nodeId)) return false;
+  const isSelected = ids.has(Number(nodeId));
+  if (mode === "selected") return isSelected;
+  if (mode === "unselected") return !isSelected;
+  return true;
+}
+
 function sanitizeMediaUrl(url) {
   if (!url) return url;
   try {
@@ -569,7 +587,19 @@ function computePreviewRect({ rect, node, bounds, scale }) {
   };
 }
 
-export async function drawVideoThumbnails({ exportCtx, graph, nodeRects, bounds, scale, debugLog }) {
+export async function drawVideoThumbnails({
+  exportCtx,
+  graph,
+  nodeRects,
+  bounds,
+  scale,
+  debugLog,
+  skipNodeIds = null,
+  drawPlaceholderOnMiss = true,
+  selectedNodeIds = null,
+  renderFilter = "all",
+}) {
+  const selectedIdSet = normalizeSelectedNodeIds(selectedNodeIds);
   const nodes = graph?._nodes || graph?.nodes || [];
   if (!nodes.length) return;
   const videoNodes = nodes.filter((node) => node && isVideoNode(node));
@@ -598,6 +628,12 @@ export async function drawVideoThumbnails({ exportCtx, graph, nodeRects, bounds,
   }
 
   for (const node of videoNodes) {
+    if (skipNodeIds?.has?.(node.id)) {
+      continue;
+    }
+    if (!shouldRenderResolvedNode(node.id, selectedIdSet, renderFilter)) {
+      continue;
+    }
     const rect = rectById.get(node.id);
     if (!rect) {
       skippedNoRect += 1;
@@ -726,7 +762,7 @@ export async function drawVideoThumbnails({ exportCtx, graph, nodeRects, bounds,
         }
         drawn += 1;
       } catch (_) {}
-    } else {
+    } else if (drawPlaceholderOnMiss) {
       skippedNoDrawable += 1;
       drawVideoPlaceholder(exportCtx, x, y, w, h);
 
@@ -734,6 +770,8 @@ export async function drawVideoThumbnails({ exportCtx, graph, nodeRects, bounds,
         debugLog("video.thumbnail.miss", { id: node.id });
         logged += 1;
       }
+    } else {
+      skippedNoDrawable += 1;
     }
   }
 

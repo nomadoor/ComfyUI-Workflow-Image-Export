@@ -734,17 +734,31 @@ export async function renderGraphOffscreen(workflowJson, options = {}) {
       selectedNodeIds: options.selectedNodeIds,
       renderFilter: options.renderFilter || "all",
     }));
-    await timeSpan(perfLog, "dom.video.overlays", () => drawVideoOverlays({
-      exportCtx: outputCtx,
-      uiCanvas: uiCanvasDom,
-      graph,
-      bounds,
-      scale: scaleFactor,
-      nodeRects,
-      debugLog,
-      selectedNodeIds: options.selectedNodeIds,
-      renderFilter: options.renderFilter || "all",
-    }));
+    await timeSpan(perfLog, "dom.video.overlays", async () => {
+      const drawnVideoNodeIds = drawVideoOverlays({
+        exportCtx: outputCtx,
+        uiCanvas: uiCanvasDom,
+        graph,
+        bounds,
+        scale: scaleFactor,
+        nodeRects,
+        debugLog,
+        selectedNodeIds: options.selectedNodeIds,
+        renderFilter: options.renderFilter || "all",
+      });
+      await drawVideoThumbnails({
+        exportCtx: outputCtx,
+        graph,
+        nodeRects,
+        bounds,
+        scale: scaleFactor,
+        debugLog,
+        skipNodeIds: drawnVideoNodeIds,
+        drawPlaceholderOnMiss: false,
+        selectedNodeIds: options.selectedNodeIds,
+        renderFilter: options.renderFilter || "all",
+      });
+    });
     await timeSpan(perfLog, "dom.vhs.overlays", () => drawVhsVideoOverlays({
       exportCtx: outputCtx,
       uiCanvas: uiCanvasDom,

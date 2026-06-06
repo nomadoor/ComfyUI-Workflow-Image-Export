@@ -108,16 +108,17 @@ export function drawVideoOverlays({
   selectedNodeIds = null,
   renderFilter = "all",
 }) {
+  const drawnNodeIds = new Set();
   const selectedIdSet = normalizeSelectedNodeIds(selectedNodeIds);
   const canvasEl = uiCanvas?.canvas;
   const ds = uiCanvas?.ds;
-  if (!canvasEl || !ds) return;
+  if (!canvasEl || !ds) return drawnNodeIds;
 
   const rect = canvasEl.getBoundingClientRect();
-  if (!rect.width || !rect.height) return;
+  if (!rect.width || !rect.height) return drawnNodeIds;
 
   const videos = collectVideoElementsFromDom(uiCanvas, { debugLog });
-  if (!videos.length) return;
+  if (!videos.length) return drawnNodeIds;
 
   const invScale = 1 / ds.scale;
   const standardVideos = videos.filter((video) => !isVhsVideoElement(video));
@@ -164,6 +165,7 @@ export function drawVideoOverlays({
           },
           kind: "video",
         }));
+        drawnNodeIds.add(resolved.nodeRect.id);
         return true;
       } catch (error) {
         debugLog?.("diag.draw.video", diagnoseDomElement(video, uiCanvas, {
@@ -222,6 +224,7 @@ export function drawVideoOverlays({
 
     try {
       exportCtx.drawImage(video, x, y, w, h);
+      drawnNodeIds.add(matchedNode.id);
       debugLog?.("diag.draw.video", diagnoseDomElement(video, uiCanvas, {
         stage: "draw",
         reason: "drawn",
@@ -241,6 +244,7 @@ export function drawVideoOverlays({
       }));
     }
   }
+  return drawnNodeIds;
 }
 
 export function drawVhsVideoOverlays({

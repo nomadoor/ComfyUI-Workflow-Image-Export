@@ -33,6 +33,7 @@ import {
   drawVhsVideoOverlays,
   logDomMedia,
 } from "./legacy_media_overlays.mjs";
+import { drawVideoThumbnails } from "../../export/fallback_media_overlays.mjs";
 
 function computeExportScale(srcW, srcH, options, debugLog) {
   const resolutionScale = options?.outputResolution === "200%" ? 2 : 1;
@@ -243,10 +244,32 @@ export async function captureLegacy(options = {}) {
       "dom.image.overlays",
       () => drawImageOverlays({ exportCtx, uiCanvas, bounds, scale, debugLog })
     );
-    measurePerf(
+    await measurePerfAsync(
       perfLog,
       "dom.video.overlays",
-      () => drawVideoOverlays({ exportCtx, uiCanvas, graph, bounds, scale, nodeRects, debugLog })
+      async () => {
+        const drawnVideoNodeIds = drawVideoOverlays({
+          exportCtx,
+          uiCanvas,
+          graph,
+          bounds,
+          scale,
+          nodeRects,
+          debugLog,
+        });
+        await drawVideoThumbnails({
+          exportCtx,
+          graph,
+          nodeRects,
+          bounds,
+          scale,
+          debugLog,
+          skipNodeIds: drawnVideoNodeIds,
+          drawPlaceholderOnMiss: false,
+          selectedNodeIds: options.selectedNodeIds,
+          renderFilter: options.renderFilter || "all",
+        });
+      }
     );
     measurePerf(
       perfLog,
