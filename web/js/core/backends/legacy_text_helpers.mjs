@@ -103,12 +103,20 @@ export function resolveOpaqueBackground(...elements) {
 
 export function isEffectivelyVisibleElement(el) {
   if (!(el instanceof HTMLElement)) return false;
-  const style = window.getComputedStyle(el);
-  if (!style) return true;
-  if (style.display === "none") return false;
-  if (style.visibility === "hidden" || style.visibility === "collapse") return false;
-  const opacity = Number.parseFloat(style.opacity || "1");
-  if (Number.isFinite(opacity) && opacity <= 0.01) return false;
+  if (el.isConnected === false) return false;
+
+  let node = el;
+  while (node && node.nodeType === 1) {
+    const style = window.getComputedStyle(node);
+    if (style) {
+      if (style.display === "none") return false;
+      if (style.visibility === "hidden" || style.visibility === "collapse") return false;
+      const opacity = Number.parseFloat(style.opacity || "1");
+      if (Number.isFinite(opacity) && opacity <= 0.01) return false;
+    }
+    if (typeof document !== "undefined" && node === document.documentElement) break;
+    node = node.parentElement || node.parentNode;
+  }
   return true;
 }
 
