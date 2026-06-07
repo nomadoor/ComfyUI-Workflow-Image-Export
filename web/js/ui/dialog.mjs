@@ -564,6 +564,14 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
       window.cancelIdleCallback(previewIdle);
       previewIdle = null;
     }
+    if (webpCheckTimer) {
+      clearTimeout(webpCheckTimer);
+      webpCheckTimer = null;
+    }
+    if (webpCheckIdle && "cancelIdleCallback" in window) {
+      window.cancelIdleCallback(webpCheckIdle);
+      webpCheckIdle = null;
+    }
     previewQueued = false;
     previewBusy = false;
     previewSnapshot = null;
@@ -871,7 +879,7 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
     updateScopeAvailability();
     updateStateFromControls();
     const isRasterExport = state.format === "png" || state.format === "webp";
-    const expectsTiling = !isRasterExport && state.exceedMode === "tile";
+    const expectsTiling = (!isRasterExport || isNode2Backend) && state.exceedMode === "tile";
     if (expectsTiling) {
       exportButton.classList.add("is-progressing");
       exportProgressText.textContent = "0%";
@@ -881,9 +889,13 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
     await new Promise((resolve) => requestAnimationFrame(resolve));
     logExportPhase("ui.ready");
     let messageDialogPayload = null;
+    let dialogClosed = false;
     try {
       let blob;
       if (isNode2Backend) {
+        closeDialog();
+        dialogClosed = true;
+        logExportPhase("dialog.closed.beforeNode2Capture");
         logExportPhase("capture.node2.start");
         blob = await capture({
           ...state,
@@ -891,7 +903,8 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
           padding: 0,
           nodeOpacity: 100,
           scopeSelected: false,
-          exceedMode: "downscale",
+          exceedMode: state.exceedMode,
+          node2TiledCapture: state.exceedMode === "tile",
           onProgress: updateExportProgress,
         });
         logExportPhase("capture.node2.done");
@@ -926,6 +939,11 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
           onProgress: updateExportProgress,
         });
         logExportPhase("capture.done");
+      }
+      if (!dialogClosed) {
+        closeDialog();
+        dialogClosed = true;
+        logExportPhase("dialog.closed.beforeDownload");
       }
       setDefaultsInSettings(state);
       try {
@@ -967,8 +985,10 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
       exportProgressText.textContent = "0%";
       exportButton.classList.remove("is-busy");
       onExportFinished?.();
-      closeDialog();
-      logExportPhase("dialog.closed");
+      if (!dialogClosed) {
+        closeDialog();
+        logExportPhase("dialog.closed");
+      }
       setTimeout(() => logExportPhase("post.0ms"), 0);
       setTimeout(() => logExportPhase("post.250ms"), 250);
       setTimeout(() => logExportPhase("post.1000ms"), 1000);
