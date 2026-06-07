@@ -33,6 +33,39 @@ function describeElement(el) {
   };
 }
 
+function getViewportRect() {
+  const vv = window.visualViewport;
+  return {
+    left: vv?.offsetLeft || 0,
+    top: vv?.offsetTop || 0,
+    width: vv?.width || window.innerWidth || document.documentElement.clientWidth || 1,
+    height: vv?.height || window.innerHeight || document.documentElement.clientHeight || 1,
+  };
+}
+
+function getCapturableRootRect(root) {
+  const rootRect = root?.getBoundingClientRect?.();
+  if (!rootRect) return null;
+  const viewport = getViewportRect();
+  const left = Math.max(rootRect.left, viewport.left);
+  const top = Math.max(rootRect.top, viewport.top);
+  const right = Math.min(rootRect.right, viewport.left + viewport.width);
+  const bottom = Math.min(rootRect.bottom, viewport.top + viewport.height);
+  return {
+    left,
+    top,
+    right,
+    bottom,
+    width: Math.max(1, right - left),
+    height: Math.max(1, bottom - top),
+    rootLeft: rootRect.left,
+    rootTop: rootRect.top,
+    rootWidth: rootRect.width,
+    rootHeight: rootRect.height,
+    viewport,
+  };
+}
+
 function getApiSupport() {
   const proto = typeof BrowserCaptureMediaStreamTrack !== "undefined"
     ? BrowserCaptureMediaStreamTrack.prototype
@@ -282,6 +315,7 @@ function measureNode2DomCropRect(root, paddingPx) {
   const measured = collectNode2VisualRects(root);
   if (!measured?.rects?.length) return null;
   const { rootRect, rects } = measured;
+  const captureRect = getCapturableRootRect(root) || rootRect;
   let left = Infinity;
   let top = Infinity;
   let right = -Infinity;
@@ -296,8 +330,8 @@ function measureNode2DomCropRect(root, paddingPx) {
   return {
     left: Math.max(0, left - pad),
     top: Math.max(0, top - pad),
-    right: Math.min(rootRect.width, right + pad),
-    bottom: Math.min(rootRect.height, bottom + pad),
+    right: Math.min(captureRect.width, right + pad),
+    bottom: Math.min(captureRect.height, bottom + pad),
   };
 }
 
@@ -706,7 +740,7 @@ async function withFitNode2View(options, fn) {
     offset: [ds.offset[0], ds.offset[1]],
     scale: ds.scale || 1,
   };
-  const rect = root.getBoundingClientRect();
+  const rect = getCapturableRootRect(root) || root.getBoundingClientRect();
   const paddingPx = Math.max(24, Math.min(96, Number(options.fitPaddingPx) || 64));
   const bbox = measureNode2DomGraphBBox(root, ds) || computeGraphBBox(graph, {
     padding: 0,
@@ -732,6 +766,10 @@ async function withFitNode2View(options, fn) {
     rootRect: {
       width: rect.width,
       height: rect.height,
+      left: rect.left,
+      top: rect.top,
+      rootLeft: rect.rootLeft ?? rect.left,
+      rootTop: rect.rootTop ?? rect.top,
     },
     cropRectCss: measureNode2DomCropRect(root, options.cropPaddingPx),
     scale,
@@ -753,16 +791,23 @@ async function withFitNode2View(options, fn) {
 function cropNode2CanvasToFit(canvas, fitInfo) {
   if (!canvas || !fitInfo?.bbox || !fitInfo?.rootRect) return canvas;
   const { bbox, scale, offset, rootRect, cropPaddingPx, cropRectCss } = fitInfo;
-  const ratioX = canvas.width / Math.max(1, rootRect.width);
-  const ratioY = canvas.height / Math.max(1, rootRect.height);
+  const viewport = getViewportRect();
+  const ratioX = canvas.width / Math.max(1, viewport.width);
+  const ratioY = canvas.height / Math.max(1, viewport.height);
   const leftCss = cropRectCss?.left ?? ((bbox.minX + offset[0]) * scale - cropPaddingPx);
   const topCss = cropRectCss?.top ?? ((bbox.minY + offset[1]) * scale - cropPaddingPx);
   const rightCss = cropRectCss?.right ?? ((bbox.maxX + offset[0]) * scale + cropPaddingPx);
   const bottomCss = cropRectCss?.bottom ?? ((bbox.maxY + offset[1]) * scale + cropPaddingPx);
-  const sx = Math.max(0, Math.floor(leftCss * ratioX));
-  const sy = Math.max(0, Math.floor(topCss * ratioY));
-  const ex = Math.min(canvas.width, Math.ceil(rightCss * ratioX));
-  const ey = Math.min(canvas.height, Math.ceil(bottomCss * ratioY));
+  const rootLeft = rootRect.rootLeft ?? rootRect.left ?? 0;
+  const rootTop = rootRect.rootTop ?? rootRect.top ?? 0;
+  const viewportLeftCss = rootLeft + leftCss - viewport.left;
+  const viewportTopCss = rootTop + topCss - viewport.top;
+  const viewportRightCss = rootLeft + rightCss - viewport.left;
+  const viewportBottomCss = rootTop + bottomCss - viewport.top;
+  const sx = Math.max(0, Math.floor(viewportLeftCss * ratioX));
+  const sy = Math.max(0, Math.floor(viewportTopCss * ratioY));
+  const ex = Math.min(canvas.width, Math.ceil(viewportRightCss * ratioX));
+  const ey = Math.min(canvas.height, Math.ceil(viewportBottomCss * ratioY));
   const width = Math.max(1, ex - sx);
   const height = Math.max(1, ey - sy);
   fitInfo.cropGeometry = {
@@ -771,6 +816,7 @@ function cropNode2CanvasToFit(canvas, fitInfo) {
       height: canvas.height,
     },
     rootRect,
+    viewport,
     ratio: {
       x: ratioX,
       y: ratioY,
@@ -782,6 +828,14 @@ function cropNode2CanvasToFit(canvas, fitInfo) {
       bottom: bottomCss,
       width: rightCss - leftCss,
       height: bottomCss - topCss,
+    },
+    viewportCss: {
+      left: viewportLeftCss,
+      top: viewportTopCss,
+      right: viewportRightCss,
+      bottom: viewportBottomCss,
+      width: viewportRightCss - viewportLeftCss,
+      height: viewportBottomCss - viewportTopCss,
     },
     px: {
       sx,
