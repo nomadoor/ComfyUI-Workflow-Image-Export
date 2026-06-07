@@ -271,6 +271,42 @@ function measureNode2DomCropRect(root, paddingPx) {
   };
 }
 
+function measureNode2DomGraphBBox(root, ds) {
+  if (!root || !ds || !Array.isArray(ds.offset)) return null;
+  const scale = Number(ds.scale) || 1;
+  if (!Number.isFinite(scale) || scale <= 0) return null;
+  const rootRect = root.getBoundingClientRect();
+  const nodeRects = asArray(root.querySelectorAll("[data-node-id]"))
+    .map((node) => node.getBoundingClientRect())
+    .filter((rect) => rect.width > 0 && rect.height > 0);
+  if (!nodeRects.length) return null;
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  for (const rect of nodeRects) {
+    const left = ((rect.left - rootRect.left) / scale) - ds.offset[0];
+    const top = ((rect.top - rootRect.top) / scale) - ds.offset[1];
+    const right = ((rect.right - rootRect.left) / scale) - ds.offset[0];
+    const bottom = ((rect.bottom - rootRect.top) / scale) - ds.offset[1];
+    minX = Math.min(minX, left);
+    minY = Math.min(minY, top);
+    maxX = Math.max(maxX, right);
+    maxY = Math.max(maxY, bottom);
+  }
+  if (!Number.isFinite(minX) || !Number.isFinite(minY) || !Number.isFinite(maxX) || !Number.isFinite(maxY)) {
+    return null;
+  }
+  return {
+    minX,
+    minY,
+    maxX,
+    maxY,
+    width: Math.max(1, maxX - minX),
+    height: Math.max(1, maxY - minY),
+  };
+}
+
 function stopStream(stream) {
   for (const track of stream?.getTracks?.() || []) {
     track.stop();
@@ -608,7 +644,7 @@ async function withFitNode2View(options, fn) {
   };
   const rect = root.getBoundingClientRect();
   const paddingPx = Math.max(24, Math.min(96, Number(options.fitPaddingPx) || 64));
-  const bbox = computeGraphBBox(graph, {
+  const bbox = measureNode2DomGraphBBox(root, ds) || computeGraphBBox(graph, {
     padding: 0,
     useBounding: true,
     debug: Boolean(options.debug),
