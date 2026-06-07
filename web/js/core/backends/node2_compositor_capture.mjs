@@ -117,12 +117,29 @@ function ensureSpikeStyle() {
     html.cwie-node2-capturing .p-contextmenu,
     html.cwie-node2-capturing .litegraph.litecontextmenu,
     html.cwie-node2-capturing .cwie-backdrop,
-    html.cwie-node2-capturing .cwie-dialog-backdrop {
+    html.cwie-node2-capturing .cwie-dialog-backdrop,
+    html.cwie-node2-capturing #comfyui-body-top,
+    html.cwie-node2-capturing #comfyui-body-left,
+    html.cwie-node2-capturing #comfyui-body-right,
+    html.cwie-node2-capturing #comfyui-body-bottom,
+    html.cwie-node2-capturing [data-testid*="toolbar" i],
+    html.cwie-node2-capturing [data-testid*="menu" i],
+    html.cwie-node2-capturing [data-testid*="selection" i],
+    html.cwie-node2-capturing [class*="toolbar" i],
+    html.cwie-node2-capturing [class*="palette" i],
+    html.cwie-node2-capturing [class*="actionbar" i],
+    html.cwie-node2-capturing [class*="topbar" i] {
       visibility: hidden !important;
+      pointer-events: none !important;
     }
 
     html.cwie-node2-capturing #graph-canvas-container > :not(#graph-canvas):not([data-testid="transform-pane"]):not(canvas:not([id])) {
       visibility: hidden !important;
+    }
+
+    html.cwie-node2-capturing #graph-canvas-container,
+    html.cwie-node2-capturing #graph-canvas-container * {
+      cursor: none !important;
     }
   `;
   document.head.appendChild(style);
@@ -150,12 +167,44 @@ function hideNode2CaptureChrome() {
   };
   for (const el of asArray(root.querySelectorAll("*"))) {
     if (!(el instanceof HTMLElement) || shouldKeep(el)) continue;
-    changed.push([el, el.style.visibility]);
+    changed.push([el, el.style.visibility, el.style.pointerEvents]);
     el.style.visibility = "hidden";
+    el.style.pointerEvents = "none";
   }
   return () => {
-    for (const [el, visibility] of changed) {
+    for (const [el, visibility, pointerEvents] of changed) {
       el.style.visibility = visibility;
+      el.style.pointerEvents = pointerEvents;
+    }
+  };
+}
+
+function hideKnownComfyChrome() {
+  const selectors = [
+    "#comfyui-body-top",
+    "#comfyui-body-left",
+    "#comfyui-body-right",
+    "#comfyui-body-bottom",
+    '[data-testid*="toolbar" i]',
+    '[data-testid*="menu" i]',
+    '[data-testid*="selection" i]',
+    '[class*="toolbar" i]',
+    '[class*="palette" i]',
+    '[class*="actionbar" i]',
+    '[class*="topbar" i]',
+  ];
+  const changed = [];
+  for (const el of asArray(document.querySelectorAll(selectors.join(",")))) {
+    if (!(el instanceof HTMLElement)) continue;
+    if (el.closest("[data-node-id]")) continue;
+    changed.push([el, el.style.visibility, el.style.pointerEvents]);
+    el.style.visibility = "hidden";
+    el.style.pointerEvents = "none";
+  }
+  return () => {
+    for (const [el, visibility, pointerEvents] of changed) {
+      el.style.visibility = visibility;
+      el.style.pointerEvents = pointerEvents;
     }
   };
 }
@@ -310,7 +359,9 @@ async function requestDisplayMedia(log) {
     selfBrowserSurface: "include",
     surfaceSwitching: "exclude",
     audio: false,
-    video: true,
+    video: {
+      cursor: "never",
+    },
   };
   try {
     return await navigator.mediaDevices.getDisplayMedia(preferredOptions);
@@ -447,6 +498,7 @@ export async function runNode2CaptureFrameSpike(options = {}) {
   const captureHandle = await maybeSetCaptureHandle(log);
   document.documentElement.classList.add("cwie-node2-capturing");
   const restoreHiddenChrome = hideNode2CaptureChrome();
+  const restoreKnownChrome = hideKnownComfyChrome();
 
   let stream = null;
   try {
@@ -462,6 +514,7 @@ export async function runNode2CaptureFrameSpike(options = {}) {
   } finally {
     stopStream(stream);
     restoreHiddenChrome();
+    restoreKnownChrome();
     document.documentElement.classList.remove("cwie-node2-capturing");
   }
 }
@@ -475,14 +528,14 @@ async function waitForNode2CameraSettle(ms = 320) {
 
 async function withFitNode2View(options, fn) {
   if (options.fitView === false) {
-    return fn();
+    return fn(null);
   }
   const canvas = app?.canvas;
   const ds = canvas?.ds;
   const root = getNode2Layers().root;
   const graph = app?.graph || canvas?.graph;
   if (!canvas?.canvas || !ds || !Array.isArray(ds.offset) || !graph || !root) {
-    return fn();
+    return fn(null);
   }
 
   const original = {
@@ -502,13 +555,25 @@ async function withFitNode2View(options, fn) {
     0.05,
     Math.min(1.2, availableWidth / bbox.width, availableHeight / bbox.height)
   );
+  const visibleGraphWidth = rect.width / scale;
+  const visibleGraphHeight = rect.height / scale;
   ds.scale = scale;
-  ds.offset[0] = paddingPx / scale - bbox.minX;
-  ds.offset[1] = paddingPx / scale - bbox.minY;
+  ds.offset[0] = ((visibleGraphWidth - bbox.width) / 2) - bbox.minX;
+  ds.offset[1] = ((visibleGraphHeight - bbox.height) / 2) - bbox.minY;
   canvas.setDirty?.(true, true);
   await waitForNode2CameraSettle();
+  const fitInfo = {
+    bbox,
+    rootRect: {
+      width: rect.width,
+      height: rect.height,
+    },
+    scale,
+    offset: [ds.offset[0], ds.offset[1]],
+    cropPaddingPx: Math.max(8, Math.min(64, Number(options.cropPaddingPx) || 24)),
+  };
   try {
-    return await fn();
+    return await fn(fitInfo);
   } finally {
     ds.scale = original.scale;
     ds.offset[0] = original.offset[0];
@@ -516,6 +581,33 @@ async function withFitNode2View(options, fn) {
     canvas.setDirty?.(true, true);
     await waitForNode2CameraSettle(120);
   }
+}
+
+function cropNode2CanvasToFit(canvas, fitInfo) {
+  if (!canvas || !fitInfo?.bbox || !fitInfo?.rootRect) return canvas;
+  const { bbox, scale, offset, rootRect, cropPaddingPx } = fitInfo;
+  const ratioX = canvas.width / Math.max(1, rootRect.width);
+  const ratioY = canvas.height / Math.max(1, rootRect.height);
+  const leftCss = (bbox.minX + offset[0]) * scale - cropPaddingPx;
+  const topCss = (bbox.minY + offset[1]) * scale - cropPaddingPx;
+  const rightCss = (bbox.maxX + offset[0]) * scale + cropPaddingPx;
+  const bottomCss = (bbox.maxY + offset[1]) * scale + cropPaddingPx;
+  const sx = Math.max(0, Math.floor(leftCss * ratioX));
+  const sy = Math.max(0, Math.floor(topCss * ratioY));
+  const ex = Math.min(canvas.width, Math.ceil(rightCss * ratioX));
+  const ey = Math.min(canvas.height, Math.ceil(bottomCss * ratioY));
+  const width = Math.max(1, ex - sx);
+  const height = Math.max(1, ey - sy);
+  if (width >= canvas.width && height >= canvas.height) {
+    return canvas;
+  }
+  const out = document.createElement("canvas");
+  out.width = width;
+  out.height = height;
+  const ctx = out.getContext("2d", { alpha: true });
+  if (!ctx) return canvas;
+  ctx.drawImage(canvas, sx, sy, width, height, 0, 0, width, height);
+  return out;
 }
 
 function toBlob(canvas, mime) {
@@ -556,15 +648,27 @@ function collectNode2Warnings(options = {}) {
 export async function captureNode2(options = {}) {
   const format = String(options.format || "png").toLowerCase();
   const mime = format === "webp" ? "image/webp" : "image/png";
-  const report = await withFitNode2View(options, () => runNode2CaptureFrameSpike({
-    ...options,
-    target: options.target || "commonRoot",
-    includeCanvas: true,
-    frameCount: 1,
-    frameTimeoutMs: 250,
-    probe: false,
-    log: options.debug ? console.log : null,
-  }));
+  const report = await withFitNode2View(options, async (fitInfo) => {
+    const captured = await runNode2CaptureFrameSpike({
+      ...options,
+      target: options.target || "commonRoot",
+      includeCanvas: true,
+      frameCount: 1,
+      frameTimeoutMs: 250,
+      probe: false,
+      log: options.debug ? console.log : null,
+    });
+    if (captured.canvas && fitInfo) {
+      captured.canvas = cropNode2CanvasToFit(captured.canvas, fitInfo);
+      captured.frame = {
+        ...captured.frame,
+        croppedWidth: captured.canvas.width,
+        croppedHeight: captured.canvas.height,
+      };
+      captured.fit = fitInfo;
+    }
+    return captured;
+  });
   if (report.error) {
     throw new Error(`Node 2.0 capture failed: ${report.error.message || "unknown error"}`);
   }
