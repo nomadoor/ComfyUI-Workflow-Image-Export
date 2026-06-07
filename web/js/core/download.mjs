@@ -20,6 +20,6 @@ export async function triggerDownload({ dataUrl, blob, filename }) {
   link.remove();
 
   if (revoke) {
-    setTimeout(() => URL.revokeObjectURL(revoke), 0);
+    setTimeout(() => URL.revokeObjectURL(revoke), 15_000);
   }
 }

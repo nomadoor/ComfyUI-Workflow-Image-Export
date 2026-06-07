@@ -115,6 +115,14 @@
   display: flex;
 }
 
+.cwie-preview-frame.is-message .cwie-preview-loading {
+  display: flex;
+}
+
+.cwie-preview-frame.is-message .cwie-preview-loading-icon {
+  display: none;
+}
+
 .cwie-preview-image:not([src]),
 .cwie-preview-image[src=""],
 .cwie-preview-canvas:not([width]),
@@ -194,7 +202,7 @@
   grid-template-columns: 8.75rem 1fr;
   gap: 0.75rem;
   align-items: center;
-  margin-bottom: 0.75rem;
+  margin-bottom: 0.55rem;
 }
 
 .cwie-row.is-hidden {
@@ -205,6 +213,24 @@
   font-size: 0.75rem;
   color: var(--fg-color, #e5e5e5);
   opacity: 0.7;
+}
+
+.cwie-row.is-node2-disabled {
+  opacity: 0.52;
+}
+
+.cwie-row.is-node2-disabled label {
+  color: rgba(229, 229, 229, 0.48);
+  opacity: 1;
+}
+
+.cwie-row.is-node2-disabled > :not(.cwie-row-label) {
+  filter: grayscale(0.65);
+  opacity: 0.58;
+}
+
+.cwie-row.is-node2-disabled .cwie-help {
+  opacity: 0.35;
 }
 
 .cwie-row-label {
@@ -290,8 +316,9 @@
   color: inherit;
   border: none;
   border-radius: 0.35rem;
-  padding: 0.4rem 0.6rem;
-  min-height: 2rem;
+  padding: 0.32rem 0.55rem;
+  min-height: 1.75rem;
+  font-size: 0.75rem;
   line-height: 1.2;
 }
 
@@ -326,8 +353,9 @@
   color: inherit;
   border: none;
   border-radius: 0.35rem;
-  padding: 0.4rem 0.6rem;
-  min-height: 2rem;
+  padding: 0.32rem 0.55rem;
+  min-height: 1.75rem;
+  font-size: 0.75rem;
   line-height: 1.2;
   cursor: pointer;
   display: flex;
@@ -362,6 +390,7 @@
   gap: 0.5rem;
   padding: 0.35rem 0.5rem;
   border-radius: 0.3rem;
+  font-size: 0.75rem;
   cursor: pointer;
   color: inherit;
 }
@@ -506,6 +535,42 @@
   opacity: 0.6;
   line-height: 1.4;
   margin-bottom: 0.25rem;
+}
+
+.cwie-backend-note {
+  border-radius: 0.45rem;
+  padding: 0.65rem 0.75rem;
+  margin: 0 0 0.85rem 0;
+  background: rgba(74, 144, 226, 0.1);
+  border: 1px solid rgba(74, 144, 226, 0.32);
+  color: rgba(229, 229, 229, 0.9);
+}
+
+.cwie-backend-note-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.76rem;
+  font-weight: 600;
+}
+
+.cwie-backend-pill {
+  display: inline-flex;
+  align-items: center;
+  min-height: 1.15rem;
+  padding: 0.1rem 0.42rem;
+  border-radius: 999px;
+  background: rgba(74, 144, 226, 0.22);
+  color: rgba(229, 229, 229, 0.96);
+  font-size: 0.66rem;
+  font-weight: 700;
+}
+
+.cwie-backend-note-body {
+  margin-top: 0.4rem;
+  font-size: 0.7rem;
+  line-height: 1.45;
+  color: rgba(229, 229, 229, 0.68);
 }
 
 .cwie-advanced {

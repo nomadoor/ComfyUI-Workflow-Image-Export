@@ -2,7 +2,23 @@ import { app } from "/scripts/app.js";
 import { installLegacyCanvasMenuItem } from "./core/menu.mjs";
 import { registerLegacySettings } from "./core/settings.mjs";
 
-let debugEnabled = localStorage.getItem("cwie.debug") === "1";
+const DEBUG_STORAGE_KEY = "cwie.debug";
+const DEBUG_SESSION_KEY = "cwie.debug.session";
+
+function getInitialDebugEnabled() {
+  try {
+    localStorage.removeItem(DEBUG_STORAGE_KEY);
+  } catch (_) {
+    // Ignore storage failures. Debug should stay opt-in and non-persistent.
+  }
+  try {
+    return sessionStorage.getItem(DEBUG_SESSION_KEY) === "1";
+  } catch (_) {
+    return false;
+  }
+}
+
+let debugEnabled = getInitialDebugEnabled();
 let usedOfficialMenu = false;
 
 function log(...args) {
@@ -13,7 +29,12 @@ function log(...args) {
 
 function setDebug(enabled) {
   debugEnabled = !!enabled;
-  localStorage.setItem("cwie.debug", debugEnabled ? "1" : "0");
+  try {
+    localStorage.removeItem(DEBUG_STORAGE_KEY);
+    sessionStorage.setItem(DEBUG_SESSION_KEY, debugEnabled ? "1" : "0");
+  } catch (_) {
+    // Storage can be unavailable in restricted contexts; keep runtime state only.
+  }
   if (window.__cwie__) {
     window.__cwie__.debug = debugEnabled;
   }
@@ -37,15 +58,6 @@ function buildMenuLabel() {
   `;
 }
 
-let dialogPreloaded = false;
-function preloadDialogModule() {
-  if (dialogPreloaded) return;
-  dialogPreloaded = true;
-  import("./ui/dialog.mjs").catch(() => {
-    // ignore preload errors
-  });
-}
-
 async function openDialog(log) {
   try {
     const mod = await import("./ui/dialog.mjs");
@@ -63,6 +75,31 @@ async function openDialog(log) {
   }
 }
 
+function installNode2DebugApi() {
+  const root = window.__cwie__ || {};
+  const api = {
+    async inspect() {
+      const mod = await import("./core/backends/node2_compositor_capture.mjs");
+      return mod.inspectNode2Targets();
+    },
+    async captureFrame(options = {}) {
+      const mod = await import("./core/backends/node2_compositor_capture.mjs");
+      return mod.captureNode2SingleFrame(options);
+    },
+    async tileProbe(options = {}) {
+      const mod = await import("./core/backends/node2_compositor_capture.mjs");
+      return mod.runNode2TileProbe(options);
+    },
+    async cameraMoveProbe(options = {}) {
+      const mod = await import("./core/backends/node2_compositor_capture.mjs");
+      return mod.runNode2CameraMoveProbe(options);
+    },
+  };
+  root.node2Capture = api;
+  root.node2Spike = api;
+  window.__cwie__ = root;
+}
+
 app.registerExtension({
   name: "comfyui.workflowImageExport",
   setup() {
@@ -71,14 +108,9 @@ app.registerExtension({
       debug: debugEnabled,
       setDebug,
     };
+    installNode2DebugApi();
     log("extension loaded", window.__cwie__);
     registerLegacySettings(log);
-    // Preload dialog module on idle to reduce first-open latency.
-    if ("requestIdleCallback" in window) {
-      window.requestIdleCallback(() => preloadDialogModule(), { timeout: 2000 });
-    } else {
-      setTimeout(() => preloadDialogModule(), 800);
-    }
     setTimeout(() => {
       if (usedOfficialMenu) {
         return;
