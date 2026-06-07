@@ -765,6 +765,33 @@ function cropNode2CanvasToFit(canvas, fitInfo) {
   const ey = Math.min(canvas.height, Math.ceil(bottomCss * ratioY));
   const width = Math.max(1, ex - sx);
   const height = Math.max(1, ey - sy);
+  fitInfo.cropGeometry = {
+    sourceCanvas: {
+      width: canvas.width,
+      height: canvas.height,
+    },
+    rootRect,
+    ratio: {
+      x: ratioX,
+      y: ratioY,
+    },
+    css: {
+      left: leftCss,
+      top: topCss,
+      right: rightCss,
+      bottom: bottomCss,
+      width: rightCss - leftCss,
+      height: bottomCss - topCss,
+    },
+    px: {
+      sx,
+      sy,
+      ex,
+      ey,
+      width,
+      height,
+    },
+  };
   if (width >= canvas.width && height >= canvas.height) {
     return canvas;
   }
@@ -839,6 +866,7 @@ export async function captureNode2(options = {}) {
         croppedWidth: captured.canvas.width,
         croppedHeight: captured.canvas.height,
         cropRectCss: fitInfo.cropRectCss,
+        cropGeometry: fitInfo.cropGeometry,
         bbox: fitInfo.bbox,
         metricsAfterFit: fitInfo.metricsAfterFit,
       });
