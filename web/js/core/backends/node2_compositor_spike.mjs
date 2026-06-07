@@ -203,7 +203,6 @@ async function attachHiddenVideo(stream, log) {
     videoWidth: video.videoWidth,
     videoHeight: video.videoHeight,
   });
-  await waitVideoFrame(video, 2, log);
   return video;
 }
 
@@ -298,14 +297,14 @@ async function captureFrameFromStream(stream, target, targetName, captureHandle,
   };
   logStep(log, "displayMedia.ok", report.track);
 
-  report.restriction = await applyTargetRestriction(track, target, {
-    prefer: options.prefer || "restriction",
-    log,
-  });
-  logStep(log, "target.apply", report.restriction);
-
   const video = await attachHiddenVideo(stream, log);
   try {
+    report.restriction = await applyTargetRestriction(track, target, {
+      prefer: options.prefer || "restriction",
+      log,
+    });
+    logStep(log, "target.apply", report.restriction);
+    await waitVideoFrame(video, 2, log);
     const { canvas, ctx, width, height } = drawVideoToCanvas(video);
     const probe = await canvasProbe(canvas, ctx, width, height);
     report.frame = {
@@ -315,6 +314,13 @@ async function captureFrameFromStream(stream, target, targetName, captureHandle,
       ...probe,
     };
     logStep(log, "frame.ok", report.frame);
+    return report;
+  } catch (error) {
+    report.error = {
+      name: error?.name || "",
+      message: error?.message || String(error),
+    };
+    logStep(log, "frame.failed", report.error);
     return report;
   } finally {
     video.remove();
