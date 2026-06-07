@@ -2,6 +2,7 @@ import { app } from "/scripts/app.js";
 import { computeGraphBBox } from "../../export/bbox.mjs";
 
 const SPIKE_STYLE_ID = "cwie-node2-spike-style";
+const NODE2_CAPTURE_VERSION = "node2-dom-fit-2026-06-07-2";
 
 function logStep(log, label, payload) {
   log?.(`[CWIE][Node2Spike] ${label}`, payload);
@@ -78,6 +79,7 @@ export function inspectNode2Targets() {
   };
 
   return {
+    version: NODE2_CAPTURE_VERSION,
     api: getApiSupport(),
     appCanvas: describeElement(app?.canvas?.canvas || null),
     candidates: Object.fromEntries(
@@ -88,6 +90,7 @@ export function inspectNode2Targets() {
       vueNodes: vueNodeCount,
     },
     likelyNode2: Boolean(transformPane && linkOverlayCanvas),
+    fit: inspectNode2FitMetrics(),
   };
 }
 
@@ -304,6 +307,41 @@ function measureNode2DomGraphBBox(root, ds) {
     maxY,
     width: Math.max(1, maxX - minX),
     height: Math.max(1, maxY - minY),
+  };
+}
+
+export function inspectNode2FitMetrics() {
+  const { root } = getNode2Layers();
+  const canvas = app?.canvas;
+  const ds = canvas?.ds;
+  const graph = app?.graph || canvas?.graph;
+  const rootRect = root?.getBoundingClientRect?.() || null;
+  const domGraphBBox = root && ds ? measureNode2DomGraphBBox(root, ds) : null;
+  let graphBBox = null;
+  try {
+    graphBBox = graph ? computeGraphBBox(graph, { padding: 0, useBounding: true }) : null;
+  } catch (_) {
+    graphBBox = null;
+  }
+  return {
+    version: NODE2_CAPTURE_VERSION,
+    rootRect: rootRect
+      ? {
+        width: rootRect.width,
+        height: rootRect.height,
+        left: rootRect.left,
+        top: rootRect.top,
+      }
+      : null,
+    currentTransform: ds
+      ? {
+        scale: ds.scale,
+        offset: Array.isArray(ds.offset) ? [ds.offset[0], ds.offset[1]] : null,
+      }
+      : null,
+    nodeCount: root?.querySelectorAll?.("[data-node-id]")?.length || 0,
+    domGraphBBox,
+    graphBBox,
   };
 }
 
@@ -663,6 +701,7 @@ async function withFitNode2View(options, fn) {
   canvas.setDirty?.(true, true);
   await waitForNode2CameraSettle();
   const fitInfo = {
+    version: NODE2_CAPTURE_VERSION,
     bbox,
     rootRect: {
       width: rect.width,
@@ -672,6 +711,7 @@ async function withFitNode2View(options, fn) {
     scale,
     offset: [ds.offset[0], ds.offset[1]],
     cropPaddingPx: Math.max(8, Math.min(128, Number(options.cropPaddingPx) || 56)),
+    metricsAfterFit: inspectNode2FitMetrics(),
   };
   try {
     return await fn(fitInfo);
@@ -750,6 +790,7 @@ export async function captureNode2(options = {}) {
   const format = String(options.format || "png").toLowerCase();
   const mime = format === "webp" ? "image/webp" : "image/png";
   const report = await withFitNode2View(options, async (fitInfo) => {
+    logStep(options.debug ? console.log : null, "capture.fit", fitInfo);
     const captured = await runNode2CaptureFrameSpike({
       ...options,
       target: options.target || "commonRoot",
@@ -767,6 +808,14 @@ export async function captureNode2(options = {}) {
         croppedHeight: captured.canvas.height,
       };
       captured.fit = fitInfo;
+      logStep(options.debug ? console.log : null, "capture.crop", {
+        version: NODE2_CAPTURE_VERSION,
+        croppedWidth: captured.canvas.width,
+        croppedHeight: captured.canvas.height,
+        cropRectCss: fitInfo.cropRectCss,
+        bbox: fitInfo.bbox,
+        metricsAfterFit: fitInfo.metricsAfterFit,
+      });
     }
     return captured;
   });
