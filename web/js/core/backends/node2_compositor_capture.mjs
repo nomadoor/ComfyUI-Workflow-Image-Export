@@ -209,6 +209,68 @@ function hideKnownComfyChrome() {
   };
 }
 
+function rectsIntersect(a, b) {
+  return a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
+}
+
+function hideIntersectingChrome() {
+  const { root, graphCanvas, transformPane, linkOverlayCanvas, vueNodes } = getNode2Layers();
+  if (!root) return () => {};
+  const rootRect = root.getBoundingClientRect();
+  const keep = [root, graphCanvas, transformPane, linkOverlayCanvas].filter(Boolean);
+  const changed = [];
+  for (const el of asArray(document.body.querySelectorAll("*"))) {
+    if (!(el instanceof HTMLElement)) continue;
+    if (keep.includes(el)) continue;
+    if (vueNodes.some((node) => el === node || node.contains(el) || el.contains(node))) continue;
+    if (el.closest(".cwie-dialog") || el.closest(".cwie-backdrop")) continue;
+    const rect = el.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0 || !rectsIntersect(rect, rootRect)) continue;
+    const style = window.getComputedStyle(el);
+    const zIndex = Number.parseInt(style.zIndex, 10);
+    const positioned = style.position === "fixed" ||
+      style.position === "sticky" ||
+      style.position === "absolute" ||
+      Number.isFinite(zIndex);
+    if (!positioned) continue;
+    changed.push([el, el.style.visibility, el.style.pointerEvents]);
+    el.style.visibility = "hidden";
+    el.style.pointerEvents = "none";
+  }
+  return () => {
+    for (const [el, visibility, pointerEvents] of changed) {
+      el.style.visibility = visibility;
+      el.style.pointerEvents = pointerEvents;
+    }
+  };
+}
+
+function measureNode2DomCropRect(root, paddingPx) {
+  if (!root) return null;
+  const rootRect = root.getBoundingClientRect();
+  const nodeRects = asArray(root.querySelectorAll("[data-node-id]"))
+    .map((node) => node.getBoundingClientRect())
+    .filter((rect) => rect.width > 0 && rect.height > 0 && rectsIntersect(rect, rootRect));
+  if (!nodeRects.length) return null;
+  let left = Infinity;
+  let top = Infinity;
+  let right = -Infinity;
+  let bottom = -Infinity;
+  for (const rect of nodeRects) {
+    left = Math.min(left, rect.left - rootRect.left);
+    top = Math.min(top, rect.top - rootRect.top);
+    right = Math.max(right, rect.right - rootRect.left);
+    bottom = Math.max(bottom, rect.bottom - rootRect.top);
+  }
+  const pad = Math.max(8, Math.min(128, Number(paddingPx) || 56));
+  return {
+    left: Math.max(0, left - pad),
+    top: Math.max(0, top - pad),
+    right: Math.min(rootRect.width, right + pad),
+    bottom: Math.min(rootRect.height, bottom + pad),
+  };
+}
+
 function stopStream(stream) {
   for (const track of stream?.getTracks?.() || []) {
     track.stop();
@@ -499,6 +561,7 @@ export async function runNode2CaptureFrameSpike(options = {}) {
   document.documentElement.classList.add("cwie-node2-capturing");
   const restoreHiddenChrome = hideNode2CaptureChrome();
   const restoreKnownChrome = hideKnownComfyChrome();
+  const restoreIntersectingChrome = hideIntersectingChrome();
 
   let stream = null;
   try {
@@ -515,6 +578,7 @@ export async function runNode2CaptureFrameSpike(options = {}) {
     stopStream(stream);
     restoreHiddenChrome();
     restoreKnownChrome();
+    restoreIntersectingChrome();
     document.documentElement.classList.remove("cwie-node2-capturing");
   }
 }
@@ -568,9 +632,10 @@ async function withFitNode2View(options, fn) {
       width: rect.width,
       height: rect.height,
     },
+    cropRectCss: measureNode2DomCropRect(root, options.cropPaddingPx),
     scale,
     offset: [ds.offset[0], ds.offset[1]],
-    cropPaddingPx: Math.max(8, Math.min(64, Number(options.cropPaddingPx) || 24)),
+    cropPaddingPx: Math.max(8, Math.min(128, Number(options.cropPaddingPx) || 56)),
   };
   try {
     return await fn(fitInfo);
@@ -585,13 +650,13 @@ async function withFitNode2View(options, fn) {
 
 function cropNode2CanvasToFit(canvas, fitInfo) {
   if (!canvas || !fitInfo?.bbox || !fitInfo?.rootRect) return canvas;
-  const { bbox, scale, offset, rootRect, cropPaddingPx } = fitInfo;
+  const { bbox, scale, offset, rootRect, cropPaddingPx, cropRectCss } = fitInfo;
   const ratioX = canvas.width / Math.max(1, rootRect.width);
   const ratioY = canvas.height / Math.max(1, rootRect.height);
-  const leftCss = (bbox.minX + offset[0]) * scale - cropPaddingPx;
-  const topCss = (bbox.minY + offset[1]) * scale - cropPaddingPx;
-  const rightCss = (bbox.maxX + offset[0]) * scale + cropPaddingPx;
-  const bottomCss = (bbox.maxY + offset[1]) * scale + cropPaddingPx;
+  const leftCss = cropRectCss?.left ?? ((bbox.minX + offset[0]) * scale - cropPaddingPx);
+  const topCss = cropRectCss?.top ?? ((bbox.minY + offset[1]) * scale - cropPaddingPx);
+  const rightCss = cropRectCss?.right ?? ((bbox.maxX + offset[0]) * scale + cropPaddingPx);
+  const bottomCss = cropRectCss?.bottom ?? ((bbox.maxY + offset[1]) * scale + cropPaddingPx);
   const sx = Math.max(0, Math.floor(leftCss * ratioX));
   const sy = Math.max(0, Math.floor(topCss * ratioY));
   const ex = Math.min(canvas.width, Math.ceil(rightCss * ratioX));
