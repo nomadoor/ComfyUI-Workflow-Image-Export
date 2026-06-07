@@ -160,7 +160,7 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
   });
 
   const dialog = document.createElement("div");
-  dialog.className = "cwie-dialog";
+  dialog.className = isNode2Backend ? "cwie-dialog is-node2-backend" : "cwie-dialog";
 
   const title = document.createElement("h3");
   title.textContent = "Export Workflow Image";
@@ -207,10 +207,20 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
   basicTitle.textContent = "Basic";
 
   const backendNote = document.createElement("div");
-  backendNote.className = "cwie-note";
-  backendNote.textContent = isNode2Backend
-    ? "Node 2.0 export captures the visible graph view when you press Export."
-    : "";
+  backendNote.className = isNode2Backend ? "cwie-backend-note node2" : "cwie-note";
+  if (isNode2Backend) {
+    backendNote.innerHTML = `
+      <div class="cwie-backend-note-head">
+        <span class="cwie-backend-pill">Node 2.0</span>
+        <span>Compositor capture mode</span>
+      </div>
+      <div class="cwie-backend-note-body">
+        Captures the live graph on Export using Chromium's compositor capture APIs. Format, workflow embedding, and solid background still apply.
+      </div>
+    `;
+  } else {
+    backendNote.textContent = "";
+  }
 
   const formatSelect = createSelect("format", [
     { value: "png", label: "PNG" },
@@ -223,11 +233,17 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
   const webpNote = document.createElement("div");
   webpNote.className = "cwie-note";
 
-  const backgroundGroup = createRadioGroup("cwie-bg", [
-    { value: "ui", label: "UI" },
-    { value: "transparent", label: "Transparent" },
-    { value: "solid", label: "Solid" },
-  ]);
+  const backgroundOptions = isNode2Backend
+    ? [
+      { value: "ui", label: "UI" },
+      { value: "solid", label: "Solid" },
+    ]
+    : [
+      { value: "ui", label: "UI" },
+      { value: "transparent", label: "Transparent" },
+      { value: "solid", label: "Solid" },
+    ];
+  const backgroundGroup = createRadioGroup("cwie-bg", backgroundOptions);
 
   const solidColorInput = document.createElement("input");
   solidColorInput.type = "color";
@@ -307,6 +323,15 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
 
   const advancedBody = document.createElement("div");
   advancedBody.className = "cwie-advanced-body";
+
+  function markNode2UnsupportedRow(row, reason) {
+    if (!isNode2Backend || !row) return row;
+    row.classList.add("is-node2-disabled");
+    row.setAttribute("aria-disabled", "true");
+    row.dataset.node2Reason = reason;
+    row.title = reason;
+    return row;
+  }
 
   const pngCompressionInput = document.createElement("input");
   pngCompressionInput.type = "range";
@@ -440,7 +465,8 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
     formatSelect.setValue(nextState.format);
     embedToggle.input.checked = nextState.embedWorkflow;
     syncEmbedAvailability(nextState.format);
-    const bgInput = backgroundGroup.inputs.get(nextState.background);
+    const background = backgroundGroup.inputs.has(nextState.background) ? nextState.background : "ui";
+    const bgInput = backgroundGroup.inputs.get(background);
     if (bgInput) {
       bgInput.checked = true;
     }
@@ -455,28 +481,24 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
     maxLongEdgeInput.value = String(nextState.maxLongEdge);
     exceedSelect.setValue(nextState.exceedMode);
     if (solidColorRow) {
-      solidColorRow.classList.toggle("is-hidden", nextState.background !== "solid");
+      solidColorRow.classList.toggle("is-hidden", background !== "solid");
     }
     scopeToggle.input.checked = Boolean(nextState.scopeSelected);
     const opacityValue = Number.isFinite(Number(nextState.scopeOpacity)) ? nextState.scopeOpacity : 40;
     scopeOpacityInput.value = String(opacityValue);
     scopeOpacityValue.textContent = String(opacityValue);
-    previewFrame.classList.toggle("is-transparent", nextState.background === "transparent");
+    previewFrame.classList.toggle("is-transparent", background === "transparent");
     if (debugToggle?.input) {
       debugToggle.input.checked = Boolean(nextState.debug);
     }
     if (isNode2Backend) {
       paddingInput.disabled = true;
       nodeOpacityInput.disabled = true;
+      pngCompressionInput.disabled = true;
+      maxLongEdgeInput.disabled = true;
       scopeToggle.input.disabled = true;
       scopeOpacityInput.disabled = true;
       exceedSelect.setDisabled(true);
-      const transparentInput = backgroundGroup.inputs.get("transparent");
-      if (transparentInput) transparentInput.disabled = true;
-      if (nextState.background === "transparent") {
-        const uiInput = backgroundGroup.inputs.get("ui");
-        if (uiInput) uiInput.checked = true;
-      }
     }
   }
 
@@ -495,9 +517,6 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
     });
     state = {
       ...normalized,
-      background: isNode2Backend && normalized.background === "transparent"
-        ? "ui"
-        : normalized.background,
       debug: prevDebug,
       scopeSelected: Boolean(scopeToggle.input.checked),
       scopeOpacity: Number.parseInt(scopeOpacityInput.value, 10) || 0,
@@ -1018,22 +1037,46 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
 
   solidColorRow = createRow("Solid color", solidColorInput);
   controlsScroll.appendChild(solidColorRow);
-  controlsScroll.appendChild(
-    createRow("Node opacity", nodeOpacityWrapper, {
-      helpText: "Controls node background opacity in exports.",
-    })
-  );
-  controlsScroll.appendChild(createRow("Padding", paddingWrapper));
-  controlsScroll.appendChild(createRow("Scope", scopeToggle.wrapper));
-  controlsScroll.appendChild(
-    createRow("Scope opacity", scopeOpacityWrapper, {
-      helpText: "Opacity for non-selected nodes when Scope is enabled.",
-    })
-  );
+  const nodeOpacityRow = createRow("Node opacity", nodeOpacityWrapper, {
+    helpText: "Controls node background opacity in exports.",
+  });
+  controlsScroll.appendChild(markNode2UnsupportedRow(
+    nodeOpacityRow,
+    "Node opacity is only available in the legacy renderer."
+  ));
+  const paddingRow = createRow("Padding", paddingWrapper);
+  controlsScroll.appendChild(markNode2UnsupportedRow(
+    paddingRow,
+    "Padding is not applied in Node 2.0 compositor capture."
+  ));
+  const scopeRow = createRow("Scope", scopeToggle.wrapper);
+  controlsScroll.appendChild(markNode2UnsupportedRow(
+    scopeRow,
+    "Selection scope is not available in Node 2.0 compositor capture."
+  ));
+  const scopeOpacityRow = createRow("Scope opacity", scopeOpacityWrapper, {
+    helpText: "Opacity for non-selected nodes when Scope is enabled.",
+  });
+  controlsScroll.appendChild(markNode2UnsupportedRow(
+    scopeOpacityRow,
+    "Scope opacity is only available when selection scope is supported."
+  ));
 
-  advancedBody.appendChild(createRow("PNG Compression", pngCompressionWrapper));
-  advancedBody.appendChild(createRow("Max long edge", maxLongEdgeInput));
-  advancedBody.appendChild(createRow("If exceeded", exceedSelect.root));
+  const pngCompressionRow = createRow("PNG Compression", pngCompressionWrapper);
+  advancedBody.appendChild(markNode2UnsupportedRow(
+    pngCompressionRow,
+    "PNG compression level is not applied to browser compositor capture."
+  ));
+  const maxLongEdgeRow = createRow("Max long edge", maxLongEdgeInput);
+  advancedBody.appendChild(markNode2UnsupportedRow(
+    maxLongEdgeRow,
+    "Max long edge downscaling is not used for Node 2.0 tiled compositor capture."
+  ));
+  const exceedRow = createRow("If exceeded", exceedSelect.root);
+  advancedBody.appendChild(markNode2UnsupportedRow(
+    exceedRow,
+    "Node 2.0 currently uses its compositor capture path; this mode is fixed by the backend."
+  ));
 
   // Debug Toggle
   const debugToggle = createToggle();

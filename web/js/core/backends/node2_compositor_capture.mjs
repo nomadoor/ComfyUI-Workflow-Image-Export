@@ -370,6 +370,102 @@ function createNode2CanvasInfoHider(canvas) {
   };
 }
 
+function createNode2BackgroundOverride(options = {}) {
+  const mode = String(options.background || "ui");
+  if (mode !== "solid") {
+    return { async apply() {}, async restore() {} };
+  }
+  const color = typeof options.solidColor === "string" && options.solidColor.trim()
+    ? options.solidColor.trim()
+    : "#000000";
+  const solidDataUrl = createSolidBackgroundDataUrl(color);
+  const changedElements = new Map();
+  const changedCanvas = new Map();
+  let documentBgImg = null;
+  let documentBgImgPriority = "";
+
+  const saveElement = (el) => {
+    if (!(el instanceof HTMLElement) || changedElements.has(el)) return;
+    changedElements.set(el, {
+      background: el.style.background,
+      backgroundColor: el.style.backgroundColor,
+      backgroundImage: el.style.backgroundImage,
+    });
+  };
+  const saveCanvasProp = (canvas, key) => {
+    if (!canvas || changedCanvas.has(key)) return;
+    changedCanvas.set(key, canvas[key]);
+  };
+  const redraw = () => {
+    const canvas = app?.canvas;
+    canvas?.setDirty?.(true, true);
+    canvas?.setDirtyCanvas?.(true, true);
+    try {
+      canvas?.draw?.(true, true);
+    } catch (_) {}
+  };
+  return {
+    async apply() {
+      const { root } = getNode2Layers();
+      const graphContainer = document.querySelector("#graph-canvas-container");
+      documentBgImg = document.documentElement.style.getPropertyValue("--bg-img");
+      documentBgImgPriority = document.documentElement.style.getPropertyPriority("--bg-img");
+      document.documentElement.style.setProperty("--bg-img", `url("${solidDataUrl}")`);
+      for (const el of [root, graphContainer]) {
+        if (!(el instanceof HTMLElement)) continue;
+        saveElement(el);
+        // ComfyUI's Canvas.BackgroundImage mode makes the canvas clear transparent
+        // so the CSS background behind the graph remains visible while links/nodes draw on top.
+        el.style.background = `${color} url("${solidDataUrl}") repeat`;
+        el.style.backgroundColor = color;
+        el.style.backgroundImage = `url("${solidDataUrl}")`;
+      }
+      const canvas = app?.canvas;
+      if (canvas) {
+        saveCanvasProp(canvas, "clear_background_color");
+        saveCanvasProp(canvas, "background_image");
+        saveCanvasProp(canvas, "_pattern");
+        canvas.clear_background_color = "transparent";
+        canvas.background_image = null;
+        canvas._pattern = undefined;
+      }
+      redraw();
+      await new Promise((resolve) => requestAnimationFrame(() => resolve()));
+      await new Promise((resolve) => requestAnimationFrame(() => resolve()));
+    },
+    async restore() {
+      if (documentBgImg === "") {
+        document.documentElement.style.removeProperty("--bg-img");
+      } else if (documentBgImg !== null) {
+        document.documentElement.style.setProperty("--bg-img", documentBgImg, documentBgImgPriority);
+      }
+      for (const [el, style] of Array.from(changedElements.entries()).reverse()) {
+        el.style.background = style.background;
+        el.style.backgroundColor = style.backgroundColor;
+        el.style.backgroundImage = style.backgroundImage;
+      }
+      const canvas = app?.canvas;
+      for (const [key, value] of changedCanvas.entries()) {
+        try {
+          canvas[key] = value;
+        } catch (_) {}
+      }
+      changedElements.clear();
+      changedCanvas.clear();
+      documentBgImg = null;
+      documentBgImgPriority = "";
+      redraw();
+      await new Promise((resolve) => requestAnimationFrame(() => resolve()));
+    },
+  };
+}
+
+function createSolidBackgroundDataUrl(color) {
+  const safeColor = /^#[0-9a-f]{3}(?:[0-9a-f]{3})?$/i.test(color) ? color : "#000000";
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32"><rect width="32" height="32" fill="${safeColor}"/></svg>`;
+  return `data:image/svg+xml,${encodeURIComponent(svg)}`;
+}
+
 function hideNode2CaptureChrome(hider) {
   const { root, graphCanvas, transformPane, linkOverlayCanvas, vueNodes } = getNode2Layers();
   if (!root) return;
@@ -1431,12 +1527,14 @@ export async function captureNode2SingleFrame(options = {}) {
   const captureHandle = await maybeSetCaptureHandle(log);
   const chromeHider = createNode2ChromeHider();
   const canvasInfoHider = createNode2CanvasInfoHider(app?.canvas);
+  const backgroundOverride = createNode2BackgroundOverride(options);
 
   let stream = null;
   let interactionShield = null;
   try {
     stream = await requestDisplayMedia(log);
     document.documentElement.classList.add("cwie-node2-capturing");
+    await backgroundOverride.apply();
     canvasInfoHider.hide();
     hideNode2CaptureChrome(chromeHider);
     hideKnownComfyChrome(chromeHider);
@@ -1454,6 +1552,7 @@ export async function captureNode2SingleFrame(options = {}) {
     interactionShield?.remove();
     stopStream(stream);
     chromeHider.restore();
+    await backgroundOverride.restore();
     canvasInfoHider.restore();
     document.documentElement.classList.remove("cwie-node2-capturing");
   }
@@ -1764,6 +1863,7 @@ async function captureNode2TiledFromFit(fitInfo, options = {}) {
   const captureHandle = await maybeSetCaptureHandle(log);
   const chromeHider = createNode2ChromeHider();
   const canvasInfoHider = createNode2CanvasInfoHider(canvas);
+  const backgroundOverride = createNode2BackgroundOverride(options);
 
   ensureNode2CaptureStyle();
 
@@ -1773,6 +1873,7 @@ async function captureNode2TiledFromFit(fitInfo, options = {}) {
   try {
     stream = await requestDisplayMedia(log);
     document.documentElement.classList.add("cwie-node2-capturing");
+    await backgroundOverride.apply();
     canvasInfoHider.hide();
     hideNode2CaptureChrome(chromeHider);
     hideKnownComfyChrome(chromeHider);
@@ -2002,6 +2103,7 @@ async function captureNode2TiledFromFit(fitInfo, options = {}) {
     releaseHiddenVideo(prepared?.video);
     stopStream(stream);
     chromeHider.restore();
+    await backgroundOverride.restore();
     canvasInfoHider.restore();
     document.documentElement.classList.remove("cwie-node2-capturing");
     setNode2CanvasView(canvas, ds, saved.offset, saved.scale);
@@ -2025,9 +2127,6 @@ function collectNode2Warnings(options = {}) {
   const warnings = [];
   if (options.background === "transparent") {
     warnings.push("node2:transparent_background_unsupported");
-  }
-  if (options.background === "solid") {
-    warnings.push("node2:solid_background_best_effort");
   }
   if (Number(options.padding) > 0) {
     warnings.push("node2:padding_unsupported");
