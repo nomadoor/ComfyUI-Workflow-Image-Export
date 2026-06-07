@@ -216,6 +216,16 @@ function rectsIntersect(a, b) {
   return a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
 }
 
+function isVisibleElement(el) {
+  if (!(el instanceof Element)) return false;
+  const style = window.getComputedStyle(el);
+  if (style.display === "none" || style.visibility === "hidden" || style.visibility === "collapse") {
+    return false;
+  }
+  const opacity = Number.parseFloat(style.opacity);
+  return !Number.isFinite(opacity) || opacity > 0.01;
+}
+
 function hideIntersectingChrome() {
   const { root, graphCanvas, transformPane, linkOverlayCanvas, vueNodes } = getNode2Layers();
   if (!root) return () => {};
@@ -248,18 +258,35 @@ function hideIntersectingChrome() {
   };
 }
 
-function measureNode2DomCropRect(root, paddingPx) {
+function collectNode2VisualRects(root) {
   if (!root) return null;
   const rootRect = root.getBoundingClientRect();
-  const nodeRects = asArray(root.querySelectorAll("[data-node-id]"))
-    .map((node) => node.getBoundingClientRect())
-    .filter((rect) => rect.width > 0 && rect.height > 0 && rectsIntersect(rect, rootRect));
-  if (!nodeRects.length) return null;
+  const rects = [];
+  for (const node of asArray(root.querySelectorAll("[data-node-id]"))) {
+    const candidates = [node, ...asArray(node.querySelectorAll("*"))];
+    for (const el of candidates) {
+      if (!isVisibleElement(el)) continue;
+      const rect = el.getBoundingClientRect();
+      if (rect.width <= 1 || rect.height <= 1 || !rectsIntersect(rect, rootRect)) continue;
+      const coversRoot =
+        rect.width >= rootRect.width * 0.92 ||
+        rect.height >= rootRect.height * 0.92;
+      if (coversRoot) continue;
+      rects.push(rect);
+    }
+  }
+  return { rootRect, rects };
+}
+
+function measureNode2DomCropRect(root, paddingPx) {
+  const measured = collectNode2VisualRects(root);
+  if (!measured?.rects?.length) return null;
+  const { rootRect, rects } = measured;
   let left = Infinity;
   let top = Infinity;
   let right = -Infinity;
   let bottom = -Infinity;
-  for (const rect of nodeRects) {
+  for (const rect of rects) {
     left = Math.min(left, rect.left - rootRect.left);
     top = Math.min(top, rect.top - rootRect.top);
     right = Math.max(right, rect.right - rootRect.left);
@@ -278,16 +305,14 @@ function measureNode2DomGraphBBox(root, ds) {
   if (!root || !ds || !Array.isArray(ds.offset)) return null;
   const scale = Number(ds.scale) || 1;
   if (!Number.isFinite(scale) || scale <= 0) return null;
-  const rootRect = root.getBoundingClientRect();
-  const nodeRects = asArray(root.querySelectorAll("[data-node-id]"))
-    .map((node) => node.getBoundingClientRect())
-    .filter((rect) => rect.width > 0 && rect.height > 0);
-  if (!nodeRects.length) return null;
+  const measured = collectNode2VisualRects(root);
+  if (!measured?.rects?.length) return null;
+  const { rootRect, rects } = measured;
   let minX = Infinity;
   let minY = Infinity;
   let maxX = -Infinity;
   let maxY = -Infinity;
-  for (const rect of nodeRects) {
+  for (const rect of rects) {
     const left = ((rect.left - rootRect.left) / scale) - ds.offset[0];
     const top = ((rect.top - rootRect.top) / scale) - ds.offset[1];
     const right = ((rect.right - rootRect.left) / scale) - ds.offset[0];
@@ -307,6 +332,7 @@ function measureNode2DomGraphBBox(root, ds) {
     maxY,
     width: Math.max(1, maxX - minX),
     height: Math.max(1, maxY - minY),
+    measuredRects: rects.length,
   };
 }
 
