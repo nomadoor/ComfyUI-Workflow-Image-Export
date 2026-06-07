@@ -119,6 +119,10 @@ function ensureSpikeStyle() {
     html.cwie-node2-capturing .cwie-dialog-backdrop {
       visibility: hidden !important;
     }
+
+    html.cwie-node2-capturing #graph-canvas-container > :not(#graph-canvas):not([data-testid="transform-pane"]):not(canvas:not([id])) {
+      visibility: hidden !important;
+    }
   `;
   document.head.appendChild(style);
 }
@@ -167,13 +171,13 @@ async function waitVideoMetadata(video, log) {
   }), "hidden video metadata");
 }
 
-async function waitVideoFrame(video, count = 2, log) {
+async function waitVideoFrame(video, count = 2, log, timeoutMs = 3000) {
   for (let i = 0; i < count; i += 1) {
     if (typeof video.requestVideoFrameCallback === "function") {
       try {
         await withTimeout(new Promise((resolve) => {
           video.requestVideoFrameCallback(() => resolve());
-        }), `video frame ${i + 1}`);
+        }), `video frame ${i + 1}`, timeoutMs);
       } catch (error) {
         if (video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA || !video.videoWidth || !video.videoHeight) {
           throw error;
@@ -319,9 +323,13 @@ async function captureFrameFromStream(stream, target, targetName, captureHandle,
       log,
     });
     logStep(log, "target.apply", report.restriction);
-    await waitVideoFrame(video, 2, log);
+    const frameCount = Math.max(1, Number(options.frameCount) || 2);
+    const frameTimeoutMs = Math.max(50, Number(options.frameTimeoutMs) || 3000);
+    await waitVideoFrame(video, frameCount, log, frameTimeoutMs);
     const { canvas, ctx, width, height } = drawVideoToCanvas(video);
-    const probe = await canvasProbe(canvas, ctx, width, height);
+    const probe = options.probe === false
+      ? { blobOk: true, blobType: null, blobSize: 0, probed: false }
+      : await canvasProbe(canvas, ctx, width, height);
     report.frame = {
       width,
       height,
@@ -465,6 +473,9 @@ export async function captureNode2(options = {}) {
     ...options,
     target: options.target || "commonRoot",
     includeCanvas: true,
+    frameCount: 1,
+    frameTimeoutMs: 250,
+    probe: false,
     log: options.debug ? console.log : null,
   });
   if (report.error) {
