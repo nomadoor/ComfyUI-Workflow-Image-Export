@@ -1,4 +1,5 @@
 import { app } from "/scripts/app.js";
+import { computeGraphBBox } from "../../export/bbox.mjs";
 
 const SPIKE_STYLE_ID = "cwie-node2-spike-style";
 
@@ -125,6 +126,38 @@ function ensureSpikeStyle() {
     }
   `;
   document.head.appendChild(style);
+}
+
+function getNode2Layers() {
+  const graphCanvas = document.querySelector("#graph-canvas") || app?.canvas?.canvas || null;
+  const transformPane = document.querySelector('[data-testid="transform-pane"]');
+  const root = getGraphRootFromTransformPane(transformPane);
+  const siblingCanvases = root ? asArray(root.querySelectorAll("canvas")) : [];
+  const linkOverlayCanvas = siblingCanvases.find((canvas) => canvas !== graphCanvas && !canvas.id) || null;
+  const vueNodes = transformPane ? asArray(transformPane.querySelectorAll("[data-node-id]")) : [];
+  return { root, graphCanvas, transformPane, linkOverlayCanvas, vueNodes };
+}
+
+function hideNode2CaptureChrome() {
+  const { root, graphCanvas, transformPane, linkOverlayCanvas, vueNodes } = getNode2Layers();
+  if (!root) return () => {};
+  const keepTree = [graphCanvas, linkOverlayCanvas].filter(Boolean);
+  const changed = [];
+  const shouldKeep = (el) => {
+    if (!el || el === root || el === transformPane) return true;
+    if (keepTree.some((keep) => el === keep || keep.contains(el))) return true;
+    return vueNodes.some((node) => el === node || node.contains(el) || el.contains(node));
+  };
+  for (const el of asArray(root.querySelectorAll("*"))) {
+    if (!(el instanceof HTMLElement) || shouldKeep(el)) continue;
+    changed.push([el, el.style.visibility]);
+    el.style.visibility = "hidden";
+  }
+  return () => {
+    for (const [el, visibility] of changed) {
+      el.style.visibility = visibility;
+    }
+  };
 }
 
 function stopStream(stream) {
@@ -413,6 +446,7 @@ export async function runNode2CaptureFrameSpike(options = {}) {
   ensureSpikeStyle();
   const captureHandle = await maybeSetCaptureHandle(log);
   document.documentElement.classList.add("cwie-node2-capturing");
+  const restoreHiddenChrome = hideNode2CaptureChrome();
 
   let stream = null;
   try {
@@ -427,7 +461,60 @@ export async function runNode2CaptureFrameSpike(options = {}) {
     return report;
   } finally {
     stopStream(stream);
+    restoreHiddenChrome();
     document.documentElement.classList.remove("cwie-node2-capturing");
+  }
+}
+
+async function waitForNode2CameraSettle(ms = 320) {
+  await new Promise((resolve) => requestAnimationFrame(() => resolve()));
+  await new Promise((resolve) => requestAnimationFrame(() => resolve()));
+  await new Promise((resolve) => setTimeout(resolve, ms));
+  await new Promise((resolve) => requestAnimationFrame(() => resolve()));
+}
+
+async function withFitNode2View(options, fn) {
+  if (options.fitView === false) {
+    return fn();
+  }
+  const canvas = app?.canvas;
+  const ds = canvas?.ds;
+  const root = getNode2Layers().root;
+  const graph = app?.graph || canvas?.graph;
+  if (!canvas?.canvas || !ds || !Array.isArray(ds.offset) || !graph || !root) {
+    return fn();
+  }
+
+  const original = {
+    offset: [ds.offset[0], ds.offset[1]],
+    scale: ds.scale || 1,
+  };
+  const rect = root.getBoundingClientRect();
+  const paddingPx = Math.max(24, Math.min(96, Number(options.fitPaddingPx) || 64));
+  const bbox = computeGraphBBox(graph, {
+    padding: 0,
+    useBounding: true,
+    debug: Boolean(options.debug),
+  });
+  const availableWidth = Math.max(1, rect.width - paddingPx * 2);
+  const availableHeight = Math.max(1, rect.height - paddingPx * 2);
+  const scale = Math.max(
+    0.05,
+    Math.min(1.2, availableWidth / bbox.width, availableHeight / bbox.height)
+  );
+  ds.scale = scale;
+  ds.offset[0] = paddingPx / scale - bbox.minX;
+  ds.offset[1] = paddingPx / scale - bbox.minY;
+  canvas.setDirty?.(true, true);
+  await waitForNode2CameraSettle();
+  try {
+    return await fn();
+  } finally {
+    ds.scale = original.scale;
+    ds.offset[0] = original.offset[0];
+    ds.offset[1] = original.offset[1];
+    canvas.setDirty?.(true, true);
+    await waitForNode2CameraSettle(120);
   }
 }
 
@@ -469,7 +556,7 @@ function collectNode2Warnings(options = {}) {
 export async function captureNode2(options = {}) {
   const format = String(options.format || "png").toLowerCase();
   const mime = format === "webp" ? "image/webp" : "image/png";
-  const report = await runNode2CaptureFrameSpike({
+  const report = await withFitNode2View(options, () => runNode2CaptureFrameSpike({
     ...options,
     target: options.target || "commonRoot",
     includeCanvas: true,
@@ -477,7 +564,7 @@ export async function captureNode2(options = {}) {
     frameTimeoutMs: 250,
     probe: false,
     log: options.debug ? console.log : null,
-  });
+  }));
   if (report.error) {
     throw new Error(`Node 2.0 capture failed: ${report.error.message || "unknown error"}`);
   }
