@@ -35,6 +35,16 @@ export function getLegacyCanvasMenuHook() {
 }
 
 export function detectBackend() {
+  if (typeof document !== "undefined") {
+    const transformPane = document.querySelector?.('[data-testid="transform-pane"]');
+    const graphCanvas = document.querySelector?.("#graph-canvas");
+    const root = transformPane?.closest?.("#graph-canvas-container") ||
+      transformPane?.parentElement;
+    const rootCanvases = root?.querySelectorAll?.("canvas")?.length || 0;
+    if (transformPane && graphCanvas && rootCanvases >= 2) {
+      return "node2";
+    }
+  }
   return "legacy";
 }
 

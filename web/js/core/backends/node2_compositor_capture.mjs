@@ -115,6 +115,7 @@ function ensureSpikeStyle() {
     html.cwie-node2-capturing .p-tooltip,
     html.cwie-node2-capturing .p-contextmenu,
     html.cwie-node2-capturing .litegraph.litecontextmenu,
+    html.cwie-node2-capturing .cwie-backdrop,
     html.cwie-node2-capturing .cwie-dialog-backdrop {
       visibility: hidden !important;
     }
@@ -327,6 +328,9 @@ async function captureFrameFromStream(stream, target, targetName, captureHandle,
       dpr: window.devicePixelRatio || 1,
       ...probe,
     };
+    if (options.includeCanvas) {
+      report.canvas = canvas;
+    }
     logStep(log, "frame.ok", report.frame);
     return report;
   } catch (error) {
@@ -393,7 +397,7 @@ async function applyTargetRestriction(track, target, { prefer = "restriction", l
 }
 
 export async function runNode2CaptureFrameSpike(options = {}) {
-  const log = options.log || console.log;
+  const log = Object.hasOwn(options, "log") ? options.log : console.log;
   const targetName = options.target || "commonRoot";
   const target = resolveTarget(targetName);
   const report = { startedAt: new Date().toISOString(), targetName, before: inspectNode2Targets() };
@@ -419,6 +423,72 @@ export async function runNode2CaptureFrameSpike(options = {}) {
   }
 }
 
+function toBlob(canvas, mime) {
+  return new Promise((resolve, reject) => {
+    canvas.toBlob((blob) => {
+      if (!blob) {
+        reject(new Error("Node 2.0 capture failed: canvas encoding returned no blob."));
+        return;
+      }
+      resolve(blob);
+    }, mime);
+  });
+}
+
+function collectNode2Warnings(options = {}) {
+  const warnings = [];
+  if (options.background === "transparent") {
+    warnings.push("node2:transparent_background_unsupported");
+  }
+  if (options.background === "solid") {
+    warnings.push("node2:solid_background_best_effort");
+  }
+  if (Number(options.padding) > 0) {
+    warnings.push("node2:padding_unsupported");
+  }
+  if (Boolean(options.scopeSelected)) {
+    warnings.push("node2:selection_crop_unsupported");
+  }
+  if (Number(options.nodeOpacity) < 100) {
+    warnings.push("node2:node_opacity_unsupported");
+  }
+  if (options.exceedMode === "tile") {
+    warnings.push("node2:tiled_export_unsupported");
+  }
+  return warnings;
+}
+
+export async function captureNode2(options = {}) {
+  const format = String(options.format || "png").toLowerCase();
+  const mime = format === "webp" ? "image/webp" : "image/png";
+  const report = await runNode2CaptureFrameSpike({
+    ...options,
+    target: options.target || "commonRoot",
+    includeCanvas: true,
+    log: options.debug ? console.log : null,
+  });
+  if (report.error) {
+    throw new Error(`Node 2.0 capture failed: ${report.error.message || "unknown error"}`);
+  }
+  if (!report.canvas || !report.frame?.blobOk) {
+    throw new Error("Node 2.0 capture failed: no captured frame was produced.");
+  }
+  const blob = await toBlob(report.canvas, mime);
+  const warnings = collectNode2Warnings(options);
+  if (report.restriction?.attempted && !report.restriction.ok) {
+    warnings.push(`node2:target_restriction_failed:${report.restriction.attempted}`);
+  }
+  return {
+    type: "raster",
+    mime,
+    blob,
+    width: report.canvas.width,
+    height: report.canvas.height,
+    cwieWarnings: warnings,
+    node2Report: report,
+  };
+}
+
 async function waitAfterCameraMove() {
   await new Promise((resolve) => requestAnimationFrame(() => resolve()));
   await new Promise((resolve) => requestAnimationFrame(() => resolve()));
@@ -434,7 +504,7 @@ function setCanvasView(ds, offset, scale) {
 }
 
 export async function runNode2TileProbe(options = {}) {
-  const log = options.log || console.log;
+  const log = Object.hasOwn(options, "log") ? options.log : console.log;
   const canvas = app?.canvas;
   const ds = canvas?.ds;
   if (!canvas?.canvas || !ds || !Array.isArray(ds.offset)) {

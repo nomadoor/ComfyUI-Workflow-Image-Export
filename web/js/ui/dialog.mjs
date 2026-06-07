@@ -139,19 +139,17 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
 
   ensureStyles();
 
-  if (detectBackendType() === "node2") {
-    openMessageDialog({
-      title: "Node2.0 Unsupported",
-      message: "Node2.0 is not supported yet.",
-    });
-    return;
-  }
+  const backendType = detectBackendType();
+  const isNode2Backend = backendType === "node2";
 
   let state = buildInitialState({
     defaults: getDefaultsFromSettings(),
     lastUsed: loadLastUsed(),
     debugEnabled: isDebugEnabled(),
   });
+  if (isNode2Backend && state.background === "transparent") {
+    state = { ...state, background: "ui" };
+  }
 
   const backdrop = document.createElement("div");
   backdrop.className = "cwie-backdrop";
@@ -207,6 +205,12 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
   const basicTitle = document.createElement("div");
   basicTitle.className = "cwie-section-title";
   basicTitle.textContent = "Basic";
+
+  const backendNote = document.createElement("div");
+  backendNote.className = "cwie-note";
+  backendNote.textContent = isNode2Backend
+    ? "Node 2.0 export captures the visible graph view when you press Export."
+    : "";
 
   const formatSelect = createSelect("format", [
     { value: "png", label: "PNG" },
@@ -461,6 +465,19 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
     if (debugToggle?.input) {
       debugToggle.input.checked = Boolean(nextState.debug);
     }
+    if (isNode2Backend) {
+      paddingInput.disabled = true;
+      nodeOpacityInput.disabled = true;
+      scopeToggle.input.disabled = true;
+      scopeOpacityInput.disabled = true;
+      exceedSelect.setDisabled(true);
+      const transparentInput = backgroundGroup.inputs.get("transparent");
+      if (transparentInput) transparentInput.disabled = true;
+      if (nextState.background === "transparent") {
+        const uiInput = backgroundGroup.inputs.get("ui");
+        if (uiInput) uiInput.checked = true;
+      }
+    }
   }
 
   function updateStateFromControls() {
@@ -478,6 +495,9 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
     });
     state = {
       ...normalized,
+      background: isNode2Backend && normalized.background === "transparent"
+        ? "ui"
+        : normalized.background,
       debug: prevDebug,
       scopeSelected: Boolean(scopeToggle.input.checked),
       scopeOpacity: Number.parseInt(scopeOpacityInput.value, 10) || 0,
@@ -487,6 +507,15 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
   let scopeInitialized = false;
 
   function updateScopeAvailability(forceDefault = false) {
+    if (isNode2Backend) {
+      scopeToggle.input.checked = false;
+      scopeToggle.input.disabled = true;
+      scopeOpacityInput.disabled = true;
+      scopeOpacityInput.value = "40";
+      scopeOpacityValue.textContent = "40";
+      scopeInitialized = true;
+      return;
+    }
     const selectedIds = getSelectedNodeIds();
     const hasSelection = selectedIds.length > 0;
     scopeToggle.input.disabled = !hasSelection;
@@ -584,6 +613,10 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
 
   async function renderPreview(previewStateOverride = null, options = {}) {
     if (dialogClosed) return;
+    if (isNode2Backend) {
+      previewFrame.classList.remove("is-loading");
+      return null;
+    }
     if (previewPaused && !options.force) {
       previewQueued = true;
       return;
@@ -653,6 +686,7 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
 
   function schedulePreview(delay = 450) {
     if (dialogClosed) return;
+    if (isNode2Backend) return;
     if (previewPaused) {
       previewQueued = true;
       return;
@@ -849,7 +883,19 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
     let messageDialogPayload = null;
     try {
       let blob;
-      if (state.format === "png" || state.format === "webp") {
+      if (isNode2Backend) {
+        logExportPhase("capture.node2.start");
+        blob = await capture({
+          ...state,
+          background: state.background === "transparent" ? "ui" : state.background,
+          padding: 0,
+          nodeOpacity: 100,
+          scopeSelected: false,
+          exceedMode: "downscale",
+          onProgress: updateExportProgress,
+        });
+        logExportPhase("capture.node2.done");
+      } else if (state.format === "png" || state.format === "webp") {
         const previewState = buildPreviewState();
         const previewKey = getPreviewStateKey(previewState);
         logExportPhase("preview.capture.start");
@@ -942,6 +988,9 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
   footer.appendChild(webpNote);
 
   controlsScroll.appendChild(basicTitle);
+  if (backendNote.textContent) {
+    controlsScroll.appendChild(backendNote);
+  }
   controlsScroll.appendChild(createRow("Format", formatSelect.root));
   controlsScroll.appendChild(createRow("Embed workflow", embedToggle.wrapper));
   controlsScroll.appendChild(embedNote);
@@ -999,9 +1048,15 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
   updateScopeAvailability(true);
   previewFrame.classList.toggle("is-transparent", state.background === "transparent");
   solidColorRow.classList.toggle("is-hidden", state.background !== "solid");
+  if (isNode2Backend) {
+    previewFrame.classList.remove("is-loading");
+    previewFrame.classList.add("is-message");
+    previewLoading.querySelector(".cwie-preview-loading-text").textContent =
+      "Node 2.0 capture runs on export.";
+  }
   // Defer first preview so the dialog paints immediately.
   setTimeout(() => {
-    if (!dialogClosed) {
+    if (!dialogClosed && !isNode2Backend) {
       schedulePreview(0);
     }
   }, 0);

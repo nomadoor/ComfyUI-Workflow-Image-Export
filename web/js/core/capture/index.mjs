@@ -1,6 +1,7 @@
 import { app } from "/scripts/app.js";
 import { detectBackend } from "../detect.mjs";
 import { captureLegacy } from "../backends/legacy_capture.mjs";
+import { captureNode2 } from "../backends/node2_compositor_capture.mjs";
 import { applyBackground, downscaleIfNeeded } from "../postprocess/raster.mjs";
 import { exportWorkflowPng } from "../../export/index.mjs";
 import { embedWorkflowInPngBlob } from "../../export/png_embed_workflow.mjs";
@@ -63,9 +64,7 @@ export async function capture(options = {}) {
 
   let result;
   if (backend === "node2") {
-    const error = new Error("Node2.0 is not supported yet.");
-    error.code = NODE2_UNSUPPORTED_CODE;
-    throw error;
+    result = await captureNode2(normalized);
   } else if (normalized.format === "png" || normalized.format === "webp") {
     const selectedNodeIds = Array.isArray(normalized.selectedNodeIds)
       ? normalized.selectedNodeIds

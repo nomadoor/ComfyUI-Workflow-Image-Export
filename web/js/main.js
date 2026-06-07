@@ -67,15 +67,15 @@ function installNode2SpikeApi() {
   const root = window.__cwie__ || {};
   root.node2Spike = {
     async inspect() {
-      const mod = await import("./core/backends/node2_compositor_spike.mjs");
+      const mod = await import("./core/backends/node2_compositor_capture.mjs");
       return mod.inspectNode2Targets();
     },
     async captureFrame(options = {}) {
-      const mod = await import("./core/backends/node2_compositor_spike.mjs");
+      const mod = await import("./core/backends/node2_compositor_capture.mjs");
       return mod.runNode2CaptureFrameSpike(options);
     },
     async tileProbe(options = {}) {
-      const mod = await import("./core/backends/node2_compositor_spike.mjs");
+      const mod = await import("./core/backends/node2_compositor_capture.mjs");
       return mod.runNode2TileProbe(options);
     },
   };

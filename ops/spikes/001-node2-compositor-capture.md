@@ -88,8 +88,14 @@ dialog behavior remain on the existing legacy path.
 Proceed only if `captureFrame({ target: "commonRoot" })` proves that the current
 browser can capture a readable graph-view frame including Vue nodes and links.
 
-If common-root capture works, the next implementation step is a Node 2.0 backend
-behind feature detection that initially supports:
+The local/user browser probe passed after the capture order was adjusted to
+attach and start the hidden video before applying `restrictTo()`. On this
+browser, `requestVideoFrameCallback()` stalled after restriction, but the video
+already had current frame data, so the implementation falls back to
+`requestAnimationFrame()` before drawing to canvas.
+
+The first implementation step is a Node 2.0 backend behind feature detection
+that initially supports:
 
 - PNG/WebP of the visible graph viewport.
 - Solid or UI background only.
@@ -100,4 +106,3 @@ behind feature detection that initially supports:
 If common-root capture fails, do not spend more time on browser-only WYSIWYG
 Node 2.0 export. The more honest route would be an external screenshot backend
 or a future ComfyUI-provided renderer/export API.
-

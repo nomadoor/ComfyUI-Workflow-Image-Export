@@ -115,6 +115,14 @@
   display: flex;
 }
 
+.cwie-preview-frame.is-message .cwie-preview-loading {
+  display: flex;
+}
+
+.cwie-preview-frame.is-message .cwie-preview-loading-icon {
+  display: none;
+}
+
 .cwie-preview-image:not([src]),
 .cwie-preview-image[src=""],
 .cwie-preview-canvas:not([width]),
