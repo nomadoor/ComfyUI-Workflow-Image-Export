@@ -169,9 +169,23 @@ async function waitVideoMetadata(video, log) {
 async function waitVideoFrame(video, count = 2, log) {
   for (let i = 0; i < count; i += 1) {
     if (typeof video.requestVideoFrameCallback === "function") {
-      await withTimeout(new Promise((resolve) => {
-        video.requestVideoFrameCallback(() => resolve());
-      }), `video frame ${i + 1}`);
+      try {
+        await withTimeout(new Promise((resolve) => {
+          video.requestVideoFrameCallback(() => resolve());
+        }), `video frame ${i + 1}`);
+      } catch (error) {
+        if (video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA || !video.videoWidth || !video.videoHeight) {
+          throw error;
+        }
+        logStep(log, "video.frame.fallback", {
+          frame: i + 1,
+          message: error?.message || String(error),
+          readyState: video.readyState,
+          videoWidth: video.videoWidth,
+          videoHeight: video.videoHeight,
+        });
+        await withTimeout(new Promise((resolve) => requestAnimationFrame(() => resolve())), `animation frame fallback ${i + 1}`);
+      }
     } else {
       await withTimeout(new Promise((resolve) => requestAnimationFrame(() => resolve())), `animation frame ${i + 1}`);
     }
