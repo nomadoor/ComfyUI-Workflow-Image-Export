@@ -8,8 +8,11 @@ This spike reviews whether ComfyUI Node 2.0 can be exported as a workflow image
 from inside the normal browser extension, without trying to reproduce the
 Classic LiteGraph offscreen renderer.
 
-This is not a user-facing implementation. The goal is to prove or reject the
-browser-compositor capture path before adding any Node 2.0 export UI.
+Historical note: this spike was not originally a user-facing implementation.
+The initial spike goal was to prove or reject the browser-compositor capture
+path before adding any Node 2.0 export UI. The current PR now includes the
+Node 2.0 export UI path, so this note describes the starting intent rather than
+the current implementation status.
 
 ## Current Findings
 
