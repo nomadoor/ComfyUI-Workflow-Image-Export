@@ -128,17 +128,63 @@ function stopStream(stream) {
   }
 }
 
-async function waitVideoFrame(video, count = 2) {
-  for (let i = 0; i < count; i += 1) {
-    if (typeof video.requestVideoFrameCallback === "function") {
-      await new Promise((resolve) => video.requestVideoFrameCallback(() => resolve()));
-    } else {
-      await new Promise((resolve) => requestAnimationFrame(() => resolve()));
-    }
+function timeoutError(label, timeoutMs) {
+  return new Error(`${label} timed out after ${timeoutMs}ms`);
+}
+
+async function withTimeout(promise, label, timeoutMs = 3000) {
+  let timer = null;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise((_, reject) => {
+        timer = setTimeout(() => reject(timeoutError(label, timeoutMs)), timeoutMs);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
   }
 }
 
-async function attachHiddenVideo(stream) {
+async function waitVideoMetadata(video, log) {
+  if (video.readyState >= HTMLMediaElement.HAVE_METADATA && video.videoWidth && video.videoHeight) {
+    return;
+  }
+  logStep(log, "video.metadata.wait", {
+    readyState: video.readyState,
+    videoWidth: video.videoWidth,
+    videoHeight: video.videoHeight,
+  });
+  await withTimeout(new Promise((resolve, reject) => {
+    video.addEventListener("loadedmetadata", () => resolve(), { once: true });
+    video.addEventListener("resize", () => {
+      if (video.videoWidth && video.videoHeight) resolve();
+    }, { once: true });
+    video.addEventListener("error", () => {
+      reject(new Error(video.error?.message || "hidden video failed to load capture stream"));
+    }, { once: true });
+  }), "hidden video metadata");
+}
+
+async function waitVideoFrame(video, count = 2, log) {
+  for (let i = 0; i < count; i += 1) {
+    if (typeof video.requestVideoFrameCallback === "function") {
+      await withTimeout(new Promise((resolve) => {
+        video.requestVideoFrameCallback(() => resolve());
+      }), `video frame ${i + 1}`);
+    } else {
+      await withTimeout(new Promise((resolve) => requestAnimationFrame(() => resolve())), `animation frame ${i + 1}`);
+    }
+    logStep(log, "video.frame.waited", {
+      frame: i + 1,
+      readyState: video.readyState,
+      videoWidth: video.videoWidth,
+      videoHeight: video.videoHeight,
+    });
+  }
+}
+
+async function attachHiddenVideo(stream, log) {
   const video = document.createElement("video");
   video.muted = true;
   video.playsInline = true;
@@ -146,14 +192,18 @@ async function attachHiddenVideo(stream) {
   video.style.cssText = "position:fixed;left:-10000px;top:-10000px;width:1px;height:1px;opacity:0;pointer-events:none;";
   video.srcObject = stream;
   document.body.appendChild(video);
-  await video.play();
-  if (!video.videoWidth || !video.videoHeight) {
-    await new Promise((resolve, reject) => {
-      video.onloadedmetadata = () => resolve();
-      video.onerror = () => reject(new Error("hidden video failed to load capture stream"));
-    });
-  }
-  await waitVideoFrame(video, 2);
+  logStep(log, "video.attach", {
+    readyState: video.readyState,
+    paused: video.paused,
+  });
+  await waitVideoMetadata(video, log);
+  await withTimeout(video.play(), "hidden video play");
+  logStep(log, "video.play.ok", {
+    readyState: video.readyState,
+    videoWidth: video.videoWidth,
+    videoHeight: video.videoHeight,
+  });
+  await waitVideoFrame(video, 2, log);
   return video;
 }
 
@@ -254,7 +304,7 @@ async function captureFrameFromStream(stream, target, targetName, captureHandle,
   });
   logStep(log, "target.apply", report.restriction);
 
-  const video = await attachHiddenVideo(stream);
+  const video = await attachHiddenVideo(stream, log);
   try {
     const { canvas, ctx, width, height } = drawVideoToCanvas(video);
     const probe = await canvasProbe(canvas, ctx, width, height);
