@@ -1,4 +1,5 @@
 import { app } from "/scripts/app.js";
+import { getSettingsAccess } from "../detect.mjs";
 import { computeGraphBBox } from "../../export/bbox.mjs";
 
 const NODE2_CAPTURE_STYLE_ID = "cwie-node2-capture-style";
@@ -235,6 +236,15 @@ function ensureNode2CaptureStyle() {
       user-select: none !important;
     }
 
+    html.cwie-node2-capturing #graph-canvas-container *,
+    html.cwie-node2-capturing #graph-canvas-container *::before,
+    html.cwie-node2-capturing #graph-canvas-container *::after {
+      pointer-events: none !important;
+      transition-property: none !important;
+      transition-duration: 0s !important;
+      animation: none !important;
+    }
+
     .cwie-node2-pointer-shield {
       position: fixed !important;
       inset: 0 !important;
@@ -288,6 +298,23 @@ function createNode2InteractionShield() {
   };
 }
 
+function createNode2InlineCursorHider(root) {
+  const targets = [document.documentElement, document.body, root].filter((el) => el instanceof HTMLElement);
+  const changed = new Map();
+  for (const el of targets) {
+    changed.set(el, el.style.cursor);
+    el.style.cursor = "none";
+  }
+  return {
+    remove() {
+      for (const [el, cursor] of changed.entries()) {
+        el.style.cursor = cursor;
+      }
+      changed.clear();
+    },
+  };
+}
+
 function getNode2Layers() {
   const graphCanvas = document.querySelector("#graph-canvas") || app?.canvas?.canvas || null;
   const transformPane = document.querySelector('[data-testid="transform-pane"]');
@@ -323,6 +350,8 @@ function createNode2ChromeHider() {
 }
 
 function createNode2CanvasInfoHider(canvas) {
+  const settings = getSettingsAccess(app);
+  const canvasInfoSettingId = "Comfy.Graph.CanvasInfo";
   const forceFalseKeys = [
     "render_canvas_border",
     "render_canvas_info",
@@ -336,8 +365,19 @@ function createNode2CanvasInfoHider(canvas) {
     "render_stats",
   ];
   const changed = new Map();
+  let originalCanvasInfoSetting;
+  let changedCanvasInfoSetting = false;
   return {
-    hide() {
+    async hide() {
+      if (settings?.set) {
+        try {
+          originalCanvasInfoSetting = settings.get?.(canvasInfoSettingId);
+          if (originalCanvasInfoSetting !== undefined) {
+            changedCanvasInfoSetting = true;
+            await settings.set(canvasInfoSettingId, false);
+          }
+        } catch (_) {}
+      }
       if (!canvas) return;
       for (const key of forceFalseKeys) {
         try {
@@ -353,21 +393,37 @@ function createNode2CanvasInfoHider(canvas) {
         canvas.draw?.(true, true);
       } catch (_) {}
     },
-    restore() {
-      if (!canvas) return;
-      for (const [key, value] of changed.entries()) {
+    async restore() {
+      if (canvas) {
+        for (const [key, value] of changed.entries()) {
+          try {
+            canvas[key] = value;
+          } catch (_) {}
+        }
+        changed.clear();
+        canvas.setDirty?.(true, true);
+        canvas.setDirtyCanvas?.(true, true);
         try {
-          canvas[key] = value;
+          canvas.draw?.(true, true);
         } catch (_) {}
       }
-      changed.clear();
-      canvas.setDirty?.(true, true);
-      canvas.setDirtyCanvas?.(true, true);
-      try {
-        canvas.draw?.(true, true);
-      } catch (_) {}
+      if (changedCanvasInfoSetting && settings?.set) {
+        try {
+          await settings.set(canvasInfoSettingId, originalCanvasInfoSetting);
+        } catch (_) {}
+      }
+      changedCanvasInfoSetting = false;
     },
   };
+}
+
+async function waitForNode2CaptureUiSettle(ms = 120) {
+  await new Promise((resolve) => requestAnimationFrame(() => resolve()));
+  await new Promise((resolve) => requestAnimationFrame(() => resolve()));
+  if (ms > 0) {
+    await new Promise((resolve) => setTimeout(resolve, ms));
+  }
+  await new Promise((resolve) => requestAnimationFrame(() => resolve()));
 }
 
 function createNode2BackgroundOverride(options = {}) {
@@ -1531,15 +1587,18 @@ export async function captureNode2SingleFrame(options = {}) {
 
   let stream = null;
   let interactionShield = null;
+  let cursorHider = null;
   try {
     stream = await requestDisplayMedia(log);
     document.documentElement.classList.add("cwie-node2-capturing");
+    interactionShield = createNode2InteractionShield();
+    cursorHider = createNode2InlineCursorHider(target);
     await backgroundOverride.apply();
-    canvasInfoHider.hide();
+    await canvasInfoHider.hide();
     hideNode2CaptureChrome(chromeHider);
     hideKnownComfyChrome(chromeHider);
     hideIntersectingChrome(chromeHider);
-    interactionShield = createNode2InteractionShield();
+    await waitForNode2CaptureUiSettle();
     return await captureFrameFromStream(stream, target, targetName, captureHandle, options, log);
   } catch (error) {
     report.error = {
@@ -1550,10 +1609,11 @@ export async function captureNode2SingleFrame(options = {}) {
     return report;
   } finally {
     interactionShield?.remove();
+    cursorHider?.remove();
     stopStream(stream);
     chromeHider.restore();
     await backgroundOverride.restore();
-    canvasInfoHider.restore();
+    await canvasInfoHider.restore();
     document.documentElement.classList.remove("cwie-node2-capturing");
   }
 }
@@ -1870,15 +1930,18 @@ async function captureNode2TiledFromFit(fitInfo, options = {}) {
   let stream = null;
   let prepared = null;
   let interactionShield = null;
+  let cursorHider = null;
   try {
     stream = await requestDisplayMedia(log);
     document.documentElement.classList.add("cwie-node2-capturing");
+    interactionShield = createNode2InteractionShield();
+    cursorHider = createNode2InlineCursorHider(root);
     await backgroundOverride.apply();
-    canvasInfoHider.hide();
+    await canvasInfoHider.hide();
     hideNode2CaptureChrome(chromeHider);
     hideKnownComfyChrome(chromeHider);
     hideIntersectingChrome(chromeHider);
-    interactionShield = createNode2InteractionShield();
+    await waitForNode2CaptureUiSettle();
     prepared = await prepareFrameCaptureFromStream(
       stream,
       target,
@@ -2100,11 +2163,12 @@ async function captureNode2TiledFromFit(fitInfo, options = {}) {
     };
   } finally {
     interactionShield?.remove();
+    cursorHider?.remove();
     releaseHiddenVideo(prepared?.video);
     stopStream(stream);
     chromeHider.restore();
     await backgroundOverride.restore();
-    canvasInfoHider.restore();
+    await canvasInfoHider.restore();
     document.documentElement.classList.remove("cwie-node2-capturing");
     setNode2CanvasView(canvas, ds, saved.offset, saved.scale);
     await waitForNode2CameraSettle(120);
@@ -2296,10 +2360,13 @@ export async function runNode2TileProbe(options = {}) {
   const captureHandle = await maybeSetCaptureHandle(log);
   let stream = null;
   let interactionShield = null;
+  let cursorHider = null;
   try {
     stream = await requestDisplayMedia(log);
     document.documentElement.classList.add("cwie-node2-capturing");
     interactionShield = createNode2InteractionShield();
+    cursorHider = createNode2InlineCursorHider(target);
+    await waitForNode2CaptureUiSettle();
     for (let y = 0; y < tileCount; y += 1) {
       for (let x = 0; x < tileCount; x += 1) {
         setCanvasView(ds, [
@@ -2332,6 +2399,7 @@ export async function runNode2TileProbe(options = {}) {
     };
   } finally {
     interactionShield?.remove();
+    cursorHider?.remove();
     stopStream(stream);
     document.documentElement.classList.remove("cwie-node2-capturing");
     setCanvasView(ds, original.offset, original.scale);
