@@ -10,6 +10,7 @@ import {
   normalizeSelectedNodeIds,
   shouldRenderResolvedNode,
 } from "./legacy_overlay_utils.mjs";
+import { drawMediaSafely } from "./safe_media_draw.mjs";
 import {
   captureElementAsCanvas,
   drawTextBlockToRect,
@@ -166,9 +167,11 @@ export async function drawDomWidgetOverlays({
       const captureBlank = captured?.canvas ? isCanvasBlank(captured.canvas) : false;
 
       if (captured?.canvas && !captureBlank) {
-        exportCtx.drawImage(captured.canvas, rx, ry, rw, rh);
-        drawn = true;
-        reason = "rendered-capture-drawn";
+        const result = drawMediaSafely(exportCtx, captured.canvas, rx, ry, rw, rh, {
+          placeholderLabel: "widget blocked",
+        });
+        drawn = result.ok;
+        reason = result.ok ? "rendered-capture-drawn" : `rendered-capture-${result.reason}`;
       } else {
         // Browser-only, dependency-free markdown export is content-first.
         // If foreignObject capture fails, prefer stable rendered text with an
@@ -229,26 +232,28 @@ export async function drawDomWidgetOverlays({
       const my = (directMedia.rect.y - bounds.top) * scale;
       const mw = directMedia.rect.w * scale;
       const mh = directMedia.rect.h * scale;
-      exportCtx.drawImage(directMedia.element, mx, my, mw, mh);
+      const result = drawMediaSafely(exportCtx, directMedia.element, mx, my, mw, mh);
       debugLog?.("diag.draw.widget", diagnoseDomElement(directMedia.element, uiCanvas, {
         stage: "draw",
-        reason: "direct-media-drawn",
+        reason: result.ok ? "direct-media-drawn" : `direct-media-${result.reason}`,
         exportRect: { x: mx, y: my, w: mw, h: mh },
         resolvedNodeId: nodeId,
         kind: "widget-media",
       }));
-      if (Number.isFinite(nodeId)) coveredNodeIds.add(nodeId);
+      if (result.ok && Number.isFinite(nodeId)) coveredNodeIds.add(nodeId);
     } else if (captured?.canvas) {
-      exportCtx.drawImage(captured.canvas, x, y, w, h);
+      const result = drawMediaSafely(exportCtx, captured.canvas, x, y, w, h, {
+        placeholderLabel: "widget blocked",
+      });
       debugLog?.("diag.draw.widget", diagnoseDomElement(widget, uiCanvas, {
         stage: "draw",
-        reason: "capture-drawn",
+        reason: result.ok ? "capture-drawn" : `capture-${result.reason}`,
         captureStage: captured.stage,
         exportRect: { x, y, w, h },
         resolvedNodeId: nodeId,
         kind: "widget",
       }));
-      if (Number.isFinite(nodeId)) coveredNodeIds.add(nodeId);
+      if (result.ok && Number.isFinite(nodeId)) coveredNodeIds.add(nodeId);
     } else {
       debugLog?.("diag.draw.widget", diagnoseDomElement(widget, uiCanvas, {
         stage: "draw",

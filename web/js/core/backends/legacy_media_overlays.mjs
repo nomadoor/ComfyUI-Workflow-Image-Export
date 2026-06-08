@@ -14,6 +14,7 @@ import {
   normalizeSelectedNodeIds,
   shouldRenderResolvedNode,
 } from "./legacy_overlay_utils.mjs";
+import { drawMediaSafely } from "./safe_media_draw.mjs";
 
 function findGraphNodeById(graph, id) {
   if (!Number.isFinite(id)) return null;
@@ -89,12 +90,14 @@ function drawVideoIntoGraphRect({ exportCtx, video, graphRect, bounds, scale }) 
     const fit = Math.min(w / sourceW, h / sourceH);
     const fitW = sourceW * fit;
     const fitH = sourceH * fit;
-    exportCtx.drawImage(video, x + (w - fitW) / 2, y + (h - fitH) / 2, fitW, fitH);
-    return { x: x + (w - fitW) / 2, y: y + (h - fitH) / 2, w: fitW, h: fitH };
+    const fitX = x + (w - fitW) / 2;
+    const fitY = y + (h - fitH) / 2;
+    const result = drawMediaSafely(exportCtx, video, fitX, fitY, fitW, fitH);
+    return { x: fitX, y: fitY, w: fitW, h: fitH, safeDraw: result };
   }
 
-  exportCtx.drawImage(video, x, y, w, h);
-  return { x, y, w, h };
+  const result = drawMediaSafely(exportCtx, video, x, y, w, h);
+  return { x, y, w, h, safeDraw: result };
 }
 
 export function drawVideoOverlays({
@@ -154,7 +157,7 @@ export function drawVideoOverlays({
         const exportRect = drawVideoIntoGraphRect({ exportCtx, video, graphRect: previewRect, bounds, scale });
         debugLog?.("diag.draw.video", diagnoseDomElement(video, uiCanvas, {
           stage: "draw",
-          reason,
+          reason: exportRect.safeDraw?.ok ? reason : `${reason}:${exportRect.safeDraw?.reason || "media-blocked"}`,
           readyState: video.readyState,
           graphRect: previewRect,
           exportRect,
@@ -165,7 +168,9 @@ export function drawVideoOverlays({
           },
           kind: "video",
         }));
-        drawnNodeIds.add(resolved.nodeRect.id);
+        if (exportRect.safeDraw?.ok) {
+          drawnNodeIds.add(resolved.nodeRect.id);
+        }
         return true;
       } catch (error) {
         debugLog?.("diag.draw.video", diagnoseDomElement(video, uiCanvas, {
@@ -223,11 +228,13 @@ export function drawVideoOverlays({
     const h = graphH * scale;
 
     try {
-      exportCtx.drawImage(video, x, y, w, h);
-      drawnNodeIds.add(matchedNode.id);
+      const result = drawMediaSafely(exportCtx, video, x, y, w, h);
+      if (result.ok) {
+        drawnNodeIds.add(matchedNode.id);
+      }
       debugLog?.("diag.draw.video", diagnoseDomElement(video, uiCanvas, {
         stage: "draw",
-        reason: "drawn",
+        reason: result.ok ? "drawn" : result.reason,
         readyState: video.readyState,
         graphRect: { x: graphX, y: graphY, w: graphW, h: graphH },
         exportRect: { x, y, w, h },
@@ -320,10 +327,10 @@ export function drawVhsVideoOverlays({
     const h = graphH * scale;
 
     try {
-      exportCtx.drawImage(video, x, y, w, h);
+      const result = drawMediaSafely(exportCtx, video, x, y, w, h);
       debugLog?.("diag.draw.vhs", diagnoseDomElement(video, uiCanvas, {
         stage: "draw",
-        reason: "drawn",
+        reason: result.ok ? "drawn" : result.reason,
         readyState: video.readyState,
         graphRect: { x: graphX, y: graphY, w: graphW, h: graphH },
         exportRect: { x, y, w, h },
@@ -375,8 +382,8 @@ export function drawImageOverlays({
     const h = rect.h * scale;
 
     try {
-      exportCtx.drawImage(el, x, y, w, h);
-      debugLog?.("dom.image.item", { x, y, w, h });
+      const result = drawMediaSafely(exportCtx, el, x, y, w, h);
+      debugLog?.("dom.image.item", { x, y, w, h, safeDraw: result.reason });
     } catch (error) {
       debugLog?.("dom.image.error", { message: error?.message || String(error) });
     }
