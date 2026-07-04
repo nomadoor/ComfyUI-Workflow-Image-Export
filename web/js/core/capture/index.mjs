@@ -92,6 +92,8 @@ export async function capture(options = {}) {
         scopeSelected: Boolean(normalized.scopeSelected),
         scopeOpacity: normalized.scopeOpacity,
         selectedNodeIds,
+        showLinks: normalized.showLinks !== false,
+        linkFilter: normalized.showLinks === false ? "none" : "all",
         onProgress: normalized.onProgress,
         exceedMode: normalized.exceedMode,
         tileBleed: normalized.tileBleed,
@@ -115,6 +117,7 @@ export async function capture(options = {}) {
         scopeSelected: Boolean(normalized.scopeSelected),
         scopeOpacity: normalized.scopeOpacity,
         selectedNodeIds,
+        showLinks: normalized.showLinks !== false,
         skipWidgetCapture: true,
       });
     }

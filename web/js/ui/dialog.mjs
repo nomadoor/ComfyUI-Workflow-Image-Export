@@ -265,6 +265,8 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
   paddingWrapper.appendChild(paddingInput);
   paddingWrapper.appendChild(paddingValue);
 
+  const showLinksToggle = createToggle();
+
   const nodeOpacityInput = document.createElement("input");
   nodeOpacityInput.type = "range";
   nodeOpacityInput.min = "0";
@@ -473,6 +475,7 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
     solidColorInput.value = nextState.solidColor;
     paddingInput.value = String(nextState.padding);
     paddingValue.textContent = String(nextState.padding);
+    showLinksToggle.input.checked = nextState.showLinks !== false;
     const nodeOpacity = Number.isFinite(Number(nextState.nodeOpacity)) ? nextState.nodeOpacity : 100;
     nodeOpacityInput.value = String(nodeOpacity);
     nodeOpacityValue.textContent = String(nodeOpacity);
@@ -493,6 +496,7 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
     }
     if (isNode2Backend) {
       paddingInput.disabled = true;
+      showLinksToggle.input.disabled = true;
       nodeOpacityInput.disabled = true;
       pngCompressionInput.disabled = true;
       maxLongEdgeInput.disabled = true;
@@ -510,6 +514,7 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
       background: [...backgroundGroup.inputs.values()].find((input) => input.checked)?.value,
       solidColor: solidColorInput.value,
       padding: paddingInput.value,
+      showLinks: showLinksToggle.input.checked,
       nodeOpacity: nodeOpacityInput.value,
       pngCompression: pngCompressionInput.value,
       maxLongEdge: maxLongEdgeInput.value,
@@ -551,6 +556,8 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
 
   let previewUrl = null;
   let previewSnapshot = null;
+  const previewCache = new Map();
+  const PREVIEW_CACHE_LIMIT = 4;
   let previewTimer = null;
   let previewIdle = null;
   let previewBusy = false;
@@ -594,6 +601,7 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
     previewQueued = false;
     previewBusy = false;
     previewSnapshot = null;
+    previewCache.clear();
     if (previewUrl) {
       try {
         URL.revokeObjectURL(previewUrl);
@@ -638,6 +646,37 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
     return encoded;
   }
 
+  function cachePreviewSnapshot(snapshot) {
+    if (!snapshot?.key) return;
+    if (previewCache.has(snapshot.key)) {
+      previewCache.delete(snapshot.key);
+    }
+    previewCache.set(snapshot.key, snapshot);
+    while (previewCache.size > PREVIEW_CACHE_LIMIT) {
+      const oldestKey = previewCache.keys().next().value;
+      previewCache.delete(oldestKey);
+    }
+  }
+
+  async function displayPreviewSnapshot(snapshot, previewState) {
+    if (!snapshot) return false;
+    if (snapshot.canvas && drawPreviewCanvas(snapshot.canvas)) {
+      if (previewUrl) {
+        URL.revokeObjectURL(previewUrl);
+        previewUrl = null;
+      }
+      return true;
+    }
+    const displayBlob = snapshot.blob || await encodePreviewSnapshot(snapshot, previewState);
+    if (!displayBlob) return false;
+    if (previewUrl) {
+      URL.revokeObjectURL(previewUrl);
+    }
+    previewUrl = URL.createObjectURL(displayBlob);
+    previewImg.src = previewUrl;
+    return true;
+  }
+
   async function renderPreview(previewStateOverride = null, options = {}) {
     if (dialogClosed) return;
     if (isNode2Backend) {
@@ -659,6 +698,15 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
     }
     const previewState = previewStateOverride || buildPreviewState();
     const previewKey = getPreviewStateKey(previewState);
+    const cachedSnapshot = previewCache.get(previewKey);
+    if (cachedSnapshot) {
+      previewCache.delete(previewKey);
+      previewCache.set(previewKey, cachedSnapshot);
+      previewSnapshot = cachedSnapshot;
+      await displayPreviewSnapshot(cachedSnapshot, previewState);
+      previewFrame.classList.remove("is-loading");
+      return cachedSnapshot;
+    }
     try {
       previewBusy = true;
       previewFrame.classList.add("is-loading");
@@ -685,19 +733,8 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
         mime: previewResult?.mime || getPreviewMime(previewState),
         state: previewState,
       };
-      if (canvas && drawPreviewCanvas(canvas)) {
-        if (previewUrl) {
-          URL.revokeObjectURL(previewUrl);
-          previewUrl = null;
-        }
-        return previewSnapshot;
-      }
-      const displayBlob = blob || await encodePreviewSnapshot(previewSnapshot, previewState);
-      if (previewUrl) {
-        URL.revokeObjectURL(previewUrl);
-      }
-      previewUrl = URL.createObjectURL(displayBlob);
-      previewImg.src = previewUrl;
+      cachePreviewSnapshot(previewSnapshot);
+      await displayPreviewSnapshot(previewSnapshot, previewState);
       return previewSnapshot;
     } catch (error) {
       log?.("preview:error", { message: error?.message || String(error) });
@@ -782,6 +819,7 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
     handleChange();
   });
   paddingInput.addEventListener("change", () => scheduleWebpCheck());
+  showLinksToggle.input.addEventListener("change", () => handleChange());
   pngCompressionInput.addEventListener("input", () => {
     pngCompressionValue.textContent = pngCompressionInput.value;
     handleChange();
@@ -1048,6 +1086,13 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
   controlsScroll.appendChild(markNode2UnsupportedRow(
     paddingRow,
     "Padding is not applied in Node 2.0 compositor capture."
+  ));
+  const showLinksRow = createRow("Show links", showLinksToggle.wrapper, {
+    helpText: "Include node links in exports.",
+  });
+  controlsScroll.appendChild(markNode2UnsupportedRow(
+    showLinksRow,
+    "Link visibility is only available in the legacy renderer."
   ));
   const scopeRow = createRow("Scope", scopeToggle.wrapper);
   controlsScroll.appendChild(markNode2UnsupportedRow(

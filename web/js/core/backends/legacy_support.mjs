@@ -1,4 +1,5 @@
 import { resolveUiBackgroundColor } from "../../export/background_modes.mjs";
+import { hideGraphLinks } from "../../export/link_visibility.mjs";
 import { createExportDragAndScale } from "../graph_transform.mjs";
 
 export function ensure2DContext(canvas) {
@@ -326,8 +327,23 @@ export function configureTransform(offscreen, bounds, viewportW, viewportH, scal
   }
 }
 
+function drawWithOptionalLinks(offscreen, showLinks) {
+  const graph = offscreen?.graph || offscreen?._graph;
+  if (showLinks !== false || !graph) {
+    offscreen.draw(true, true);
+    return;
+  }
+
+  const restoreLinks = hideGraphLinks(graph);
+  try {
+    offscreen.draw(true, true);
+  } finally {
+    restoreLinks();
+  }
+}
+
 export async function drawOffscreen(offscreen, options = {}) {
-  offscreen.draw(true, true);
+  drawWithOptionalLinks(offscreen, options.showLinks);
   await new Promise((resolve) => requestAnimationFrame(resolve));
 
   if (typeof options.resetTransform === "function") {
@@ -343,5 +359,5 @@ export async function drawOffscreen(offscreen, options = {}) {
     options.solidColor
   );
 
-  offscreen.draw(true, true);
+  drawWithOptionalLinks(offscreen, options.showLinks);
 }

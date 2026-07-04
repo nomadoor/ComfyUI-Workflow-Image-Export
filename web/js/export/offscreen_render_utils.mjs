@@ -1,3 +1,5 @@
+import { hideGraphLinks, syncNodeLinkRefsToGraphLinks } from "./link_visibility.mjs";
+
 export function applyRenderFilter(graph, selectedNodeIds, mode) {
   if (!graph || !mode || mode === "all") return;
   const nodes = graph?._nodes || graph?.nodes || [];
@@ -39,11 +41,7 @@ export function applyRenderFilter(graph, selectedNodeIds, mode) {
 export function applyLinkFilter(graph, selectedNodeIds, mode) {
   if (!graph || !mode || mode === "all") return;
   if (mode === "none") {
-    if (graph.links instanceof Map) {
-      graph.links = new Map();
-    } else if (graph.links && typeof graph.links === "object") {
-      graph.links = {};
-    }
+    hideGraphLinks(graph);
     return;
   }
   const ids = Array.isArray(selectedNodeIds)
@@ -76,6 +74,7 @@ export function applyLinkFilter(graph, selectedNodeIds, mode) {
       }
     }
     graph.links = next;
+    syncNodeLinkRefsToGraphLinks(graph);
     return;
   }
 
@@ -87,6 +86,7 @@ export function applyLinkFilter(graph, selectedNodeIds, mode) {
       }
     }
     graph.links = next;
+    syncNodeLinkRefsToGraphLinks(graph);
   }
 }
 

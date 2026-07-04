@@ -11,6 +11,7 @@ export const SETTING_IDS = {
   solidColor: "WorkflowImageExport.SolidColor",
   nodeOpacity: "WorkflowImageExport.NodeOpacity",
   padding: "WorkflowImageExport.Padding",
+  showLinks: "WorkflowImageExport.ShowLinks",
   outputResolution: "WorkflowImageExport.OutputResolution",
   maxLongEdge: "WorkflowImageExport.MaxLongEdge",
   exceedMode: "WorkflowImageExport.ExceedMode",
@@ -101,6 +102,14 @@ const SETTINGS_DEFINITIONS = [
     tooltip: "Extra padding around the captured bounds.",
   },
   {
+    id: SETTING_IDS.showLinks,
+    name: "Show links",
+    category: cat(BASIC, "Show links"),
+    type: "boolean",
+    defaultValue: DEFAULTS.showLinks,
+    tooltip: "Include node links in exported images.",
+  },
+  {
     id: SETTING_IDS.solidColor,
     name: "Solid color",
     category: cat(BASIC, "Solid color"),
@@ -189,6 +198,7 @@ export function getDefaultsFromSettings() {
     solidColor: get(SETTING_IDS.solidColor, DEFAULTS.solidColor),
     nodeOpacity: get(SETTING_IDS.nodeOpacity, DEFAULTS.nodeOpacity),
     padding: get(SETTING_IDS.padding, DEFAULTS.padding),
+    showLinks: get(SETTING_IDS.showLinks, DEFAULTS.showLinks),
     outputResolution: get(SETTING_IDS.outputResolution, DEFAULTS.outputResolution),
     maxLongEdge: get(SETTING_IDS.maxLongEdge, DEFAULTS.maxLongEdge),
     exceedMode: get(SETTING_IDS.exceedMode, DEFAULTS.exceedMode),
@@ -207,6 +217,7 @@ function toSettingFormat(state) {
     solidColor: state.solidColor,
     nodeOpacity: state.nodeOpacity,
     padding: state.padding,
+    showLinks: state.showLinks,
     outputResolution: state.outputResolution,
     maxLongEdge: state.maxLongEdge,
     exceedMode: state.exceedMode,
@@ -226,6 +237,7 @@ export function setDefaultsInSettings(state) {
   access.set(SETTING_IDS.solidColor, values.solidColor);
   access.set(SETTING_IDS.nodeOpacity, values.nodeOpacity);
   access.set(SETTING_IDS.padding, values.padding);
+  access.set(SETTING_IDS.showLinks, values.showLinks);
   access.set(SETTING_IDS.outputResolution, values.outputResolution);
   access.set(SETTING_IDS.maxLongEdge, values.maxLongEdge);
   access.set(SETTING_IDS.exceedMode, values.exceedMode);

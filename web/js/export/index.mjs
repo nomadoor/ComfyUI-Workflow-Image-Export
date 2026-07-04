@@ -194,6 +194,8 @@ export async function exportWorkflowPng(workflowJson, options = {}) {
     maxPixels: 0,
     scale,
     nodeOpacity,
+    showLinks: options.showLinks !== false,
+    linkFilter: options.linkFilter,
   };
 
   let bboxOverride = null;
