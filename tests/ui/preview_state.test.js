@@ -43,6 +43,7 @@ test("getPreviewStateKey includes visual inputs and workflow signature only", ()
     background: "solid",
     solidColor: "#123456",
     padding: 100,
+    showLinks: true,
     nodeOpacity: 100,
     scopeSelected: false,
     scopeOpacity: 40,
@@ -54,9 +55,11 @@ test("getPreviewStateKey includes visual inputs and workflow signature only", ()
   const key = getPreviewStateKey(base);
   const sameKey = getPreviewStateKey({ ...base, workflowJsonText: "changed" });
   const changedKey = getPreviewStateKey({ ...base, padding: 120 });
+  const changedLinksKey = getPreviewStateKey({ ...base, showLinks: false });
 
   assert.equal(key, sameKey);
   assert.notEqual(key, changedKey);
+  assert.notEqual(key, changedLinksKey);
 });
 
 test("getPreviewMime resolves raster preview mime", () => {

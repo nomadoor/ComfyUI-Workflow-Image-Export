@@ -5,6 +5,7 @@ export const DEFAULTS = {
   solidColor: "#1f1f1f",
   nodeOpacity: 100,
   padding: 100,
+  showLinks: true,
   outputResolution: "auto",
   maxLongEdge: 4096,
   exceedMode: "tile",
@@ -44,12 +45,16 @@ function normalizeExceedMode(value) {
 }
 
 function normalizeEmbedWorkflow(raw) {
-  const hasEmbedWorkflow = Object.prototype.hasOwnProperty.call(raw ?? {}, "embedWorkflow");
-  if (!hasEmbedWorkflow) {
-    return DEFAULTS.embedWorkflow;
+  return normalizeBoolean(raw, "embedWorkflow", DEFAULTS.embedWorkflow);
+}
+
+function normalizeBoolean(raw, key, fallback) {
+  const hasValue = Object.prototype.hasOwnProperty.call(raw ?? {}, key);
+  if (!hasValue) {
+    return fallback;
   }
 
-  const value = raw.embedWorkflow;
+  const value = raw[key];
   if (typeof value === "boolean") {
     return value;
   }
@@ -61,7 +66,7 @@ function normalizeEmbedWorkflow(raw) {
   if (normalized === "false" || normalized === "0") {
     return false;
   }
-  return DEFAULTS.embedWorkflow;
+  return fallback;
 }
 
 function normalizeNumber(value, fallback) {
@@ -86,6 +91,7 @@ export function normalizeState(raw) {
     solidColor: typeof raw?.solidColor === "string" ? raw.solidColor : DEFAULTS.solidColor,
     nodeOpacity: normalizeNumber(raw?.nodeOpacity, DEFAULTS.nodeOpacity),
     padding: normalizeNumber(raw?.padding, DEFAULTS.padding),
+    showLinks: normalizeBoolean(raw, "showLinks", DEFAULTS.showLinks),
     outputResolution: normalizeResolution(raw?.outputResolution),
     maxLongEdge: normalizeNumber(raw?.maxLongEdge, DEFAULTS.maxLongEdge),
     exceedMode: normalizeExceedMode(raw?.exceedMode),

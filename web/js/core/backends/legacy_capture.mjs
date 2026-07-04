@@ -236,6 +236,7 @@ export async function captureLegacy(options = {}) {
         exportCtx,
         bgctx: offscreen.bgctx,
         solidColor: options?.solidColor,
+        showLinks: options?.showLinks !== false,
         resetTransform: () => configureTransform(offscreen, bounds, width, height, scale, debugLog),
       })
     );

@@ -145,7 +145,11 @@ export async function renderGraphOffscreen(workflowJson, options = {}) {
     }));
   perfLog?.("bbox.ready", { width: bbox.width, height: bbox.height });
   applyRenderFilter(graph, options.selectedNodeIds, options.renderFilter);
-  applyLinkFilter(graph, options.selectedNodeIds, options.linkFilter);
+  applyLinkFilter(
+    graph,
+    options.selectedNodeIds,
+    options.showLinks === false ? "none" : options.linkFilter
+  );
   const baseWidth = Math.max(1, Math.ceil(bbox.width));
   const baseHeight = Math.max(1, Math.ceil(bbox.height));
   const tileRect = options.tileRect || null;

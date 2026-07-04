@@ -30,6 +30,16 @@ test("normalizeState handles legacy string embed workflow values", () => {
   assert.equal(normalizeState({ embedWorkflow: "0" }).embedWorkflow, false);
 });
 
+test("normalizeState keeps show links enabled by default and coerces stored values", () => {
+  assert.equal(normalizeState({}).showLinks, true);
+  assert.equal(normalizeState({ showLinks: false }).showLinks, false);
+  assert.equal(normalizeState({ showLinks: "false" }).showLinks, false);
+  assert.equal(normalizeState({ showLinks: "0" }).showLinks, false);
+  assert.equal(normalizeState({ showLinks: "true" }).showLinks, true);
+  assert.equal(normalizeState({ showLinks: "1" }).showLinks, true);
+  assert.equal(normalizeState({ showLinks: "maybe" }).showLinks, DEFAULTS.showLinks);
+});
+
 test("normalizeState falls back to the default for unknown embed workflow strings", () => {
   const state = normalizeState({ embedWorkflow: "maybe" });
   assert.equal(state.embedWorkflow, DEFAULTS.embedWorkflow);

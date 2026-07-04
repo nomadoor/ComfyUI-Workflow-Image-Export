@@ -34,7 +34,7 @@ Install via **ComfyUI Manager**:
 
 > [!NOTE]
 > Node 2.0 mode disables or simplifies options that cannot be reproduced by browser compositor capture.
-> Transparent background, padding, selection scope, and node opacity are not available in Node 2.0 mode.
+> Transparent background, padding, link visibility, selection scope, and node opacity are not available in Node 2.0 mode.
 
 - **Format**: PNG / WebP  
   - Workflow embedding is **PNG only**.
@@ -43,6 +43,7 @@ Install via **ComfyUI Manager**:
   - Classic: UI / Transparent / Solid.
   - Node 2.0: UI / Solid.
 - **Padding**: margin around the captured bounds (slider).
+- **Show links**: include node links in Classic/LiteGraph exports.
 - **Scope** (when nodes are selected):
   - **Scope** toggle: crop to selection.
   - **Opacity**: dim unselected nodes (0–100).

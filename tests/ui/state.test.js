@@ -78,6 +78,7 @@ test("toLastUsedState serializes only normalized export and scope values", () =>
     solidColor: "#1f1f1f",
     nodeOpacity: 100,
     padding: 100,
+    showLinks: true,
     outputResolution: "auto",
     maxLongEdge: 4096,
     exceedMode: "tile",

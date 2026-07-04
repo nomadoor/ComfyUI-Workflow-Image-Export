@@ -27,6 +27,7 @@ export function getPreviewStateKey(previewState) {
     background: previewState.background,
     solidColor: previewState.solidColor,
     padding: previewState.padding,
+    showLinks: previewState.showLinks,
     nodeOpacity: previewState.nodeOpacity,
     scopeSelected: previewState.scopeSelected,
     scopeOpacity: previewState.scopeOpacity,
