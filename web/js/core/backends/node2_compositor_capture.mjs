@@ -16,6 +16,7 @@ import {
   captureTwoFrameTransparentMatte,
   getNode2TransparentWarning,
   summarizeNode2TransparentTileRecovery,
+  validateNode2TransparentTileOutput,
 } from "./node2_transparent_matte.mjs";
 
 const NODE2_CAPTURE_STYLE_ID = "cwie-node2-capture-style";
@@ -1825,7 +1826,7 @@ async function captureNode2TransparentFrames(options, fitInfo) {
       canvas: matte.canvas,
       frame: {
         ...sourceFrame?.frame,
-        blobOk: true,
+        blobOk: sourceFrame?.frame?.blobOk ?? true,
         croppedWidth: matte.canvas?.width,
         croppedHeight: matte.canvas?.height,
       },
@@ -2185,9 +2186,7 @@ async function captureNode2TiledFromFit(fitInfo, options = {}) {
       },
       log
     );
-    const seedFrame = transparentTiles
-      ? null
-      : await seedPreparedFrameSignature(prepared, log);
+    const seedFrame = await seedPreparedFrameSignature(prepared, log);
     const rootRect = root.getBoundingClientRect();
     const captureRect = getEffectiveCapturableRootRect(root, prepared.video);
     if (!rootRect || rootRect.width <= 0 || rootRect.height <= 0 || !captureRect) {
@@ -2222,6 +2221,7 @@ async function captureNode2TiledFromFit(fitInfo, options = {}) {
     }
     outputCtx.clearRect(0, 0, output.width, output.height);
     let transparentFailedTiles = 0;
+    let currentMatteColor = NODE2_MATTE_BG_B;
 
     const tileXs = Array.from({ length: cols }, (_, col) => {
       const planned = minX + col * tileStepX;
@@ -2307,12 +2307,9 @@ async function captureNode2TiledFromFit(fitInfo, options = {}) {
           const matte = await captureTwoFrameTransparentMatte({
             colorA: NODE2_MATTE_BG_A,
             colorB: NODE2_MATTE_BG_B,
+            startColor: currentMatteColor,
             async setColor(color) {
               await backgroundOverride.setColor(color);
-            },
-            async seedBaseline() {
-              await waitForNode2CaptureUiSettle(120);
-              return samplePreparedFrameSignature(prepared, log);
             },
             async captureChanged(captureOptions) {
               if (!prepared.lastFrameSignature) {
@@ -2344,6 +2341,7 @@ async function captureNode2TiledFromFit(fitInfo, options = {}) {
               return true;
             },
           });
+          currentMatteColor = matte.endColor;
           tileCanvas = matte.canvas;
           tileRecovery = matte.transparentRecovery;
           if (!tileRecovery.ok) transparentFailedTiles += 1;
@@ -2428,6 +2426,21 @@ async function captureNode2TiledFromFit(fitInfo, options = {}) {
       }
     }
     options.onProgress?.({ value: 1, percent: 100 });
+    let transparentRecovery = transparentTiles
+      ? summarizeNode2TransparentTileRecovery(transparentFailedTiles, rows * cols)
+      : undefined;
+    if (transparentTiles) {
+      transparentRecovery = validateNode2TransparentTileOutput(
+        transparentRecovery,
+        isCanvasTransparent(output)
+      );
+      logStep(log, "transparent.recovery", {
+        ...transparentRecovery,
+        width: output.width,
+        height: output.height,
+        cornerAlpha: sampleCanvasCornerAlpha(output),
+      });
+    }
 
     return {
       type: "raster",
@@ -2453,9 +2466,7 @@ async function captureNode2TiledFromFit(fitInfo, options = {}) {
         },
       },
       restriction: { attempted: "restriction", ok: true },
-      transparentRecovery: transparentTiles
-        ? summarizeNode2TransparentTileRecovery(transparentFailedTiles, rows * cols)
-        : undefined,
+      transparentRecovery,
     };
   } catch (error) {
     return {

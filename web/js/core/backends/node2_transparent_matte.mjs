@@ -9,17 +9,13 @@ function addResource(resources, canvas) {
 
 export function getNode2TransparentWarning(options = {}, report = null) {
   if (options.background !== "transparent") return null;
+  if (report?.transparentRecovery?.attempted !== true) {
+    return "node2:transparent_background_unsupported";
+  }
   if (
-    report?.transparentRecovery?.attempted === true &&
     report.transparentRecovery.ok !== true
   ) {
     return "node2:transparent_recovery_failed";
-  }
-  if (
-    report?.frame?.tiled &&
-    report?.transparentRecovery?.attempted !== true
-  ) {
-    return "node2:transparent_background_unsupported";
   }
   return null;
 }
@@ -37,6 +33,31 @@ export function summarizeNode2TransparentTileRecovery(failedTiles, totalTiles) {
   };
 }
 
+export function validateNode2TransparentTileOutput(recovery, outputIsTransparent) {
+  if (!recovery?.attempted || outputIsTransparent) {
+    return recovery;
+  }
+  return {
+    ...recovery,
+    ok: false,
+    outputTransparent: false,
+    error: recovery.error ||
+      "Node 2.0 transparent tiled recovery produced an opaque output.",
+  };
+}
+
+function assertFreshFrame(frame, previousSignature, label) {
+  const signature = getFrameSignature(frame);
+  if (
+    !signature ||
+    (previousSignature && signature === previousSignature) ||
+    frame?.frame?.unchangedFrame
+  ) {
+    throw new Error(`Node 2.0 transparent capture did not receive a fresh ${label} frame.`);
+  }
+  return signature;
+}
+
 export async function captureTwoFrameTransparentMatte({
   colorA,
   colorB,
@@ -46,41 +67,67 @@ export async function captureTwoFrameTransparentMatte({
   cropCanvas = (canvas) => canvas,
   recover,
   isTransparent,
+  startColor = null,
 } = {}) {
   const resources = new Set();
-
-  await setColor(colorB);
-  const baseline = await seedBaseline();
-  const baselineSignature = String(baseline?.signature || "");
-  if (!baselineSignature) {
-    throw new Error("Node 2.0 transparent capture could not establish a baseline frame.");
-  }
-
-  await setColor(colorA);
-  const frameA = await captureChanged({ strictChangedFrame: true });
-  addResource(resources, frameA?.canvas);
-  const signatureA = getFrameSignature(frameA);
-  if (!signatureA || signatureA === baselineSignature || frameA?.frame?.unchangedFrame) {
-    throw new Error("Node 2.0 transparent capture did not receive a fresh black frame.");
-  }
-
-  const matteA = addResource(resources, cropCanvas(frameA.canvas));
-
+  let frameA = null;
   let frameB = null;
-  let matteB = null;
+  let endColor = colorB;
   let recoveryFailure = null;
-  try {
-    await setColor(colorB);
-    frameB = await captureChanged({ strictChangedFrame: true });
-    addResource(resources, frameB?.canvas);
-    const signatureB = getFrameSignature(frameB);
-    if (!signatureB || signatureB === signatureA || frameB?.frame?.unchangedFrame) {
-      throw new Error("Node 2.0 transparent capture did not receive a fresh white frame.");
+
+  if (startColor != null) {
+    if (startColor !== colorA && startColor !== colorB) {
+      throw new Error("Node 2.0 transparent capture startColor must match a matte color.");
     }
-    matteB = addResource(resources, cropCanvas(frameB.canvas));
-  } catch (error) {
-    recoveryFailure = error;
+    const firstColor = startColor;
+    const secondColor = firstColor === colorA ? colorB : colorA;
+    endColor = firstColor;
+    const firstFrame = await captureChanged({ strictChangedFrame: true });
+    addResource(resources, firstFrame?.canvas);
+    const firstSignature = assertFreshFrame(firstFrame, null, firstColor);
+    if (firstColor === colorA) frameA = firstFrame;
+    else frameB = firstFrame;
+
+    try {
+      await setColor(secondColor);
+      endColor = secondColor;
+      const secondFrame = await captureChanged({ strictChangedFrame: true });
+      addResource(resources, secondFrame?.canvas);
+      assertFreshFrame(secondFrame, firstSignature, secondColor);
+      if (secondColor === colorA) frameA = secondFrame;
+      else frameB = secondFrame;
+    } catch (error) {
+      recoveryFailure = error;
+    }
+  } else {
+    await setColor(colorB);
+    const baseline = await seedBaseline();
+    const baselineSignature = String(baseline?.signature || "");
+    if (!baselineSignature) {
+      throw new Error("Node 2.0 transparent capture could not establish a baseline frame.");
+    }
+
+    await setColor(colorA);
+    frameA = await captureChanged({ strictChangedFrame: true });
+    addResource(resources, frameA?.canvas);
+    const signatureA = assertFreshFrame(frameA, baselineSignature, "black");
+
+    try {
+      await setColor(colorB);
+      frameB = await captureChanged({ strictChangedFrame: true });
+      addResource(resources, frameB?.canvas);
+      assertFreshFrame(frameB, signatureA, "white");
+    } catch (error) {
+      recoveryFailure = error;
+    }
   }
+
+  const matteA = frameA
+    ? addResource(resources, cropCanvas(frameA.canvas))
+    : null;
+  const matteB = frameB
+    ? addResource(resources, cropCanvas(frameB.canvas))
+    : null;
 
   if (!recoveryFailure && matteA && matteB) {
     const recovered = addResource(resources, recover(matteA, matteB, colorA, colorB));
@@ -89,6 +136,7 @@ export async function captureTwoFrameTransparentMatte({
         canvas: recovered,
         frameA,
         frameB,
+        endColor,
         resources: [...resources],
         transparentRecovery: {
           attempted: true,
@@ -102,17 +150,20 @@ export async function captureTwoFrameTransparentMatte({
         ? "Node 2.0 transparent recovery produced an opaque image."
         : "Node 2.0 transparent recovery failed."
     );
+  } else if (!recoveryFailure) {
+    recoveryFailure = new Error("Node 2.0 transparent capture did not produce both matte frames.");
   }
 
   return {
     canvas: matteA,
     frameA,
     frameB,
+    endColor,
     resources: [...resources],
     transparentRecovery: {
       attempted: true,
       ok: false,
-      fallback: "black-frame",
+      fallback: matteA ? "black-frame" : null,
       error: recoveryFailure?.message || "unknown recovery failure",
     },
   };

@@ -17,9 +17,9 @@ test("capture warnings survive on the returned blob", () => {
   assert.match(getNode2WarningMessage(blob.cwieWarnings), /black background/);
 });
 
-test("tile transparency warning has a user-facing message", () => {
+test("unavailable transparency warning has a user-facing message", () => {
   assert.match(
     getNode2WarningMessage(["node2:transparent_background_unsupported"]),
-    /tiled Node 2.0/
+    /this Node 2.0 capture/
   );
 });

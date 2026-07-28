@@ -23,22 +23,33 @@ recover both `F` and `α`, including antialiased edges and shadows.
 ## Decision
 
 Node 2.0 transparent export uses a two-frame black/white matte in both the fit
-and tiled capture paths:
+and tiled capture paths. The original plan covered fit capture only, but forcing
+transparent exports through fit reduced large workflows to a single
+screen-resolution frame. Tiled matte recovery was added so transparent, UI,
+and solid backgrounds retain the same size policy and output resolution.
 
 1. Open one display-capture stream.
 2. Freeze graph-owned video elements and hide capture chrome.
-3. Keep one fitted camera position, or move to one tile camera position.
-4. Apply white and record a disposable baseline frame signature.
-5. Apply black and strictly wait for a changed frame (`A`).
-6. Apply white and strictly wait for a frame different from `A` (`B`).
-7. Crop both frames with the same fit geometry, or use the same tile geometry.
-8. Recover alpha with `recoverTransparentCanvas(A, B, black, white)`.
-9. Snap alpha values within 3/255 of fully opaque or transparent.
+3. For fit capture, keep one fitted camera position, record a disposable white
+   baseline signature, then strictly capture black (`A`) and white (`B`).
+4. For tiled capture, seed the stream signature once before the loop. At each
+   tile, strictly capture the camera-arrival frame in the background color left
+   by the previous tile, switch to the opposite color, and strictly capture the
+   second frame.
+5. Assign the two tile frames to `A` and `B` by their known colors, independent
+   of chronological order. Leave the second color applied for the next tile.
+6. Crop both fit frames with the same geometry, or blit each recovered tile
+   with the existing tile geometry.
+7. Recover alpha with `recoverTransparentCanvas(A, B, black, white)`.
+8. Snap alpha values within 3/255 of fully opaque or transparent.
 
-For tiled export, steps 3 through 9 run once per tile before that tile is
-blitted into the output canvas. The camera does not move between a tile's black
-and white frames. Existing tile scale, overlap, and output dimensions remain
-unchanged.
+The alternating tile colors separate the two pending visual changes. On tile
+entry, the only awaited change is camera arrival in the already-applied color;
+after that frame arrives, the only awaited change is the background switch.
+This prevents a delayed display-media stream from mistaking a late white
+camera-arrival frame for black `A` and reversing the matte pair. It keeps the
+cost at two captured frames per tile with no extra settling wait. Existing tile
+scale, overlap, and output dimensions remain unchanged.
 
 Black and white maximize the luminance difference and reduce sensitivity to
 chroma subsampling in the browser's video pipeline. The legacy renderer keeps
@@ -70,8 +81,11 @@ transparentRecovery: {
 
 The result receives `node2:transparent_recovery_failed`, which is logged and
 shown in the export UI. `node2:transparent_background_unsupported` is reserved
-for a transparent tiled request that reaches an implementation without matte
-recovery.
+for a transparent request that reaches an implementation without matte
+recovery. After all tiles are composed, the output canvas is checked once for
+any transparent pixel. A fully opaque result marks recovery as failed and emits
+the same warning, because a complete workflow export is expected to contain
+transparent space between nodes.
 
 ## Scope
 
@@ -86,4 +100,10 @@ Transparent does not change the saved or effective exceed-mode policy.
 - Dynamic video content is paused and restored around capture.
 - The hidden stream video remains playing but is positioned outside the
   captured viewport.
+- Graph-owned `<video>` elements are paused during capture. WebGL viewers such
+  as Load3D and canvas widgets that continue drawing through
+  `requestAnimationFrame` cannot be frozen generically; motion in those regions
+  can corrupt recovered alpha.
+- A failed tile is emitted with its captured black background while other tiles
+  remain transparent, and the export reports a warning.
 - Recovery and background state logic remain dependency-free and unit-testable.

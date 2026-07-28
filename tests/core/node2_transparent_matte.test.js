@@ -5,6 +5,7 @@ import {
   captureTwoFrameTransparentMatte,
   getNode2TransparentWarning,
   summarizeNode2TransparentTileRecovery,
+  validateNode2TransparentTileOutput,
 } from "../../web/js/core/backends/node2_transparent_matte.mjs";
 
 function frame(signature, canvas = { signature }) {
@@ -165,6 +166,10 @@ test("transparent warning distinguishes successful recovery, failed recovery, an
     { background: "transparent" },
     { frame: { tiled: true } }
   ), "node2:transparent_background_unsupported");
+  assert.equal(getNode2TransparentWarning(
+    { background: "transparent" },
+    { frame: { tiled: false } }
+  ), "node2:transparent_background_unsupported");
 });
 
 test("summarizes transparent tile recovery without hiding partial fallback", () => {
@@ -182,4 +187,131 @@ test("summarizes transparent tile recovery without hiding partial fallback", () 
     failedTiles: 2,
     totalTiles: 6,
   });
+});
+
+test("startColor captures the current color first and returns the opposite end color", async () => {
+  const colorChanges = [];
+  const blackCanvas = { name: "black" };
+  const whiteCanvas = { name: "white" };
+  const recoverCalls = [];
+  const strictCalls = [];
+
+  const result = await captureTwoFrameTransparentMatte({
+    colorA: "#000000",
+    colorB: "#ffffff",
+    startColor: "#ffffff",
+    setColor(color) {
+      colorChanges.push(color);
+    },
+    captureChanged: (() => {
+      const frames = [
+        frame("arrival-white", whiteCanvas),
+        frame("changed-black", blackCanvas),
+      ];
+      return (options) => {
+        strictCalls.push(options.strictChangedFrame);
+        return frames.shift();
+      };
+    })(),
+    recover(canvasA, canvasB, colorA, colorB) {
+      recoverCalls.push({ canvasA, canvasB, colorA, colorB });
+      return { transparent: true };
+    },
+    isTransparent(canvas) {
+      return canvas.transparent;
+    },
+  });
+
+  assert.deepEqual(colorChanges, ["#000000"]);
+  assert.deepEqual(strictCalls, [true, true]);
+  assert.equal(result.endColor, "#000000");
+  assert.deepEqual(recoverCalls, [{
+    canvasA: blackCanvas,
+    canvasB: whiteCanvas,
+    colorA: "#000000",
+    colorB: "#ffffff",
+  }]);
+});
+
+test("alternating tiles pass each end color into the next tile without swapping matte roles", async () => {
+  const starts = [];
+  const changes = [];
+  let currentColor = "#ffffff";
+
+  for (let tile = 0; tile < 3; tile += 1) {
+    starts.push(currentColor);
+    const firstCanvas = { color: currentColor, tile };
+    const secondColor = currentColor === "#ffffff" ? "#000000" : "#ffffff";
+    const secondCanvas = { color: secondColor, tile };
+    const captures = [
+      frame(`arrival-${tile}`, firstCanvas),
+      frame(`changed-${tile}`, secondCanvas),
+    ];
+    const result = await captureTwoFrameTransparentMatte({
+      colorA: "#000000",
+      colorB: "#ffffff",
+      startColor: currentColor,
+      setColor(color) {
+        changes.push(color);
+      },
+      captureChanged() {
+        return captures.shift();
+      },
+      recover(canvasA, canvasB, colorA, colorB) {
+        assert.equal(canvasA.color, colorA);
+        assert.equal(canvasB.color, colorB);
+        return { transparent: true };
+      },
+      isTransparent(canvas) {
+        return canvas.transparent;
+      },
+    });
+    currentColor = result.endColor;
+  }
+
+  assert.deepEqual(starts, ["#ffffff", "#000000", "#ffffff"]);
+  assert.deepEqual(changes, ["#000000", "#ffffff", "#000000"]);
+});
+
+test("startColor mode rejects an unchanged strict frame", async () => {
+  await assert.rejects(
+    captureTwoFrameTransparentMatte({
+      colorA: "#000000",
+      colorB: "#ffffff",
+      startColor: "#ffffff",
+      async setColor() {},
+      async captureChanged() {
+        return {
+          ...frame("unchanged"),
+          frame: {
+            signature: "unchanged",
+            unchangedFrame: true,
+          },
+        };
+      },
+      recover() {
+        return { transparent: true };
+      },
+      isTransparent() {
+        return true;
+      },
+    }),
+    /fresh/
+  );
+});
+
+test("opaque final tiled output fails recovery and produces a warning", () => {
+  const recovery = validateNode2TransparentTileOutput(
+    summarizeNode2TransparentTileRecovery(0, 4),
+    false
+  );
+  assert.equal(recovery.ok, false);
+  assert.equal(recovery.outputTransparent, false);
+  assert.equal(getNode2TransparentWarning(
+    { background: "transparent" },
+    {
+      frame: { tiled: true },
+      transparentRecovery: recovery,
+    }
+  ), "node2:transparent_recovery_failed");
 });
