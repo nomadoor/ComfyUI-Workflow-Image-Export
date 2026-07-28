@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import {
   buildWidgetRenderPlan,
   joinWidgetRenderPlanToGraph,
+  suppressPlannedWidgetDrawing,
 } from "../../web/js/core/backends/widget_render_plan.mjs";
 
 class MockElement {
@@ -325,4 +326,36 @@ test("plan joins to an export graph only by node id and widget index", () => {
   });
 
   assert.deepEqual(joined.map((entry) => entry.key), ["32:0"]);
+});
+
+test("planned text widgets cannot draw natively during the base graph pass", () => {
+  const inheritedDraw = () => "inherited";
+  const widgetPrototype = { draw: inheritedDraw };
+  const textWidget = Object.assign(Object.create(widgetPrototype), {
+    type: "customtext",
+    value: "owned text",
+  });
+  const mediaDraw = () => "media";
+  const mediaWidget = { type: "image", draw: mediaDraw };
+  const graph = {
+    _nodes: [{
+      id: "72",
+      widgets: [textWidget, mediaWidget],
+    }],
+  };
+  const suppression = suppressPlannedWidgetDrawing(graph, [
+    { key: "72:0", nodeId: "72", widgetIndex: 0, source: "text" },
+    { key: "72:0", nodeId: "72", widgetIndex: 0, source: "text" },
+    { key: "72:1", nodeId: "72", widgetIndex: 1, source: "media" },
+  ]);
+
+  assert.equal(suppression.suppressed, 1);
+  assert.equal(textWidget.type, "hidden");
+  assert.equal(textWidget.draw(), undefined);
+  assert.equal(mediaWidget.draw, mediaDraw);
+
+  suppression.restore();
+  assert.equal(textWidget.type, "customtext");
+  assert.equal(textWidget.draw, inheritedDraw);
+  assert.equal(Object.hasOwn(textWidget, "draw"), false);
 });

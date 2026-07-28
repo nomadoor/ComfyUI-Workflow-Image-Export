@@ -250,3 +250,78 @@ export function joinWidgetRenderPlanToGraph(plan, graph) {
     return Boolean(widgets && Number.isInteger(entry?.widgetIndex) && widgets[entry.widgetIndex]);
   });
 }
+
+function restoreOwnProperty(target, key, hadOwnProperty, value) {
+  if (hadOwnProperty) {
+    target[key] = value;
+    return;
+  }
+  try {
+    delete target[key];
+  } catch (_) {
+    target[key] = value;
+  }
+}
+
+/**
+ * The render plan exclusively owns text/capture widgets. Suppress their native
+ * LiteGraph/custom-node widget draw hooks during the base graph pass so an
+ * extension cannot paint the same value through fillText, drawImage, or another
+ * private cache before the planned overlay is rendered.
+ */
+export function suppressPlannedWidgetDrawing(graph, plan) {
+  const nodes = graph?._nodes || graph?.nodes || [];
+  const nodesById = new Map(
+    nodes
+      .filter((node) => node?.id !== undefined && node?.id !== null)
+      .map((node) => [String(node.id), node])
+  );
+  const restores = [];
+  const suppressedKeys = new Set();
+
+  for (const entry of Array.isArray(plan) ? plan : []) {
+    if (
+      !entry?.key ||
+      suppressedKeys.has(entry.key) ||
+      entry.source === "media" ||
+      !Number.isInteger(entry.widgetIndex)
+    ) {
+      continue;
+    }
+    const node = nodesById.get(String(entry.nodeId));
+    const widget = Array.isArray(node?.widgets)
+      ? node.widgets[entry.widgetIndex]
+      : null;
+    if (!widget || typeof widget !== "object") continue;
+
+    const hadOwnType = Object.prototype.hasOwnProperty.call(widget, "type");
+    const hadOwnDraw = Object.prototype.hasOwnProperty.call(widget, "draw");
+    const originalType = widget.type;
+    const originalDraw = widget.draw;
+    try {
+      widget.type = "hidden";
+      widget.draw = () => {};
+    } catch (_) {
+      restoreOwnProperty(widget, "type", hadOwnType, originalType);
+      restoreOwnProperty(widget, "draw", hadOwnDraw, originalDraw);
+      continue;
+    }
+
+    suppressedKeys.add(entry.key);
+    restores.push(() => {
+      restoreOwnProperty(widget, "type", hadOwnType, originalType);
+      restoreOwnProperty(widget, "draw", hadOwnDraw, originalDraw);
+    });
+  }
+
+  return {
+    suppressed: suppressedKeys.size,
+    restore() {
+      for (let index = restores.length - 1; index >= 0; index -= 1) {
+        try {
+          restores[index]();
+        } catch (_) {}
+      }
+    },
+  };
+}

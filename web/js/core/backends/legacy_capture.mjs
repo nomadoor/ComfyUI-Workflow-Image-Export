@@ -28,6 +28,7 @@ import {
 } from "./legacy_dom_text_overlays.mjs";
 import {
   buildWidgetRenderPlan,
+  suppressPlannedWidgetDrawing,
 } from "./widget_render_plan.mjs";
 import {
   drawPlannedWidgetOverlays,
@@ -158,6 +159,13 @@ export async function captureLegacy(options = {}) {
 
   const restoreDpr = overrideDevicePixelRatio(1, debugLog);
   const offscreen = new LGraphCanvasRef(exportCanvas, graph);
+  // LGraphCanvas may start its own requestAnimationFrame loop in the
+  // constructor. Export rendering is explicitly driven below.
+  try {
+    if (typeof offscreen.stopRendering === "function") {
+      offscreen.stopRendering();
+    }
+  } catch (_) {}
   offscreen.canvas = exportCanvas;
   offscreen.ctx = exportCtx;
   let widgetTextTrace = null;
@@ -260,20 +268,28 @@ export async function captureLegacy(options = {}) {
     }
 
     widgetTextTrace?.setStage("offscreen.draw");
-    await measurePerfAsync(
-      perfLog,
-      "offscreen.draw",
-      () => drawOffscreen(offscreen, {
-        mode,
-        width,
-        height,
-        exportCtx,
-        bgctx: offscreen.bgctx,
-        solidColor: options?.solidColor,
-        showLinks: options?.showLinks !== false,
-        resetTransform: () => configureTransform(offscreen, bounds, width, height, scale, debugLog),
-      })
-    );
+    const nativeWidgetSuppression = suppressPlannedWidgetDrawing(graph, widgetPlan);
+    debugLog?.("widget.native-draw.suppressed", {
+      count: nativeWidgetSuppression.suppressed,
+    });
+    try {
+      await measurePerfAsync(
+        perfLog,
+        "offscreen.draw",
+        () => drawOffscreen(offscreen, {
+          mode,
+          width,
+          height,
+          exportCtx,
+          bgctx: offscreen.bgctx,
+          solidColor: options?.solidColor,
+          showLinks: options?.showLinks !== false,
+          resetTransform: () => configureTransform(offscreen, bounds, width, height, scale, debugLog),
+        })
+      );
+    } finally {
+      nativeWidgetSuppression.restore();
+    }
     widgetTextTrace?.setStage("dom.image.overlays");
     measurePerf(
       perfLog,

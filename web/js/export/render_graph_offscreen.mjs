@@ -28,6 +28,7 @@ import {
 import {
   buildWidgetRenderPlan,
   joinWidgetRenderPlanToGraph,
+  suppressPlannedWidgetDrawing,
 } from "../core/backends/widget_render_plan.mjs";
 import {
   drawPlannedWidgetOverlays,
@@ -261,6 +262,11 @@ export async function renderGraphOffscreen(workflowJson, options = {}) {
   // LiteGraph should render at high resolution automatically.
 
   const offscreen = new LGraphCanvasRef(canvas, graph);
+  try {
+    if (typeof offscreen.stopRendering === "function") {
+      offscreen.stopRendering();
+    }
+  } catch (_) {}
   offscreen.canvas = canvas;
   offscreen.ctx = ctx;
   disableCanvasInfoOverlay(offscreen);
@@ -320,11 +326,41 @@ export async function renderGraphOffscreen(workflowJson, options = {}) {
     await document.fonts.ready;
   }
 
+  let widgetPlan = null;
+  if (options.includeDomOverlays !== false) {
+    const liveWidgetPlan = await timeSpan(perfLog, "widget.plan.build", () => buildWidgetRenderPlan({
+      graph: app?.graph,
+      uiCanvas: uiCanvasDom,
+      allowDom: true,
+      options: {
+        selectedNodeIds: options.selectedNodeIds,
+        renderFilter: options.renderFilter || "all",
+        skipWidgetCapture: "media-only",
+      },
+    }));
+    widgetPlan = joinWidgetRenderPlanToGraph(liveWidgetPlan, graph);
+  } else if (!options.skipTextFallback) {
+    widgetPlan = await timeSpan(perfLog, "widget.plan.build", () => buildWidgetRenderPlan({
+      graph,
+      uiCanvas: null,
+      allowDom: false,
+      options: {
+        selectedNodeIds: options.selectedNodeIds,
+        renderFilter: options.renderFilter || "all",
+      },
+    }));
+  }
+
   // Override devicePixelRatio during draw to keep LiteGraph canvas math stable.
   const restoreDpr = overrideDevicePixelRatio(uiPxRatio, debug ? console.log : null);
+  const nativeWidgetSuppression = suppressPlannedWidgetDrawing(graph, widgetPlan);
+  debugLog?.("widget.native-draw.suppressed", {
+    count: nativeWidgetSuppression.suppressed,
+  });
   try {
     await timeSpan(perfLog, "offscreen.draw", () => offscreen.draw(true, true));
   } finally {
+    nativeWidgetSuppression.restore();
     restoreDpr?.();
   }
 
@@ -419,17 +455,6 @@ export async function renderGraphOffscreen(workflowJson, options = {}) {
       selectedNodeIds: options.selectedNodeIds,
       renderFilter: options.renderFilter || "all",
     }));
-    const liveWidgetPlan = await timeSpan(perfLog, "widget.plan.build", () => buildWidgetRenderPlan({
-      graph: app?.graph,
-      uiCanvas: uiCanvasDom,
-      allowDom: true,
-      options: {
-        selectedNodeIds: options.selectedNodeIds,
-        renderFilter: options.renderFilter || "all",
-        skipWidgetCapture: "media-only",
-      },
-    }));
-    const widgetPlan = joinWidgetRenderPlanToGraph(liveWidgetPlan, graph);
     await timeSpan(perfLog, "widget.plan.draw", () => drawPlannedWidgetOverlays({
       exportCtx: outputCtx,
       plan: widgetPlan,
@@ -473,15 +498,6 @@ export async function renderGraphOffscreen(workflowJson, options = {}) {
     }
 
     if (outputCtx && !options.skipTextFallback) {
-      const widgetPlan = await timeSpan(perfLog, "widget.plan.build", () => buildWidgetRenderPlan({
-        graph,
-        uiCanvas: null,
-        allowDom: false,
-        options: {
-          selectedNodeIds: options.selectedNodeIds,
-          renderFilter: options.renderFilter || "all",
-        },
-      }));
       await timeSpan(perfLog, "widget.plan.draw", () => drawPlannedWidgetOverlays({
         exportCtx: outputCtx,
         plan: widgetPlan,
