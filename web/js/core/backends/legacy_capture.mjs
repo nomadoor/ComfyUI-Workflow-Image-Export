@@ -33,6 +33,9 @@ import {
   drawPlannedWidgetOverlays,
 } from "./widget_overlay_renderer.mjs";
 import {
+  createWidgetTextTrace,
+} from "./legacy_widget_text_trace.mjs";
+import {
   drawImageOverlays,
   drawVideoOverlays,
   drawVhsVideoOverlays,
@@ -157,6 +160,7 @@ export async function captureLegacy(options = {}) {
   const offscreen = new LGraphCanvasRef(exportCanvas, graph);
   offscreen.canvas = exportCanvas;
   offscreen.ctx = exportCtx;
+  let widgetTextTrace = null;
 
   try {
     const mode = measurePerf(perfLog, "offscreen.setup", () => {
@@ -176,6 +180,30 @@ export async function captureLegacy(options = {}) {
       configureTransform(offscreen, bounds, width, height, scale, debugLog);
       return nextMode;
     });
+
+    const widgetPlan = measurePerf(
+      perfLog,
+      "widget.plan.build",
+      () => buildWidgetRenderPlan({
+        graph,
+        uiCanvas,
+        allowDom: true,
+        options: {
+          selectedNodeIds: options.selectedNodeIds,
+          renderFilter: options.renderFilter || "all",
+          skipWidgetCapture:
+            options?.skipWidgetCapture === true ||
+            options?.skipDomWidgetOverlays === true,
+        },
+      })
+    );
+    if (debug) {
+      widgetTextTrace = createWidgetTextTrace({
+        ctx: exportCtx,
+        plan: widgetPlan,
+        debugLog,
+      });
+    }
 
     measurePerf(
       perfLog,
@@ -231,6 +259,7 @@ export async function captureLegacy(options = {}) {
       logDomMedia(debugLog, uiCanvas);
     }
 
+    widgetTextTrace?.setStage("offscreen.draw");
     await measurePerfAsync(
       perfLog,
       "offscreen.draw",
@@ -245,11 +274,13 @@ export async function captureLegacy(options = {}) {
         resetTransform: () => configureTransform(offscreen, bounds, width, height, scale, debugLog),
       })
     );
+    widgetTextTrace?.setStage("dom.image.overlays");
     measurePerf(
       perfLog,
       "dom.image.overlays",
       () => drawImageOverlays({ exportCtx, uiCanvas, bounds, scale, debugLog })
     );
+    widgetTextTrace?.setStage("dom.video.overlays");
     await measurePerfAsync(
       perfLog,
       "dom.video.overlays",
@@ -277,27 +308,13 @@ export async function captureLegacy(options = {}) {
         });
       }
     );
+    widgetTextTrace?.setStage("dom.vhs.overlays");
     measurePerf(
       perfLog,
       "dom.vhs.overlays",
       () => drawVhsVideoOverlays({ exportCtx, uiCanvas, bounds, scale, debugLog })
     );
-    const widgetPlan = measurePerf(
-      perfLog,
-      "widget.plan.build",
-      () => buildWidgetRenderPlan({
-        graph,
-        uiCanvas,
-        allowDom: true,
-        options: {
-          selectedNodeIds: options.selectedNodeIds,
-          renderFilter: options.renderFilter || "all",
-          skipWidgetCapture:
-            options?.skipWidgetCapture === true ||
-            options?.skipDomWidgetOverlays === true,
-        },
-      })
-    );
+    widgetTextTrace?.setStage("widget.plan.draw");
     await measurePerfAsync(
       perfLog,
       "widget.plan.draw",
@@ -314,6 +331,7 @@ export async function captureLegacy(options = {}) {
         debugLog,
       })
     );
+    widgetTextTrace?.setStage("dom.external-text.overlays");
     measurePerf(
       perfLog,
       "dom.external-text.overlays",
@@ -328,8 +346,10 @@ export async function captureLegacy(options = {}) {
         renderFilter: options.renderFilter || "all",
       })
     );
+    debugLog?.("widget.text.trace.summary", widgetTextTrace?.summary());
 
     if (options?.scopeSelected === true) {
+      widgetTextTrace?.setStage("scope.opacity");
       measurePerf(
         perfLog,
         "scope.opacity",
@@ -370,6 +390,7 @@ export async function captureLegacy(options = {}) {
       height,
     };
   } finally {
+    widgetTextTrace?.restore();
     try { if (typeof offscreen.stopRendering === "function") offscreen.stopRendering(); } catch (_) {}
     try { if (typeof offscreen.setCanvas === "function") offscreen.setCanvas(null); } catch (_) {}
     try { if (typeof offscreen.unbind_events === "function") offscreen.unbind_events(); } catch (_) {}
