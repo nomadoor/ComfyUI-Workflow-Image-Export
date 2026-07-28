@@ -41,6 +41,7 @@ function textEntry(key, x) {
     nodeId: Number(key.split(":")[0]),
     widgetIndex: 0,
     graphRect: { x, y: 10, w: 80, h: 40 },
+    nodeGraphRect: { x: 0, y: 0, w: 300, h: 100 },
     source: "text",
     styleSource: "default",
     element: null,
@@ -70,6 +71,29 @@ test("N text entries draw N text regions", async () => {
 
   assert.equal(result.drawn, 3);
   assert.equal(ctx.calls.filter((call) => call[0] === "fillText").length, 3);
+  assert.ok(ctx.calls.filter((call) => call[0] === "fillRect").length >= 3);
+});
+
+test("entry drawing is clipped to both tile and owning node rectangles", async () => {
+  const ctx = createMockContext();
+  const entry = textEntry("7:0", 80);
+  entry.nodeGraphRect = { x: 90, y: 20, w: 30, h: 20 };
+
+  const result = await drawPlannedWidgetOverlays({
+    exportCtx: ctx,
+    plan: [entry],
+    bounds: { left: 100, top: 0, right: 200, bottom: 100 },
+    scale: 1,
+  });
+
+  assert.equal(result.drawn, 1);
+  assert.ok(ctx.calls.some((call) =>
+    call[0] === "rect" &&
+    call[1] === 0 &&
+    call[2] === 20 &&
+    call[3] === 20 &&
+    call[4] === 20
+  ));
 });
 
 test("duplicate keys are rendered only once", async () => {
@@ -106,4 +130,3 @@ test("entries outside a tile are skipped and intersecting entries are clipped", 
     call[4] === 40
   ));
 });
-

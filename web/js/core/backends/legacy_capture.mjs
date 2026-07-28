@@ -25,6 +25,7 @@ import {
 } from "./legacy_bounds.mjs";
 import {
   drawExternalTextOverlays,
+  isExternalTextOverlayEnabled,
 } from "./legacy_dom_text_overlays.mjs";
 import {
   buildWidgetRenderPlan,
@@ -349,20 +350,30 @@ export async function captureLegacy(options = {}) {
       })
     );
     widgetTextTrace?.setStage("dom.external-text.overlays");
-    measurePerf(
-      perfLog,
-      "dom.external-text.overlays",
-      () => drawExternalTextOverlays({
-        exportCtx,
-        uiCanvas,
-        bounds,
-        scale,
-        nodeRects,
-        debugLog,
-        selectedNodeIds: options.selectedNodeIds,
-        renderFilter: options.renderFilter || "all",
-      })
-    );
+    if (isExternalTextOverlayEnabled(options)) {
+      measurePerf(
+        perfLog,
+        "dom.external-text.overlays",
+        () => drawExternalTextOverlays({
+          exportCtx,
+          uiCanvas,
+          bounds,
+          scale,
+          nodeRects,
+          debugLog,
+          selectedNodeIds: options.selectedNodeIds,
+          renderFilter: options.renderFilter || "all",
+        })
+      );
+    } else {
+      debugLog?.("dom.external-text.summary", {
+        enabled: false,
+        candidates: 0,
+        drawn: 0,
+        skippedNoRect: 0,
+        skippedEmpty: 0,
+      });
+    }
     debugLog?.("widget.text.trace.summary", widgetTextTrace?.summary());
 
     if (options?.scopeSelected === true) {

@@ -24,6 +24,7 @@ import {
 import { collectNodeRects } from "../core/backends/legacy_bounds.mjs";
 import {
   drawExternalTextOverlays,
+  isExternalTextOverlayEnabled,
 } from "../core/backends/legacy_dom_text_overlays.mjs";
 import {
   buildWidgetRenderPlan,
@@ -338,7 +339,7 @@ export async function renderGraphOffscreen(workflowJson, options = {}) {
         skipWidgetCapture: "media-only",
       },
     }));
-    widgetPlan = joinWidgetRenderPlanToGraph(liveWidgetPlan, graph);
+    widgetPlan = joinWidgetRenderPlanToGraph(liveWidgetPlan, graph, debugLog);
   } else if (!options.skipTextFallback) {
     widgetPlan = await timeSpan(perfLog, "widget.plan.build", () => buildWidgetRenderPlan({
       graph,
@@ -464,16 +465,26 @@ export async function renderGraphOffscreen(workflowJson, options = {}) {
       options: { skipWidgetCapture: "media-only" },
       debugLog,
     }));
-    await timeSpan(perfLog, "dom.external-text.overlays", () => drawExternalTextOverlays({
-      exportCtx: outputCtx,
-      uiCanvas: uiCanvasDom,
-      bounds,
-      scale: scaleFactor,
-      nodeRects,
-      debugLog,
-      selectedNodeIds: options.selectedNodeIds,
-      renderFilter: options.renderFilter || "all",
-    }));
+    if (isExternalTextOverlayEnabled(options)) {
+      await timeSpan(perfLog, "dom.external-text.overlays", () => drawExternalTextOverlays({
+        exportCtx: outputCtx,
+        uiCanvas: uiCanvasDom,
+        bounds,
+        scale: scaleFactor,
+        nodeRects,
+        debugLog,
+        selectedNodeIds: options.selectedNodeIds,
+        renderFilter: options.renderFilter || "all",
+      }));
+    } else {
+      debugLog?.("dom.external-text.summary", {
+        enabled: false,
+        candidates: 0,
+        drawn: 0,
+        skippedNoRect: 0,
+        skippedEmpty: 0,
+      });
+    }
   } else {
     // Standard mode (Legacy Capture fallback logic)
     const bounds = {

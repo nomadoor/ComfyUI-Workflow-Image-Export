@@ -7,10 +7,18 @@ import { drawMediaSafely } from "./safe_media_draw.mjs";
 
 function intersectGraphRects(a, b) {
   if (!a || !b) return null;
-  const left = Math.max(a.x, b.left);
-  const top = Math.max(a.y, b.top);
-  const right = Math.min(a.x + a.w, b.right);
-  const bottom = Math.min(a.y + a.h, b.bottom);
+  const aLeft = Number(a.left ?? a.x);
+  const aTop = Number(a.top ?? a.y);
+  const aRight = Number(a.right ?? (aLeft + Number(a.width ?? a.w)));
+  const aBottom = Number(a.bottom ?? (aTop + Number(a.height ?? a.h)));
+  const bLeft = Number(b.left ?? b.x);
+  const bTop = Number(b.top ?? b.y);
+  const bRight = Number(b.right ?? (bLeft + Number(b.width ?? b.w)));
+  const bBottom = Number(b.bottom ?? (bTop + Number(b.height ?? b.h)));
+  const left = Math.max(aLeft, bLeft);
+  const top = Math.max(aTop, bTop);
+  const right = Math.min(aRight, bRight);
+  const bottom = Math.min(aBottom, bBottom);
   if (right <= left || bottom <= top) return null;
   return { x: left, y: top, w: right - left, h: bottom - top };
 }
@@ -45,8 +53,14 @@ function scaleTextStyle(style, scale) {
   };
 }
 
-async function withTileClip(exportCtx, entryRect, bounds, scale, draw) {
-  const clipped = intersectGraphRects(entryRect, bounds);
+function getEntryClipRect(entry, bounds) {
+  const nodeClipped = intersectGraphRects(entry?.graphRect, entry?.nodeGraphRect);
+  if (!nodeClipped) return null;
+  return intersectGraphRects(nodeClipped, bounds);
+}
+
+async function withEntryClip(exportCtx, entry, bounds, scale, draw) {
+  const clipped = getEntryClipRect(entry, bounds);
   if (!clipped) return false;
   const clipRect = toExportRect(clipped, bounds, scale);
   exportCtx.save();
@@ -58,6 +72,15 @@ async function withTileClip(exportCtx, entryRect, bounds, scale, draw) {
   } finally {
     exportCtx.restore();
   }
+}
+
+function paintOwnedBackground(exportCtx, exportRect, style) {
+  const background =
+    style?.background ||
+    globalThis.window?.LiteGraph?.WIDGET_BGCOLOR ||
+    "#222222";
+  exportCtx.fillStyle = background;
+  exportCtx.fillRect(exportRect.x, exportRect.y, exportRect.w, exportRect.h);
 }
 
 async function drawCaptureEntry(exportCtx, entry, exportRect) {
@@ -108,7 +131,7 @@ export async function drawPlannedWidgetOverlays({
     }
     renderedKeys.add(entry.key);
 
-    if (!intersectGraphRects(entry.graphRect, bounds)) {
+    if (!getEntryClipRect(entry, bounds)) {
       skippedOutside += 1;
       continue;
     }
@@ -122,7 +145,10 @@ export async function drawPlannedWidgetOverlays({
 
     const exportRect = toExportRect(entry.graphRect, bounds, scale);
     let didDraw = false;
-    await withTileClip(exportCtx, entry.graphRect, bounds, scale, async () => {
+    await withEntryClip(exportCtx, entry, bounds, scale, async () => {
+      // Pixel ownership closes paths such as node.onDrawForeground and cached
+      // drawImage output that do not pass through widget.draw.
+      paintOwnedBackground(exportCtx, exportRect, entry.style);
       if (entry.source === "capture" && options.skipWidgetCapture !== true) {
         didDraw = await drawCaptureEntry(exportCtx, entry, exportRect);
       }

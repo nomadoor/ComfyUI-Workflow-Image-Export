@@ -16,6 +16,10 @@ import {
   parsePx,
 } from "./legacy_text_helpers.mjs";
 
+export function isExternalTextOverlayEnabled(options = {}) {
+  return options?.allowExternalDomText === true;
+}
+
 function intersectWithNodeRect(rect, nodeRect) {
   if (!nodeRect) return rect;
   const left = Math.max(rect.x, nodeRect.left);

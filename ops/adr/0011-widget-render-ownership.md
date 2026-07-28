@@ -42,16 +42,38 @@ Widget overlay ownership is decided before rendering.
 7. DOM-free offscreen and tiled rendering uses the same planner with
    `allowDom: false`; relevant entries become default-styled text.
 8. A live plan is joined to an offscreen graph only by node ID and widget
-   index. Failed joins are skipped. Geometry matching is prohibited.
+   index. Failed joins are skipped and counted in debug output. Geometry
+   matching is prohibited; geometry is read from the joined widget after its
+   identity has been established.
+9. During the base LiteGraph pass, an offscreen-canvas-local
+   `drawNodeWidgets` wrapper removes plan-owned text/capture widgets from that
+   synchronous call. It never mutates live widget objects across an animation
+   frame or another await.
+10. The planned rectangle is clipped to both the current tile and its owning
+    node. Before text/capture rendering, the renderer paints an opaque widget
+    background across that rectangle. This pixel ownership also erases output
+    from node-level hooks such as `onDrawForeground`.
 
 Textarea values are not serialized into `outerHTML`, so foreignObject capture
-cannot reliably reproduce them. Canvas text drawing uses `widget.value`, with
-the corresponding serialized `widgets_values` entry only when the widget value
-is not a string.
+cannot reliably reproduce them. Canvas text drawing uses `widget.value`. An
+array-form `widgets_values` fallback is accepted only when its cardinality
+matches `node.widgets`; object-form values require a matching widget name.
+
+Hidden, disabled, node-filtered, and collapsed widgets do not enter the plan.
+The default widget margin is the frontend `BaseDOMWidgetImpl.DEFAULT_MARGIN`
+value of 10.
+
+Modal preview/export intentionally passes `skipWidgetCapture: true` under ADRs
+0008–0010, so Markdown is rendered as deterministic default-styled text in that
+path. Other callers may retain `source: capture`; failure falls back inside the
+same entry.
 
 ### DOM Scanner Boundary
 
-The residual text scanner is for node-external extension DOM only.
+The residual text scanner is for node-external extension DOM only and is
+disabled by default. A caller must explicitly pass
+`allowExternalDomText: true`; support for a specific extension should be exposed
+through an explicit allowlist rather than broad scanning.
 
 - Descendants of `.dom-widget` are always excluded.
 - Descendants of `[data-node-id]` and `[data-nodeid]` are always excluded.
@@ -87,10 +109,11 @@ regions. The one-widget/one-draw invariant applies within each tile.
   widget classification.
 - Single-line widgets remain owned by LiteGraph canvas rendering.
 - Media remains on the existing media overlay paths; plan-owned element
-  references are delegation hints only.
+  references are delegation hints only. Native media widget drawing is not
+  suppressed by text/capture ownership.
+- Node-external extension text is omitted unless explicitly enabled.
 - Node 2.0 compositor capture is unchanged.
 
 ### Supersedes
 
 This ADR supersedes [0007: DOM Widget Overlay Policy](./0007-dom-widget-overlay-policy.md).
-

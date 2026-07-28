@@ -31,17 +31,17 @@ function findElement(root, selectors) {
 function getWidgetText(node, widget, widgetIndex) {
   if (typeof widget?.value === "string") return widget.value;
   const values = node?.widgets_values;
-  if (Array.isArray(values) && typeof values[widgetIndex] === "string") {
+  const widgets = Array.isArray(node?.widgets) ? node.widgets : [];
+  if (
+    Array.isArray(values) &&
+    values.length === widgets.length &&
+    typeof values[widgetIndex] === "string"
+  ) {
     return values[widgetIndex];
   }
-  if (values && typeof values === "object") {
+  if (values && !Array.isArray(values) && typeof values === "object") {
     const name = widget?.name || widget?.options?.name;
     if (name && typeof values[name] === "string") return values[name];
-    const keys = Object.keys(values);
-    const indexedKey = keys[widgetIndex];
-    if (indexedKey !== undefined && typeof values[indexedKey] === "string") {
-      return values[indexedKey];
-    }
   }
   return "";
 }
@@ -61,7 +61,7 @@ function getWidgetGraphRect(node, widget) {
   if (!isFiniteCoordinatePair(pos)) return null;
 
   const nodeWidth = Number(widget?.width ?? node?.width ?? size?.[0]);
-  const margin = Number.isFinite(Number(widget?.margin)) ? Number(widget.margin) : 4;
+  const margin = Number.isFinite(Number(widget?.margin)) ? Number(widget.margin) : 10;
   const widgetY = Number.isFinite(Number(widget?.y))
     ? Number(widget.y)
     : Number.isFinite(Number(node?.widgets_start_y))
@@ -91,6 +91,21 @@ function getWidgetGraphRect(node, widget) {
     y: Number(pos[1]) + margin + widgetY,
     w: width,
     h: height,
+  };
+}
+
+function getNodeGraphRect(node) {
+  const pos = node?.pos || node?._pos;
+  const size = node?.size || node?._size;
+  if (!isFiniteCoordinatePair(pos) || !isFiniteCoordinatePair(size)) return null;
+  const w = Number(size[0]);
+  const h = Number(size[1]);
+  if (!(w > 0) || !(h > 0)) return null;
+  return {
+    x: Number(pos[0]),
+    y: Number(pos[1]),
+    w,
+    h,
   };
 }
 
@@ -124,7 +139,10 @@ function getDomStyle(element) {
       paddingTop: parsePx(computed.paddingTop, 0),
       paddingRight: parsePx(computed.paddingRight, 0),
       paddingBottom: parsePx(computed.paddingBottom, 0),
-      background: getEffectiveBackground(element),
+      background:
+        getEffectiveBackground(element) ||
+        globalThis.window?.LiteGraph?.WIDGET_BGCOLOR ||
+        null,
       color: computed.color || "#ffffff",
       font: formatCanvasFont(computed, fontSize),
     };
@@ -211,7 +229,8 @@ export function buildWidgetRenderPlan({
       const classification = classifyWidget(widget, ownedElement);
       if (!classification) continue;
       const graphRect = getWidgetGraphRect(node, widget);
-      if (!graphRect) continue;
+      const nodeGraphRect = getNodeGraphRect(node);
+      if (!graphRect || !nodeGraphRect) continue;
 
       const key = `${node.id}:${widgetIndex}`;
       const text = getWidgetText(node, widget, widgetIndex);
@@ -238,6 +257,7 @@ export function buildWidgetRenderPlan({
         nodeId: node.id,
         widgetIndex,
         graphRect,
+        nodeGraphRect,
         source,
         styleSource,
         ownedElement,
@@ -251,18 +271,37 @@ export function buildWidgetRenderPlan({
   return Array.from(planByKey.values());
 }
 
-export function joinWidgetRenderPlanToGraph(plan, graph) {
+export function joinWidgetRenderPlanToGraph(plan, graph, debugLog = null) {
   const nodes = graph?._nodes || graph?.nodes || [];
-  const widgetsByNodeId = new Map();
+  const nodesById = new Map();
   for (const node of nodes) {
     if (!node || node.id === undefined || node.id === null) continue;
-    widgetsByNodeId.set(String(node.id), Array.isArray(node.widgets) ? node.widgets : []);
+    nodesById.set(String(node.id), node);
   }
 
-  return (Array.isArray(plan) ? plan : []).filter((entry) => {
-    const widgets = widgetsByNodeId.get(String(entry?.nodeId));
-    return Boolean(widgets && Number.isInteger(entry?.widgetIndex) && widgets[entry.widgetIndex]);
+  const input = Array.isArray(plan) ? plan : [];
+  const joined = [];
+  for (const entry of input) {
+    const node = nodesById.get(String(entry?.nodeId));
+    const widgets = Array.isArray(node?.widgets) ? node.widgets : [];
+    const widget = Number.isInteger(entry?.widgetIndex)
+      ? widgets[entry.widgetIndex]
+      : null;
+    const graphRect = widget ? getWidgetGraphRect(node, widget) : null;
+    const nodeGraphRect = getNodeGraphRect(node);
+    if (!widget || !graphRect || !nodeGraphRect) continue;
+    joined.push({
+      ...entry,
+      graphRect,
+      nodeGraphRect,
+    });
+  }
+  debugLog?.("widget.plan.join", {
+    input: input.length,
+    joined: joined.length,
+    dropped: input.length - joined.length,
   });
+  return joined;
 }
 
 export function collectPlannedWidgetIndexes(plan) {

@@ -179,6 +179,40 @@ test("legacy runtime typed-array geometry and string node ids produce a plan ent
     w: 380,
     h: 180,
   });
+  assert.deepEqual(plan[0].nodeGraphRect, {
+    x: 100,
+    y: 200,
+    w: 400,
+    h: 260,
+  });
+});
+
+test("widgets without an explicit margin use the frontend default of ten", () => {
+  const node = multilineNode(73, "TextEncode");
+  delete node.widgets[0].margin;
+  const [entry] = buildWidgetRenderPlan({
+    graph: { nodes: [node] },
+    allowDom: false,
+  });
+
+  assert.deepEqual(entry.graphRect, {
+    x: 20,
+    y: 60,
+    w: 220,
+    h: 70,
+  });
+});
+
+test("serialized array fallback is ignored when widget cardinality differs", () => {
+  const node = multilineNode(74, "TextEncode");
+  delete node.widgets[0].value;
+  node.widgets_values = ["wrong value", "shifted value"];
+  const [entry] = buildWidgetRenderPlan({
+    graph: { nodes: [node] },
+    allowDom: false,
+  });
+
+  assert.equal(entry.text, "");
 });
 
 test("DOM-to-node lookup inputs cannot change plan entry count", () => {
@@ -355,11 +389,35 @@ test("plan joins to an export graph only by node id and widget index", () => {
     graph: { nodes: [multilineNode(31, "Note"), multilineNode(32, "Note")] },
     allowDom: false,
   });
-  const joined = joinWidgetRenderPlanToGraph(plan, {
-    nodes: [{ id: 32, widgets: [{}] }],
-  });
+  const logs = [];
+  const joined = joinWidgetRenderPlanToGraph(
+    plan,
+    {
+      nodes: [{
+        id: 32,
+        pos: [100, 200],
+        size: [300, 180],
+        widgets: [{
+          y: 40,
+          computedHeight: 100,
+          margin: 10,
+        }],
+      }],
+    },
+    (label, payload) => logs.push({ label, payload })
+  );
 
   assert.deepEqual(joined.map((entry) => entry.key), ["32:0"]);
+  assert.deepEqual(joined[0].graphRect, {
+    x: 110,
+    y: 250,
+    w: 280,
+    h: 80,
+  });
+  assert.deepEqual(logs, [{
+    label: "widget.plan.join",
+    payload: { input: 2, joined: 1, dropped: 1 },
+  }]);
 });
 
 test("only entries that can paint claim native widget draw ownership", () => {
