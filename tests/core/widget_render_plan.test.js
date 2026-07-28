@@ -3,8 +3,9 @@ import assert from "node:assert/strict";
 
 import {
   buildWidgetRenderPlan,
+  collectPlannedWidgetIndexes,
+  installPlannedWidgetDrawSuppression,
   joinWidgetRenderPlanToGraph,
-  suppressPlannedWidgetDrawing,
 } from "../../web/js/core/backends/widget_render_plan.mjs";
 
 class MockElement {
@@ -58,6 +59,7 @@ test.beforeEach(() => {
       NODE_FONT: "Arial",
       NODE_TEXT_COLOR: "#eeeeee",
       NODE_TITLE_HEIGHT: 30,
+      WIDGET_BGCOLOR: "#222222",
     },
     getComputedStyle(element) {
       return {
@@ -137,6 +139,7 @@ test("missing widget.element still produces exactly one default-style text entry
   assert.equal(plan[0].source, "text");
   assert.equal(plan[0].styleSource, "default");
   assert.equal(plan[0].element, null);
+  assert.equal(plan[0].style.background, "#222222");
 });
 
 test("legacy runtime typed-array geometry and string node ids produce a plan entry", () => {
@@ -316,6 +319,37 @@ test("selection filtering happens while the plan is built", () => {
   assert.deepEqual(plan.map((entry) => entry.nodeId), [22]);
 });
 
+test("hidden, collapsed, and node-filtered widgets never enter the plan", () => {
+  const hiddenWidgetNode = multilineNode(23, "Note");
+  hiddenWidgetNode.widgets[0].hidden = true;
+  const hiddenTypeNode = multilineNode(24, "Note");
+  hiddenTypeNode.widgets[0].type = "hidden";
+  const disabledNode = multilineNode(28, "Note");
+  disabledNode.widgets[0].computedDisabled = true;
+  const collapsedNode = multilineNode(25, "Note");
+  collapsedNode.flags = { collapsed: true };
+  const filteredNode = multilineNode(26, "Note");
+  filteredNode.isWidgetVisible = () => false;
+  const visibleNode = multilineNode(27, "Note");
+  visibleNode.isWidgetVisible = () => true;
+
+  const plan = buildWidgetRenderPlan({
+    graph: {
+      nodes: [
+        hiddenWidgetNode,
+        hiddenTypeNode,
+        disabledNode,
+        collapsedNode,
+        filteredNode,
+        visibleNode,
+      ],
+    },
+    allowDom: false,
+  });
+
+  assert.deepEqual(plan.map((entry) => entry.nodeId), [27]);
+});
+
 test("plan joins to an export graph only by node id and widget index", () => {
   const plan = buildWidgetRenderPlan({
     graph: { nodes: [multilineNode(31, "Note"), multilineNode(32, "Note")] },
@@ -328,34 +362,91 @@ test("plan joins to an export graph only by node id and widget index", () => {
   assert.deepEqual(joined.map((entry) => entry.key), ["32:0"]);
 });
 
-test("planned text widgets cannot draw natively during the base graph pass", () => {
-  const inheritedDraw = () => "inherited";
-  const widgetPrototype = { draw: inheritedDraw };
-  const textWidget = Object.assign(Object.create(widgetPrototype), {
-    type: "customtext",
-    value: "owned text",
-  });
-  const mediaDraw = () => "media";
-  const mediaWidget = { type: "image", draw: mediaDraw };
-  const graph = {
-    _nodes: [{
-      id: "72",
-      widgets: [textWidget, mediaWidget],
-    }],
+test("only entries that can paint claim native widget draw ownership", () => {
+  const indexes = collectPlannedWidgetIndexes([
+    { key: "72:0", nodeId: "72", widgetIndex: 0, source: "text", text: "owned" },
+    { key: "72:0", nodeId: "72", widgetIndex: 0, source: "text", text: "owned" },
+    { key: "72:1", nodeId: "72", widgetIndex: 1, source: "media", text: "media" },
+    { key: "72:2", nodeId: "72", widgetIndex: 2, source: "text", text: "  " },
+    { key: "72:3", nodeId: "72", widgetIndex: 3, source: "capture", text: "" },
+  ]);
+
+  assert.deepEqual([...indexes.get("72")], [0, 3]);
+});
+
+test("offscreen suppression filters planned widgets synchronously and restores the instance", () => {
+  const textWidget = { type: "customtext" };
+  const mediaWidget = { type: "image" };
+  const widgets = [textWidget, mediaWidget];
+  const node = { id: "72", widgets };
+  const seenWidgets = [];
+  const canvasPrototype = {
+    drawNodeWidgets(currentNode) {
+      seenWidgets.push([...currentNode.widgets]);
+      return "drawn";
+    },
   };
-  const suppression = suppressPlannedWidgetDrawing(graph, [
-    { key: "72:0", nodeId: "72", widgetIndex: 0, source: "text" },
-    { key: "72:0", nodeId: "72", widgetIndex: 0, source: "text" },
-    { key: "72:1", nodeId: "72", widgetIndex: 1, source: "media" },
+  const canvas = Object.create(canvasPrototype);
+  const suppression = installPlannedWidgetDrawSuppression(canvas, [
+    { key: "72:0", nodeId: "72", widgetIndex: 0, source: "text", text: "owned" },
+    { key: "72:1", nodeId: "72", widgetIndex: 1, source: "media", text: "media" },
   ]);
 
   assert.equal(suppression.suppressed, 1);
-  assert.equal(textWidget.type, "hidden");
-  assert.equal(textWidget.draw(), undefined);
-  assert.equal(mediaWidget.draw, mediaDraw);
+  assert.equal(canvas.drawNodeWidgets(node), "drawn");
+  assert.deepEqual(seenWidgets, [[mediaWidget]]);
+  assert.equal(node.widgets, widgets);
+  assert.equal(textWidget.type, "customtext");
+  assert.equal(Object.hasOwn(canvas, "drawNodeWidgets"), true);
 
   suppression.restore();
-  assert.equal(textWidget.type, "customtext");
-  assert.equal(textWidget.draw, inheritedDraw);
-  assert.equal(Object.hasOwn(textWidget, "draw"), false);
+  suppression.restore();
+  assert.equal(Object.hasOwn(canvas, "drawNodeWidgets"), false);
+  assert.equal(canvas.drawNodeWidgets, canvasPrototype.drawNodeWidgets);
+});
+
+test("offscreen suppression restores node widgets when base drawing throws", () => {
+  const widgets = [{ type: "customtext" }, { type: "image" }];
+  const node = { id: 72, widgets };
+  const ownDraw = function () {
+    throw new Error("draw failed");
+  };
+  const canvas = { drawNodeWidgets: ownDraw };
+  const originalDescriptor = Object.getOwnPropertyDescriptor(canvas, "drawNodeWidgets");
+  const suppression = installPlannedWidgetDrawSuppression(canvas, [
+    { key: "72:0", nodeId: 72, widgetIndex: 0, source: "text", text: "owned" },
+  ]);
+
+  assert.throws(() => canvas.drawNodeWidgets(node), /draw failed/);
+  assert.equal(node.widgets, widgets);
+  suppression.restore();
+  assert.deepEqual(
+    Object.getOwnPropertyDescriptor(canvas, "drawNodeWidgets"),
+    originalDescriptor
+  );
+});
+
+test("parallel suppression sessions never mutate their shared live widgets", () => {
+  const widgets = [{ type: "customtext", draw() {} }];
+  const node = { id: 72, widgets };
+  const makeCanvas = () => ({
+    drawNodeWidgets(currentNode) {
+      assert.deepEqual(currentNode.widgets, []);
+    },
+  });
+  const plan = [
+    { key: "72:0", nodeId: 72, widgetIndex: 0, source: "text", text: "owned" },
+  ];
+  const firstCanvas = makeCanvas();
+  const secondCanvas = makeCanvas();
+  const first = installPlannedWidgetDrawSuppression(firstCanvas, plan);
+  const second = installPlannedWidgetDrawSuppression(secondCanvas, plan);
+
+  firstCanvas.drawNodeWidgets(node);
+  secondCanvas.drawNodeWidgets(node);
+  first.restore();
+  second.restore();
+
+  assert.equal(node.widgets, widgets);
+  assert.equal(widgets[0].type, "customtext");
 });

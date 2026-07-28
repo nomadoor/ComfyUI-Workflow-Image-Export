@@ -27,8 +27,8 @@ import {
 } from "../core/backends/legacy_dom_text_overlays.mjs";
 import {
   buildWidgetRenderPlan,
+  installPlannedWidgetDrawSuppression,
   joinWidgetRenderPlanToGraph,
-  suppressPlannedWidgetDrawing,
 } from "../core/backends/widget_render_plan.mjs";
 import {
   drawPlannedWidgetOverlays,
@@ -353,14 +353,15 @@ export async function renderGraphOffscreen(workflowJson, options = {}) {
 
   // Override devicePixelRatio during draw to keep LiteGraph canvas math stable.
   const restoreDpr = overrideDevicePixelRatio(uiPxRatio, debug ? console.log : null);
-  const nativeWidgetSuppression = suppressPlannedWidgetDrawing(graph, widgetPlan);
-  debugLog?.("widget.native-draw.suppressed", {
-    count: nativeWidgetSuppression.suppressed,
-  });
+  let nativeWidgetSuppression = null;
   try {
+    nativeWidgetSuppression = installPlannedWidgetDrawSuppression(offscreen, widgetPlan);
+    debugLog?.("widget.native-draw.suppressed", {
+      count: nativeWidgetSuppression.suppressed,
+    });
     await timeSpan(perfLog, "offscreen.draw", () => offscreen.draw(true, true));
   } finally {
-    nativeWidgetSuppression.restore();
+    nativeWidgetSuppression?.restore();
     restoreDpr?.();
   }
 

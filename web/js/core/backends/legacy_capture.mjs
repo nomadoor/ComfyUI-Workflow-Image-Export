@@ -28,7 +28,7 @@ import {
 } from "./legacy_dom_text_overlays.mjs";
 import {
   buildWidgetRenderPlan,
-  suppressPlannedWidgetDrawing,
+  installPlannedWidgetDrawSuppression,
 } from "./widget_render_plan.mjs";
 import {
   drawPlannedWidgetOverlays,
@@ -268,11 +268,12 @@ export async function captureLegacy(options = {}) {
     }
 
     widgetTextTrace?.setStage("offscreen.draw");
-    const nativeWidgetSuppression = suppressPlannedWidgetDrawing(graph, widgetPlan);
-    debugLog?.("widget.native-draw.suppressed", {
-      count: nativeWidgetSuppression.suppressed,
-    });
+    let nativeWidgetSuppression = null;
     try {
+      nativeWidgetSuppression = installPlannedWidgetDrawSuppression(offscreen, widgetPlan);
+      debugLog?.("widget.native-draw.suppressed", {
+        count: nativeWidgetSuppression.suppressed,
+      });
       await measurePerfAsync(
         perfLog,
         "offscreen.draw",
@@ -288,7 +289,7 @@ export async function captureLegacy(options = {}) {
         })
       );
     } finally {
-      nativeWidgetSuppression.restore();
+      nativeWidgetSuppression?.restore();
     }
     widgetTextTrace?.setStage("dom.image.overlays");
     measurePerf(

@@ -104,7 +104,7 @@ function getDefaultStyle() {
     paddingTop: 4,
     paddingRight: 6,
     paddingBottom: 4,
-    background: null,
+    background: liteGraph?.WIDGET_BGCOLOR || null,
     color: liteGraph?.NODE_TEXT_COLOR || "#ffffff",
     font: `${fontSize}px ${liteGraph?.NODE_FONT || "sans-serif"}`,
   };
@@ -191,6 +191,20 @@ export function buildWidgetRenderPlan({
     for (let widgetIndex = 0; widgetIndex < widgets.length; widgetIndex += 1) {
       const widget = widgets[widgetIndex];
       if (!widget) continue;
+      if (node.flags?.collapsed === true) continue;
+      if (
+        widget.hidden === true ||
+        widget.type === "hidden" ||
+        widget.computedDisabled === true
+      ) {
+        continue;
+      }
+      if (
+        typeof node.isWidgetVisible === "function" &&
+        node.isWidgetVisible(widget) === false
+      ) {
+        continue;
+      }
 
       // widget.element is authoritative. Never recover ownership from DOM position.
       const ownedElement = allowDom && isElementLike(widget.element) ? widget.element : null;
@@ -251,77 +265,87 @@ export function joinWidgetRenderPlanToGraph(plan, graph) {
   });
 }
 
-function restoreOwnProperty(target, key, hadOwnProperty, value) {
-  if (hadOwnProperty) {
-    target[key] = value;
-    return;
-  }
-  try {
-    delete target[key];
-  } catch (_) {
-    target[key] = value;
-  }
-}
-
-/**
- * The render plan exclusively owns text/capture widgets. Suppress their native
- * LiteGraph/custom-node widget draw hooks during the base graph pass so an
- * extension cannot paint the same value through fillText, drawImage, or another
- * private cache before the planned overlay is rendered.
- */
-export function suppressPlannedWidgetDrawing(graph, plan) {
-  const nodes = graph?._nodes || graph?.nodes || [];
-  const nodesById = new Map(
-    nodes
-      .filter((node) => node?.id !== undefined && node?.id !== null)
-      .map((node) => [String(node.id), node])
-  );
-  const restores = [];
-  const suppressedKeys = new Set();
-
+export function collectPlannedWidgetIndexes(plan) {
+  const byNodeId = new Map();
+  const claimedKeys = new Set();
   for (const entry of Array.isArray(plan) ? plan : []) {
     if (
       !entry?.key ||
-      suppressedKeys.has(entry.key) ||
+      claimedKeys.has(entry.key) ||
       entry.source === "media" ||
       !Number.isInteger(entry.widgetIndex)
     ) {
       continue;
     }
-    const node = nodesById.get(String(entry.nodeId));
-    const widget = Array.isArray(node?.widgets)
-      ? node.widgets[entry.widgetIndex]
-      : null;
-    if (!widget || typeof widget !== "object") continue;
+    if (entry.source !== "capture" && !String(entry.text || "").trim()) continue;
 
-    const hadOwnType = Object.prototype.hasOwnProperty.call(widget, "type");
-    const hadOwnDraw = Object.prototype.hasOwnProperty.call(widget, "draw");
-    const originalType = widget.type;
-    const originalDraw = widget.draw;
-    try {
-      widget.type = "hidden";
-      widget.draw = () => {};
-    } catch (_) {
-      restoreOwnProperty(widget, "type", hadOwnType, originalType);
-      restoreOwnProperty(widget, "draw", hadOwnDraw, originalDraw);
-      continue;
-    }
+    const nodeId = String(entry.nodeId);
+    if (!byNodeId.has(nodeId)) byNodeId.set(nodeId, new Set());
+    byNodeId.get(nodeId).add(entry.widgetIndex);
+    claimedKeys.add(entry.key);
+  }
+  return byNodeId;
+}
 
-    suppressedKeys.add(entry.key);
-    restores.push(() => {
-      restoreOwnProperty(widget, "type", hadOwnType, originalType);
-      restoreOwnProperty(widget, "draw", hadOwnDraw, originalDraw);
-    });
+/**
+ * Scope ownership to one offscreen canvas. Planned widgets are removed only
+ * during the synchronous drawNodeWidgets call, so live widget objects are never
+ * mutated across an animation frame or another await.
+ */
+export function installPlannedWidgetDrawSuppression(canvas, plan) {
+  const byNodeId = collectPlannedWidgetIndexes(plan);
+  const baseDrawNodeWidgets = canvas?.drawNodeWidgets;
+  if (!canvas || !byNodeId.size || typeof baseDrawNodeWidgets !== "function") {
+    return { suppressed: 0, restore() {} };
   }
 
+  const previousDescriptor = Object.getOwnPropertyDescriptor(canvas, "drawNodeWidgets");
+  const wrappedDrawNodeWidgets = function (node, ...args) {
+    const indexes = byNodeId.get(String(node?.id));
+    const widgets = node?.widgets;
+    if (!indexes?.size || !Array.isArray(widgets)) {
+      return baseDrawNodeWidgets.call(this, node, ...args);
+    }
+
+    const filteredWidgets = widgets.filter((_, index) => !indexes.has(index));
+    try {
+      node.widgets = filteredWidgets;
+    } catch (_) {
+      return baseDrawNodeWidgets.call(this, node, ...args);
+    }
+    try {
+      return baseDrawNodeWidgets.call(this, node, ...args);
+    } finally {
+      node.widgets = widgets;
+    }
+  };
+
+  try {
+    Object.defineProperty(canvas, "drawNodeWidgets", {
+      configurable: true,
+      enumerable: previousDescriptor?.enumerable ?? false,
+      writable: true,
+      value: wrappedDrawNodeWidgets,
+    });
+  } catch (_) {
+    return { suppressed: 0, restore() {} };
+  }
+
+  let suppressed = 0;
+  for (const indexes of byNodeId.values()) suppressed += indexes.size;
+  let restored = false;
   return {
-    suppressed: suppressedKeys.size,
+    suppressed,
     restore() {
-      for (let index = restores.length - 1; index >= 0; index -= 1) {
-        try {
-          restores[index]();
-        } catch (_) {}
-      }
+      if (restored) return;
+      restored = true;
+      try {
+        if (previousDescriptor) {
+          Object.defineProperty(canvas, "drawNodeWidgets", previousDescriptor);
+        } else {
+          delete canvas.drawNodeWidgets;
+        }
+      } catch (_) {}
     },
   };
 }
