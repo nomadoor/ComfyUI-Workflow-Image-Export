@@ -23,10 +23,15 @@ import {
 } from "./offscreen_graph_setup.mjs";
 import { collectNodeRects } from "../core/backends/legacy_bounds.mjs";
 import {
-  drawDomWidgetOverlays,
-  drawTextOverlays,
-  drawWidgetTextFallback,
+  drawExternalTextOverlays,
 } from "../core/backends/legacy_dom_text_overlays.mjs";
+import {
+  buildWidgetRenderPlan,
+  joinWidgetRenderPlanToGraph,
+} from "../core/backends/widget_render_plan.mjs";
+import {
+  drawPlannedWidgetOverlays,
+} from "../core/backends/widget_overlay_renderer.mjs";
 import {
   drawImageOverlays,
   drawVideoOverlays,
@@ -414,25 +419,31 @@ export async function renderGraphOffscreen(workflowJson, options = {}) {
       selectedNodeIds: options.selectedNodeIds,
       renderFilter: options.renderFilter || "all",
     }));
-    const domWidgetCoveredNodeIds = await timeSpan(perfLog, "dom.widget.overlays", () => drawDomWidgetOverlays({
-      exportCtx: outputCtx,
+    const liveWidgetPlan = await timeSpan(perfLog, "widget.plan.build", () => buildWidgetRenderPlan({
+      graph: app?.graph,
       uiCanvas: uiCanvasDom,
-      bounds,
-      scale: scaleFactor,
-      nodeRects,
-      debugLog,
-      skipWidgetCapture: "media-only",
-      selectedNodeIds: options.selectedNodeIds,
-      renderFilter: options.renderFilter || "all",
+      allowDom: true,
+      options: {
+        selectedNodeIds: options.selectedNodeIds,
+        renderFilter: options.renderFilter || "all",
+        skipWidgetCapture: "media-only",
+      },
     }));
-    await timeSpan(perfLog, "dom.text.overlays", () => drawTextOverlays({
+    const widgetPlan = joinWidgetRenderPlanToGraph(liveWidgetPlan, graph);
+    await timeSpan(perfLog, "widget.plan.draw", () => drawPlannedWidgetOverlays({
+      exportCtx: outputCtx,
+      plan: widgetPlan,
+      bounds,
+      scale: scaleFactor,
+      options: { skipWidgetCapture: "media-only" },
+      debugLog,
+    }));
+    await timeSpan(perfLog, "dom.external-text.overlays", () => drawExternalTextOverlays({
       exportCtx: outputCtx,
       uiCanvas: uiCanvasDom,
-      graph,
       bounds,
       scale: scaleFactor,
       nodeRects,
-      skipNodeIds: domWidgetCoveredNodeIds,
       debugLog,
       selectedNodeIds: options.selectedNodeIds,
       renderFilter: options.renderFilter || "all",
@@ -449,8 +460,8 @@ export async function renderGraphOffscreen(workflowJson, options = {}) {
     };
     const nodeRects = collectNodeRects(graph);
 
-    // Draw text overlays on a fresh canvas to avoid any lingering clip state.
-    // Ensure output ctx has a clean state before compositing overlays.
+    // Each tile builds its own DOM-free plan and clips entries to this tile.
+    // Rendering the same widget in separate intersecting tiles is intentional.
     if (outputCtx?.setTransform) {
       outputCtx.setTransform(1, 0, 0, 1, 0, 0);
     }
@@ -461,22 +472,23 @@ export async function renderGraphOffscreen(workflowJson, options = {}) {
       outputCtx.shadowBlur = 0;
     }
 
-    const textOverlay = document.createElement("canvas");
-    textOverlay.width = canvas.width;
-    textOverlay.height = canvas.height;
-    const textCtx = textOverlay.getContext("2d", { alpha: true });
-    if (textCtx && !options.skipTextFallback) {
-      textCtx.setTransform(1, 0, 0, 1, 0, 0);
-      textCtx.globalAlpha = 1;
-      await timeSpan(perfLog, "fallback.text", () => drawWidgetTextFallback({
-        exportCtx: textCtx,
+    if (outputCtx && !options.skipTextFallback) {
+      const widgetPlan = await timeSpan(perfLog, "widget.plan.build", () => buildWidgetRenderPlan({
         graph,
+        uiCanvas: null,
+        allowDom: false,
+        options: {
+          selectedNodeIds: options.selectedNodeIds,
+          renderFilter: options.renderFilter || "all",
+        },
+      }));
+      await timeSpan(perfLog, "widget.plan.draw", () => drawPlannedWidgetOverlays({
+        exportCtx: outputCtx,
+        plan: widgetPlan,
         bounds,
         scale: scaleFactor,
-        coveredNodeIds: null,
         debugLog,
       }));
-      outputCtx.drawImage(textOverlay, 0, 0, deviceW, deviceH, 0, 0, cssW, cssH);
     }
     if (mediaMode === "force") {
       await timeSpan(perfLog, "fallback.image.thumbs", () => drawImageThumbnails({

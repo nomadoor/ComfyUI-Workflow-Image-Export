@@ -22,10 +22,6 @@ import {
   resolveOpaqueBackground,
   wrapText,
 } from "./legacy_text_helpers.mjs";
-import { drawWidgetTextFallback } from "./legacy_widget_text_fallback.mjs";
-
-export { drawWidgetTextFallback } from "./legacy_widget_text_fallback.mjs";
-
 function findRenderedMarkdownElement(widget) {
   if (!(widget instanceof HTMLElement)) return null;
   const rendered =
@@ -269,10 +265,9 @@ export async function drawDomWidgetOverlays({
   return coveredNodeIds;
 }
 
-export function drawTextOverlays({
+export function drawExternalTextOverlays({
   exportCtx,
   uiCanvas,
-  graph,
   bounds,
   scale,
   nodeRects,
@@ -537,22 +532,10 @@ export function drawTextOverlays({
   if (visibleCount === 0) {
     debugLog?.("dom.text.fallback", { reason: "no-visible-dom-text" });
   }
-  const widgetStats = drawWidgetTextFallback({
-    exportCtx,
-    graph,
-    bounds,
-    scale,
-    coveredNodeIds,
-    debugLog,
-  });
-
   debugLog?.("dom.text.summary", {
     visible: visibleCount,
     skippedNoRect,
     skippedEmpty,
     coveredNodes: coveredNodeIds.size,
-    widgetDrawn: widgetStats?.drawn ?? 0,
-    widgetSkippedCovered: widgetStats?.skippedCovered ?? 0,
-    widgetSkippedEmpty: widgetStats?.skippedEmpty ?? 0,
   });
 }

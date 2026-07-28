@@ -24,9 +24,14 @@ import {
   filterNodeRectsBySelected,
 } from "./legacy_bounds.mjs";
 import {
-  drawDomWidgetOverlays,
-  drawTextOverlays,
+  drawExternalTextOverlays,
 } from "./legacy_dom_text_overlays.mjs";
+import {
+  buildWidgetRenderPlan,
+} from "./widget_render_plan.mjs";
+import {
+  drawPlannedWidgetOverlays,
+} from "./widget_overlay_renderer.mjs";
 import {
   drawImageOverlays,
   drawVideoOverlays,
@@ -277,30 +282,50 @@ export async function captureLegacy(options = {}) {
       "dom.vhs.overlays",
       () => drawVhsVideoOverlays({ exportCtx, uiCanvas, bounds, scale, debugLog })
     );
-    const domWidgetCoveredNodeIds =
-      options?.skipDomWidgetOverlays === true
-        ? new Set()
-        : await measurePerfAsync(perfLog, "dom.widget.overlays", () => drawDomWidgetOverlays({
-          exportCtx,
-          uiCanvas,
-          bounds,
-          scale,
-          nodeRects,
-          debugLog,
-          skipWidgetCapture: options?.skipWidgetCapture === true,
-        }));
+    const widgetPlan = measurePerf(
+      perfLog,
+      "widget.plan.build",
+      () => buildWidgetRenderPlan({
+        graph,
+        uiCanvas,
+        allowDom: true,
+        options: {
+          selectedNodeIds: options.selectedNodeIds,
+          renderFilter: options.renderFilter || "all",
+          skipWidgetCapture:
+            options?.skipWidgetCapture === true ||
+            options?.skipDomWidgetOverlays === true,
+        },
+      })
+    );
+    await measurePerfAsync(
+      perfLog,
+      "widget.plan.draw",
+      () => drawPlannedWidgetOverlays({
+        exportCtx,
+        plan: widgetPlan,
+        bounds,
+        scale,
+        options: {
+          skipWidgetCapture:
+            options?.skipWidgetCapture === true ||
+            options?.skipDomWidgetOverlays === true,
+        },
+        debugLog,
+      })
+    );
     measurePerf(
       perfLog,
-      "dom.text.overlays",
-      () => drawTextOverlays({
+      "dom.external-text.overlays",
+      () => drawExternalTextOverlays({
         exportCtx,
         uiCanvas,
-        graph,
         bounds,
         scale,
         nodeRects,
         debugLog,
-        skipNodeIds: domWidgetCoveredNodeIds,
+        selectedNodeIds: options.selectedNodeIds,
+        renderFilter: options.renderFilter || "all",
       })
     );
 
