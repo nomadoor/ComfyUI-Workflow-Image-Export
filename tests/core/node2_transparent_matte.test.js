@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   captureTwoFrameTransparentMatte,
   getNode2TransparentWarning,
+  summarizeNode2TransparentTileRecovery,
 } from "../../web/js/core/backends/node2_transparent_matte.mjs";
 
 function frame(signature, canvas = { signature }) {
@@ -144,7 +145,7 @@ test("opaque recovery falls back and records a recovery warning state", async ()
   assert.match(result.transparentRecovery.error, /opaque/);
 });
 
-test("transparent warning distinguishes successful fit, failed fit, and tile capture", () => {
+test("transparent warning distinguishes successful recovery, failed recovery, and unsupported tile capture", () => {
   assert.equal(getNode2TransparentWarning(
     { background: "transparent" },
     { transparentRecovery: { attempted: true, ok: true } }
@@ -155,6 +156,30 @@ test("transparent warning distinguishes successful fit, failed fit, and tile cap
   ), "node2:transparent_recovery_failed");
   assert.equal(getNode2TransparentWarning(
     { background: "transparent" },
+    {
+      frame: { tiled: true },
+      transparentRecovery: { attempted: true, ok: true },
+    }
+  ), null);
+  assert.equal(getNode2TransparentWarning(
+    { background: "transparent" },
     { frame: { tiled: true } }
   ), "node2:transparent_background_unsupported");
+});
+
+test("summarizes transparent tile recovery without hiding partial fallback", () => {
+  assert.deepEqual(summarizeNode2TransparentTileRecovery(0, 6), {
+    attempted: true,
+    ok: true,
+    fallback: null,
+    failedTiles: 0,
+    totalTiles: 6,
+  });
+  assert.deepEqual(summarizeNode2TransparentTileRecovery(2, 6), {
+    attempted: true,
+    ok: false,
+    fallback: "black-frame",
+    failedTiles: 2,
+    totalTiles: 6,
+  });
 });

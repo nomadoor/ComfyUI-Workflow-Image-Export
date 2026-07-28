@@ -9,16 +9,32 @@ function addResource(resources, canvas) {
 
 export function getNode2TransparentWarning(options = {}, report = null) {
   if (options.background !== "transparent") return null;
-  if (report?.frame?.tiled) {
-    return "node2:transparent_background_unsupported";
-  }
   if (
     report?.transparentRecovery?.attempted === true &&
     report.transparentRecovery.ok !== true
   ) {
     return "node2:transparent_recovery_failed";
   }
+  if (
+    report?.frame?.tiled &&
+    report?.transparentRecovery?.attempted !== true
+  ) {
+    return "node2:transparent_background_unsupported";
+  }
   return null;
+}
+
+export function summarizeNode2TransparentTileRecovery(failedTiles, totalTiles) {
+  const failed = Math.max(0, Math.trunc(Number(failedTiles) || 0));
+  const total = Math.max(0, Math.trunc(Number(totalTiles) || 0));
+  const normalizedFailed = Math.min(failed, total);
+  return {
+    attempted: true,
+    ok: normalizedFailed === 0,
+    fallback: normalizedFailed === 0 ? null : "black-frame",
+    failedTiles: normalizedFailed,
+    totalTiles: total,
+  };
 }
 
 export async function captureTwoFrameTransparentMatte({

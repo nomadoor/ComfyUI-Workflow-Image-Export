@@ -15,6 +15,7 @@ import {
 import {
   captureTwoFrameTransparentMatte,
   getNode2TransparentWarning,
+  summarizeNode2TransparentTileRecovery,
 } from "./node2_transparent_matte.mjs";
 
 const NODE2_CAPTURE_STYLE_ID = "cwie-node2-capture-style";
@@ -2136,10 +2137,19 @@ async function captureNode2TiledFromFit(fitInfo, options = {}) {
   let output = null;
   let outputCtx = null;
   const log = options.debug ? console.log : null;
+  const transparentTiles = options.background === "transparent";
   const captureHandle = await maybeSetCaptureHandle(log);
   const chromeHider = createNode2ChromeHider();
   const canvasInfoHider = createNode2CanvasInfoHider(canvas);
-  const backgroundOverride = createNode2BackgroundOverride(options);
+  const backgroundOverride = createNode2BackgroundOverride(
+    transparentTiles
+      ? {
+        ...options,
+        background: "solid",
+        solidColor: NODE2_MATTE_BG_B,
+      }
+      : options
+  );
 
   ensureNode2CaptureStyle();
 
@@ -2147,11 +2157,13 @@ async function captureNode2TiledFromFit(fitInfo, options = {}) {
   let prepared = null;
   let interactionShield = null;
   let cursorHider = null;
+  let mediaFreezer = null;
   try {
     stream = await requestDisplayMedia(log);
     document.documentElement.classList.add("cwie-node2-capturing");
     interactionShield = createNode2InteractionShield();
     cursorHider = createNode2InlineCursorHider(root);
+    mediaFreezer = createNode2MediaFreezer(root, stream, log);
     await backgroundOverride.apply();
     await canvasInfoHider.hide();
     hideNode2CaptureChrome(chromeHider);
@@ -2173,7 +2185,9 @@ async function captureNode2TiledFromFit(fitInfo, options = {}) {
       },
       log
     );
-    const seedFrame = await seedPreparedFrameSignature(prepared, log);
+    const seedFrame = transparentTiles
+      ? null
+      : await seedPreparedFrameSignature(prepared, log);
     const rootRect = root.getBoundingClientRect();
     const captureRect = getEffectiveCapturableRootRect(root, prepared.video);
     if (!rootRect || rootRect.width <= 0 || rootRect.height <= 0 || !captureRect) {
@@ -2207,6 +2221,7 @@ async function captureNode2TiledFromFit(fitInfo, options = {}) {
       return { error: { message: "Node 2.0 tiled capture failed: 2d context unavailable." } };
     }
     outputCtx.clearRect(0, 0, output.width, output.height);
+    let transparentFailedTiles = 0;
 
     const tileXs = Array.from({ length: cols }, (_, col) => {
       const planned = minX + col * tileStepX;
@@ -2286,19 +2301,86 @@ async function captureNode2TiledFromFit(fitInfo, options = {}) {
         }));
 
         const frameStarted = performance.now();
-        const frame = await captureFrameFromPreparedVideo(prepared, {
-          ...options,
-          frameCount: 1,
-          frameTimeoutMs: 5000,
-          probe: false,
-          pollChangedFrame: true,
-          pollMinWaitMs: Number(options.node2TilePollMinWaitMs) || NODE2_TILE_POLL_MIN_WAIT_MS,
-          pollIntervalMs: Number(options.node2TilePollIntervalMs) || NODE2_TILE_POLL_INTERVAL_MS,
-        }, log);
+        let tileCanvas = null;
+        let tileRecovery = null;
+        if (transparentTiles) {
+          const matte = await captureTwoFrameTransparentMatte({
+            colorA: NODE2_MATTE_BG_A,
+            colorB: NODE2_MATTE_BG_B,
+            async setColor(color) {
+              await backgroundOverride.setColor(color);
+            },
+            async seedBaseline() {
+              await waitForNode2CaptureUiSettle(120);
+              return samplePreparedFrameSignature(prepared, log);
+            },
+            async captureChanged(captureOptions) {
+              if (!prepared.lastFrameSignature) {
+                throw new Error("Node 2.0 transparent tile lost its frame signature.");
+              }
+              return captureFrameFromPreparedVideo(prepared, {
+                ...options,
+                ...captureOptions,
+                frameCount: 1,
+                frameTimeoutMs: 5000,
+                probe: false,
+                pollChangedFrame: true,
+                pollMinWaitMs:
+                  Number(options.node2TilePollMinWaitMs) ||
+                  NODE2_TILE_POLL_MIN_WAIT_MS,
+                pollIntervalMs:
+                  Number(options.node2TilePollIntervalMs) ||
+                  NODE2_TILE_POLL_INTERVAL_MS,
+              }, log);
+            },
+            recover(canvasA, canvasB, colorA, colorB) {
+              return recoverTransparentCanvas(canvasA, canvasB, colorA, colorB, {
+                alphaEpsilon: 3,
+              });
+            },
+            // A tile can legitimately be fully opaque. Strict frame signatures
+            // already prevent the A === B silent-failure case.
+            isTransparent() {
+              return true;
+            },
+          });
+          tileCanvas = matte.canvas;
+          tileRecovery = matte.transparentRecovery;
+          if (!tileRecovery.ok) transparentFailedTiles += 1;
+          for (const resource of matte.resources) {
+            if (resource !== tileCanvas) {
+              releaseCanvasResource(resource);
+            }
+          }
+        } else {
+          const frame = await captureFrameFromPreparedVideo(prepared, {
+            ...options,
+            frameCount: 1,
+            frameTimeoutMs: 5000,
+            probe: false,
+            pollChangedFrame: true,
+            pollMinWaitMs:
+              Number(options.node2TilePollMinWaitMs) ||
+              NODE2_TILE_POLL_MIN_WAIT_MS,
+            pollIntervalMs:
+              Number(options.node2TilePollIntervalMs) ||
+              NODE2_TILE_POLL_INTERVAL_MS,
+          }, log);
+          if (frame.error || !frame.canvas) {
+            return {
+              error: frame.error || {
+                message: "Node 2.0 tiled capture failed: no captured frame.",
+              },
+            };
+          }
+          tileCanvas = frame.canvas;
+        }
         const frameElapsedMs = Math.round(performance.now() - frameStarted);
-        if (frame.error || !frame.canvas) {
+        if (!tileCanvas) {
           return {
-            error: frame.error || { message: "Node 2.0 tiled capture failed: no captured frame." },
+            error: {
+              message: "Node 2.0 tiled capture failed: no captured tile canvas.",
+            },
           };
         }
         const tileLeft = tileX;
@@ -2314,20 +2396,20 @@ async function captureNode2TiledFromFit(fitInfo, options = {}) {
         const drawRight = Math.min(cellRight, tileRight);
         const drawBottom = Math.min(cellBottom, tileBottom);
         if (drawRight <= drawLeft || drawBottom <= drawTop) {
-          releaseCanvasResource(frame.canvas);
+          releaseCanvasResource(tileCanvas);
           continue;
         }
 
         const sx = Math.max(0, Math.floor((drawLeft - tileLeft) * pxPerGraphX));
         const sy = Math.max(0, Math.floor((drawTop - tileTop) * pxPerGraphY));
-        const sw = Math.max(1, Math.min(frame.canvas.width - sx, Math.ceil((drawRight - drawLeft) * pxPerGraphX)));
-        const sh = Math.max(1, Math.min(frame.canvas.height - sy, Math.ceil((drawBottom - drawTop) * pxPerGraphY)));
+        const sw = Math.max(1, Math.min(tileCanvas.width - sx, Math.ceil((drawRight - drawLeft) * pxPerGraphX)));
+        const sh = Math.max(1, Math.min(tileCanvas.height - sy, Math.ceil((drawBottom - drawTop) * pxPerGraphY)));
         const dx = Math.round((drawLeft - minX) * pxPerGraphX);
         const dy = Math.round((drawTop - minY) * pxPerGraphY);
         const dw = Math.max(1, Math.round((drawRight - drawLeft) * pxPerGraphX));
         const dh = Math.max(1, Math.round((drawBottom - drawTop) * pxPerGraphY));
-        outputCtx.drawImage(frame.canvas, sx, sy, sw, sh, dx, dy, dw, dh);
-        releaseCanvasResource(frame.canvas);
+        outputCtx.drawImage(tileCanvas, sx, sy, sw, sh, dx, dy, dw, dh);
+        releaseCanvasResource(tileCanvas);
         logStep(log, "capture.tile.blit", () => ({
           row,
           col,
@@ -2341,6 +2423,7 @@ async function captureNode2TiledFromFit(fitInfo, options = {}) {
           elapsedMs: Math.round(performance.now() - tileStarted),
           settleElapsedMs,
           frameElapsedMs,
+          transparentRecovery: tileRecovery,
         }));
       }
     }
@@ -2354,6 +2437,7 @@ async function captureNode2TiledFromFit(fitInfo, options = {}) {
         width: output?.width || 0,
         height: output?.height || 0,
         tiled: true,
+        transparent: transparentTiles,
         cols,
         rows,
         tileScale,
@@ -2369,6 +2453,9 @@ async function captureNode2TiledFromFit(fitInfo, options = {}) {
         },
       },
       restriction: { attempted: "restriction", ok: true },
+      transparentRecovery: transparentTiles
+        ? summarizeNode2TransparentTileRecovery(transparentFailedTiles, rows * cols)
+        : undefined,
     };
   } catch (error) {
     return {
@@ -2385,6 +2472,7 @@ async function captureNode2TiledFromFit(fitInfo, options = {}) {
     chromeHider.restore();
     await backgroundOverride.restore();
     await canvasInfoHider.restore();
+    await mediaFreezer?.restore();
     document.documentElement.classList.remove("cwie-node2-capturing");
     setNode2CanvasView(canvas, ds, saved.offset, saved.scale);
     await waitForNode2CameraSettle(120);

@@ -240,7 +240,8 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
   const backgroundGroup = createRadioGroup("cwie-bg", backgroundOptions);
   const node2TransparentNote = document.createElement("div");
   node2TransparentNote.className = "cwie-note is-hidden";
-  node2TransparentNote.textContent = "Transparent uses single-frame fit capture.";
+  node2TransparentNote.textContent =
+    "Transparent uses two-frame matte capture. Tiled exports capture each tile twice.";
 
   const solidColorInput = document.createElement("input");
   solidColorInput.type = "color";
@@ -943,8 +944,7 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
     const isRasterExport = state.format === "png" || state.format === "webp";
     const expectsTiling =
       (!isRasterExport || isNode2Backend) &&
-      state.exceedMode === "tile" &&
-      !(isNode2Backend && state.background === "transparent");
+      state.exceedMode === "tile";
     if (expectsTiling) {
       exportButton.classList.add("is-progressing");
       exportProgressText.textContent = "0%";

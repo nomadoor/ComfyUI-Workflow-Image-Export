@@ -22,17 +22,23 @@ recover both `F` and `α`, including antialiased edges and shadows.
 
 ## Decision
 
-Node 2.0 transparent export uses a two-frame black/white matte in the
-single-frame fit path:
+Node 2.0 transparent export uses a two-frame black/white matte in both the fit
+and tiled capture paths:
 
-1. Open one display-capture stream and keep one fitted camera position.
+1. Open one display-capture stream.
 2. Freeze graph-owned video elements and hide capture chrome.
-3. Apply white and record a disposable baseline frame signature.
-4. Apply black and strictly wait for a changed frame (`A`).
-5. Apply white and strictly wait for a frame different from `A` (`B`).
-6. Crop both frames with the same fit geometry.
-7. Recover alpha with `recoverTransparentCanvas(A, B, black, white)`.
-8. Snap alpha values within 3/255 of fully opaque or transparent.
+3. Keep one fitted camera position, or move to one tile camera position.
+4. Apply white and record a disposable baseline frame signature.
+5. Apply black and strictly wait for a changed frame (`A`).
+6. Apply white and strictly wait for a frame different from `A` (`B`).
+7. Crop both frames with the same fit geometry, or use the same tile geometry.
+8. Recover alpha with `recoverTransparentCanvas(A, B, black, white)`.
+9. Snap alpha values within 3/255 of fully opaque or transparent.
+
+For tiled export, steps 3 through 9 run once per tile before that tile is
+blitted into the output canvas. The camera does not move between a tile's black
+and white frames. Existing tile scale, overlap, and output dimensions remain
+unchanged.
 
 Black and white maximize the luminance difference and reduce sensitivity to
 chroma subsampling in the browser's video pipeline. The legacy renderer keeps
@@ -45,38 +51,38 @@ and one restore returns all values to their pre-capture state.
 
 ## Failure Policy
 
-Changed-frame polling is strict only for transparent matte capture. Existing
-tiled polling retains its timeout behavior.
+Changed-frame polling is strict only for transparent matte capture. Ordinary
+UI and solid tiled captures retain their existing timeout behavior.
 
 If the second frame is stale, frame sizes differ, recovery fails, or the result
-is fully opaque, the already captured black frame is exported. The report
-contains:
+cannot be recovered, the already captured black frame is exported. In the tile
+path this fallback is limited to the affected tile. The report contains:
 
 ```js
 transparentRecovery: {
   attempted: true,
   ok: false,
   fallback: "black-frame",
+  failedTiles: 1,
+  totalTiles: 6,
 }
 ```
 
 The result receives `node2:transparent_recovery_failed`, which is logged and
-shown in the export UI. A transparent request that actually uses tiled capture
-keeps `node2:transparent_background_unsupported`.
+shown in the export UI. `node2:transparent_background_unsupported` is reserved
+for a transparent tiled request that reaches an implementation without matte
+recovery.
 
 ## Scope
 
-Transparent matte recovery is limited to Node 2.0 single-frame fit capture.
-Selecting Transparent in the dialog forces that export to the fit path without
-changing the saved tile preference used by UI and solid backgrounds.
-
-Tiled transparent capture is excluded because it would require two captures
-for every tile and would amplify frame synchronization and seam risks.
+Transparent matte recovery applies to Node 2.0 fit and tiled capture. Selecting
+Transparent does not change the saved or effective exceed-mode policy.
 
 ## Consequences
 
 - One browser sharing prompt is used for both matte frames.
-- Transparent exports take longer than ordinary fit captures.
+- Transparent exports take about twice as many compositor frames as ordinary
+  captures. A tiled transparent export captures every tile twice.
 - Dynamic video content is paused and restored around capture.
 - The hidden stream video remains playing but is positioned outside the
   captured viewport.

@@ -5,20 +5,18 @@ import {
   resolveNode2ExportPolicy,
 } from "../../web/js/ui/node2_export_policy.mjs";
 
-test("transparent Node 2.0 export forces fit while other backgrounds retain tile mode", () => {
+test("transparent Node 2.0 export retains the selected tile policy", () => {
   assert.deepEqual(resolveNode2ExportPolicy({
     background: "transparent",
     exceedMode: "tile",
   }), {
-    transparentFit: true,
-    exceedMode: "downscale",
-    node2TiledCapture: false,
+    exceedMode: "tile",
+    node2TiledCapture: true,
   });
   assert.deepEqual(resolveNode2ExportPolicy({
     background: "ui",
     exceedMode: "tile",
   }), {
-    transparentFit: false,
     exceedMode: "tile",
     node2TiledCapture: true,
   });
