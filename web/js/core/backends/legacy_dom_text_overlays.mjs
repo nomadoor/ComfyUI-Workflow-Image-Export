@@ -41,9 +41,14 @@ function buildPickKey(rect, nodeId) {
   ].join(":");
 }
 
-function getElementText(element) {
+export function getExternalTextElementText(element) {
   if (element instanceof HTMLTextAreaElement) return element.value || "";
+  if (element instanceof HTMLInputElement) return element.value || "";
   return element.innerText || element.textContent || "";
+}
+
+export function shouldSkipExternalTextElement(element) {
+  return element instanceof HTMLInputElement && element.type === "hidden";
 }
 
 function getScaledTextStyle(element, scale) {
@@ -91,13 +96,14 @@ export function drawExternalTextOverlays({
   const elements = Array.from(new Set(collectTextElementsFromDom(uiCanvas, { debugLog })));
   const picks = new Map();
   let skippedNoRect = 0;
+  let skippedOversized = 0;
   let skippedEmpty = 0;
 
   for (const element of elements) {
-    if (element instanceof HTMLInputElement && element.type !== "hidden") continue;
+    if (shouldSkipExternalTextElement(element)) continue;
     if (!isEffectivelyVisibleElement(element)) continue;
 
-    const text = getElementText(element);
+    const text = getExternalTextElementText(element);
     if (!text.trim()) {
       skippedEmpty += 1;
       continue;
@@ -123,7 +129,7 @@ export function drawExternalTextOverlays({
     const clippedRect = intersectWithNodeRect(rect, nodeRect);
     if (!clippedRect) continue;
     if (clippedRect.w > bounds.width * 1.05 || clippedRect.h > bounds.height * 1.05) {
-      skippedNoRect += 1;
+      skippedOversized += 1;
       continue;
     }
 
@@ -162,6 +168,7 @@ export function drawExternalTextOverlays({
     candidates: elements.length,
     drawn,
     skippedNoRect,
+    skippedOversized,
     skippedEmpty,
   });
 }

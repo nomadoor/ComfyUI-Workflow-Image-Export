@@ -177,22 +177,6 @@ function collectElements({ selectors, filter, root = document, uiCanvas = null, 
 export function collectTextElementsFromDom(uiCanvas, options = {}) {
   const root = getCanvasRoot(uiCanvas);
   const selectors = [
-    ".dom-widget textarea",
-    ".dom-widget .tiptap",
-    ".dom-widget input[type='text']",
-    ".dom-widget [contenteditable='true']",
-    ".dom-widget .ProseMirror",
-    ".dom-widget .cm-content",
-    ".dom-widget .cm-line",
-    ".dom-widget .markdown-editor",
-    ".dom-widget .markdown-rendered",
-    ".dom-widget .markdown",
-    ".dom-widget .markdown-body",
-    ".dom-widget .markdown-preview",
-    // Modern ComfyUI frontend (WidgetMarkdown component) uses these classes:
-    ".dom-widget .comfy-markdown-content",
-    ".dom-widget .widget-markdown",
-    ".dom-widget pre",
     "textarea",
     ".tiptap",
     "input[type='text']",
@@ -205,7 +189,9 @@ export function collectTextElementsFromDom(uiCanvas, options = {}) {
     ".markdown",
     ".markdown-body",
     ".markdown-preview",
+    // Modern ComfyUI frontend (WidgetMarkdown component) uses this class.
     ".comfy-markdown-content",
+    ".widget-markdown",
     "pre",
   ];
   const elements = collectElements({

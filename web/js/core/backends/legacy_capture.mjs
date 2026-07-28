@@ -371,6 +371,7 @@ export async function captureLegacy(options = {}) {
         candidates: 0,
         drawn: 0,
         skippedNoRect: 0,
+        skippedOversized: 0,
         skippedEmpty: 0,
       });
     }

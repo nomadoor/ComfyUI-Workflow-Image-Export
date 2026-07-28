@@ -336,7 +336,6 @@ export async function renderGraphOffscreen(workflowJson, options = {}) {
       options: {
         selectedNodeIds: options.selectedNodeIds,
         renderFilter: options.renderFilter || "all",
-        skipWidgetCapture: "media-only",
       },
     }));
     widgetPlan = joinWidgetRenderPlanToGraph(liveWidgetPlan, graph, debugLog);
@@ -468,7 +467,6 @@ export async function renderGraphOffscreen(workflowJson, options = {}) {
       plan: widgetPlan,
       bounds,
       scale: scaleFactor,
-      options: { skipWidgetCapture: "media-only" },
       debugLog,
     }));
     if (isExternalTextOverlayEnabled(options)) {
@@ -488,6 +486,7 @@ export async function renderGraphOffscreen(workflowJson, options = {}) {
         candidates: 0,
         drawn: 0,
         skippedNoRect: 0,
+        skippedOversized: 0,
         skippedEmpty: 0,
       });
     }

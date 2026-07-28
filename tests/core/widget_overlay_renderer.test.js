@@ -115,6 +115,49 @@ test("background-only capture fallback counts as a drawn owned region", async ()
   assert.equal(ctx.calls.filter((call) => call[0] === "fillRect").length, 1);
 });
 
+test("skipWidgetCapture renders capture entries as text without capturing DOM", async () => {
+  const ctx = createMockContext();
+  const entry = textEntry("9:0", 10);
+  entry.source = "capture";
+  entry.text = "fallback";
+  entry.element = {
+    getBoundingClientRect() {
+      throw new Error("capture must not inspect the element");
+    },
+  };
+
+  const result = await drawPlannedWidgetOverlays({
+    exportCtx: ctx,
+    plan: [entry],
+    bounds: { left: 0, top: 0, right: 300, bottom: 100 },
+    scale: 1,
+    options: { skipWidgetCapture: true },
+  });
+
+  assert.equal(result.drawn, 1);
+  assert.equal(ctx.calls.filter((call) => call[0] === "fillText").length, 1);
+});
+
+test("media entries are delegated without painting their owned region", async () => {
+  const ctx = createMockContext();
+  const entry = textEntry("10:0", 10);
+  entry.source = "media";
+  entry.ownedElement = {};
+  entry.element = {};
+
+  const result = await drawPlannedWidgetOverlays({
+    exportCtx: ctx,
+    plan: [entry],
+    bounds: { left: 0, top: 0, right: 300, bottom: 100 },
+    scale: 1,
+  });
+
+  assert.equal(result.drawn, 0);
+  assert.equal(result.delegated, 1);
+  assert.equal(ctx.calls.filter((call) => call[0] === "fillRect").length, 0);
+  assert.equal(ctx.calls.filter((call) => call[0] === "fillText").length, 0);
+});
+
 test("duplicate keys are rendered only once", async () => {
   const ctx = createMockContext();
   const entry = textEntry("4:0", 10);

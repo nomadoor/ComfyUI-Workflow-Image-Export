@@ -5,7 +5,9 @@ import {
   isWidgetOwnedDomElement,
 } from "../../web/js/core/overlays/dom_utils.mjs";
 import {
+  getExternalTextElementText,
   isExternalTextOverlayEnabled,
+  shouldSkipExternalTextElement,
 } from "../../web/js/core/backends/legacy_dom_text_overlays.mjs";
 
 class MiniElement {
@@ -73,4 +75,31 @@ test("external text overlay scanning requires explicit opt-in", () => {
   assert.equal(isExternalTextOverlayEnabled(), false);
   assert.equal(isExternalTextOverlayEnabled({ allowExternalDomText: false }), false);
   assert.equal(isExternalTextOverlayEnabled({ allowExternalDomText: true }), true);
+});
+
+test("external text inputs use their value and only hidden inputs are skipped", () => {
+  const previousInput = globalThis.HTMLInputElement;
+  const previousTextarea = globalThis.HTMLTextAreaElement;
+  class MockInput {
+    constructor(type, value) {
+      this.type = type;
+      this.value = value;
+    }
+  }
+  class MockTextarea {}
+  globalThis.HTMLInputElement = MockInput;
+  globalThis.HTMLTextAreaElement = MockTextarea;
+  try {
+    const textInput = new MockInput("text", "external value");
+    const hiddenInput = new MockInput("hidden", "secret");
+
+    assert.equal(getExternalTextElementText(textInput), "external value");
+    assert.equal(shouldSkipExternalTextElement(textInput), false);
+    assert.equal(shouldSkipExternalTextElement(hiddenInput), true);
+  } finally {
+    if (previousInput === undefined) delete globalThis.HTMLInputElement;
+    else globalThis.HTMLInputElement = previousInput;
+    if (previousTextarea === undefined) delete globalThis.HTMLTextAreaElement;
+    else globalThis.HTMLTextAreaElement = previousTextarea;
+  }
 });

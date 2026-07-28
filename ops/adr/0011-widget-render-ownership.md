@@ -68,6 +68,11 @@ Modal preview/export intentionally passes `skipWidgetCapture: true` under ADRs
 path. Other callers may retain `source: capture`; failure falls back inside the
 same entry.
 
+`source: media` entries are always delegated to the existing media overlay
+paths and never use foreignObject capture. The tiled renderer therefore no
+longer needs the legacy `"media-only"` capture-suppression sentinel described
+in ADR 0009.
+
 ### DOM Scanner Boundary
 
 The residual text scanner is for node-external extension DOM only and is
