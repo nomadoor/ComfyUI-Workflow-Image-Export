@@ -366,6 +366,12 @@ export async function renderGraphOffscreen(workflowJson, options = {}) {
     restoreDpr?.();
   }
 
+  // The base pass arranges cloned widgets. Refresh geometry now so tiled/huge
+  // overlays use final computedHeight/y values rather than setup-time fallbacks.
+  if (widgetPlan) {
+    widgetPlan = joinWidgetRenderPlanToGraph(widgetPlan, graph, debugLog);
+  }
+
   // Composite on a fresh canvas so overlays are not affected by LiteGraph
   // transform/clip state that might linger on the original context.
   const outputCanvas = document.createElement("canvas");

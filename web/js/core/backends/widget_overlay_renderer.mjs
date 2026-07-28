@@ -149,19 +149,23 @@ export async function drawPlannedWidgetOverlays({
       // Pixel ownership closes paths such as node.onDrawForeground and cached
       // drawImage output that do not pass through widget.draw.
       paintOwnedBackground(exportCtx, exportRect, entry.style);
+      let drewContent = false;
       if (entry.source === "capture" && options.skipWidgetCapture !== true) {
-        didDraw = await drawCaptureEntry(exportCtx, entry, exportRect);
+        drewContent = await drawCaptureEntry(exportCtx, entry, exportRect);
       }
-      if (!didDraw) {
+      if (!drewContent) {
         // Textarea values are not serialized by outerHTML, so they are always
         // rendered as Canvas text rather than foreignObject captures.
-        didDraw = drawTextBlockToRect(
+        drewContent = drawTextBlockToRect(
           exportCtx,
           entry.text,
           exportRect,
           scaleTextStyle(entry.style, scale)
         );
       }
+      // Painting the owned background is itself a real output operation, even
+      // when capture fails and the fallback text is empty.
+      didDraw = true;
       return didDraw;
     });
     if (didDraw) drawn += 1;

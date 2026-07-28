@@ -96,6 +96,25 @@ test("entry drawing is clipped to both tile and owning node rectangles", async (
   ));
 });
 
+test("background-only capture fallback counts as a drawn owned region", async () => {
+  const ctx = createMockContext();
+  const entry = textEntry("8:0", 10);
+  entry.source = "capture";
+  entry.text = "";
+  entry.element = null;
+
+  const result = await drawPlannedWidgetOverlays({
+    exportCtx: ctx,
+    plan: [entry],
+    bounds: { left: 0, top: 0, right: 300, bottom: 100 },
+    scale: 1,
+  });
+
+  assert.equal(result.drawn, 1);
+  assert.equal(ctx.calls.filter((call) => call[0] === "fillText").length, 0);
+  assert.equal(ctx.calls.filter((call) => call[0] === "fillRect").length, 1);
+});
+
 test("duplicate keys are rendered only once", async () => {
   const ctx = createMockContext();
   const entry = textEntry("4:0", 10);

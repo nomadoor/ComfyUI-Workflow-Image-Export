@@ -418,6 +418,26 @@ test("plan joins to an export graph only by node id and widget index", () => {
     label: "widget.plan.join",
     payload: { input: 2, joined: 1, dropped: 1 },
   }]);
+
+  const cloneNode = {
+    id: 32,
+    pos: [100, 200],
+    size: [300, 220],
+    widgets: [{
+      y: 50,
+      computedHeight: 140,
+      margin: 10,
+    }],
+  };
+  const refreshed = joinWidgetRenderPlanToGraph(joined, {
+    nodes: [cloneNode],
+  });
+  assert.deepEqual(refreshed[0].graphRect, {
+    x: 110,
+    y: 260,
+    w: 280,
+    h: 120,
+  });
 });
 
 test("only entries that can paint claim native widget draw ownership", () => {
