@@ -2,7 +2,7 @@
 
 ### Status
 
-Accepted
+Superseded by [0011](./0011-widget-render-ownership.md)
 
 ### Context
 

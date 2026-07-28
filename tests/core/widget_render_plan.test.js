@@ -104,6 +104,27 @@ test("Note and CLIPTextEncode multiline widgets produce the same single-entry sh
   assert.equal(notePlan[0].styleSource, "default");
 });
 
+test("ordinary single-line widgets do not enter the overlay plan", () => {
+  const graph = {
+    nodes: [{
+      id: 3,
+      type: "SaveImage",
+      pos: [0, 0],
+      size: [240, 100],
+      widgets_values: ["ComfyUI"],
+      widgets: [{
+        type: "text",
+        name: "filename_prefix",
+        value: "ComfyUI",
+        y: 30,
+        options: {},
+      }],
+    }],
+  };
+
+  assert.deepEqual(buildWidgetRenderPlan({ graph, allowDom: false }), []);
+});
+
 test("missing widget.element still produces exactly one default-style text entry", () => {
   const plan = buildWidgetRenderPlan({
     graph: { nodes: [multilineNode(7, "CLIPTextEncode")] },
