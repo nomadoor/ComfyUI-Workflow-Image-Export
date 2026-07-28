@@ -23,10 +23,17 @@ import {
 } from "./offscreen_graph_setup.mjs";
 import { collectNodeRects } from "../core/backends/legacy_bounds.mjs";
 import {
-  drawDomWidgetOverlays,
-  drawTextOverlays,
-  drawWidgetTextFallback,
+  drawExternalTextOverlays,
+  isExternalTextOverlayEnabled,
 } from "../core/backends/legacy_dom_text_overlays.mjs";
+import {
+  buildWidgetRenderPlan,
+  installPlannedWidgetDrawSuppression,
+  joinWidgetRenderPlanToGraph,
+} from "../core/backends/widget_render_plan.mjs";
+import {
+  drawPlannedWidgetOverlays,
+} from "../core/backends/widget_overlay_renderer.mjs";
 import {
   drawImageOverlays,
   drawVideoOverlays,
@@ -256,6 +263,11 @@ export async function renderGraphOffscreen(workflowJson, options = {}) {
   // LiteGraph should render at high resolution automatically.
 
   const offscreen = new LGraphCanvasRef(canvas, graph);
+  try {
+    if (typeof offscreen.stopRendering === "function") {
+      offscreen.stopRendering();
+    }
+  } catch (_) {}
   offscreen.canvas = canvas;
   offscreen.ctx = ctx;
   disableCanvasInfoOverlay(offscreen);
@@ -315,12 +327,48 @@ export async function renderGraphOffscreen(workflowJson, options = {}) {
     await document.fonts.ready;
   }
 
+  let widgetPlan = null;
+  if (options.includeDomOverlays !== false) {
+    const liveWidgetPlan = await timeSpan(perfLog, "widget.plan.build", () => buildWidgetRenderPlan({
+      graph: app?.graph,
+      uiCanvas: uiCanvasDom,
+      allowDom: true,
+      options: {
+        selectedNodeIds: options.selectedNodeIds,
+        renderFilter: options.renderFilter || "all",
+      },
+    }));
+    widgetPlan = joinWidgetRenderPlanToGraph(liveWidgetPlan, graph, debugLog);
+  } else if (!options.skipTextFallback) {
+    widgetPlan = await timeSpan(perfLog, "widget.plan.build", () => buildWidgetRenderPlan({
+      graph,
+      uiCanvas: null,
+      allowDom: false,
+      options: {
+        selectedNodeIds: options.selectedNodeIds,
+        renderFilter: options.renderFilter || "all",
+      },
+    }));
+  }
+
   // Override devicePixelRatio during draw to keep LiteGraph canvas math stable.
   const restoreDpr = overrideDevicePixelRatio(uiPxRatio, debug ? console.log : null);
+  let nativeWidgetSuppression = null;
   try {
+    nativeWidgetSuppression = installPlannedWidgetDrawSuppression(offscreen, widgetPlan);
+    debugLog?.("widget.native-draw.suppressed", {
+      count: nativeWidgetSuppression.suppressed,
+    });
     await timeSpan(perfLog, "offscreen.draw", () => offscreen.draw(true, true));
   } finally {
+    nativeWidgetSuppression?.restore();
     restoreDpr?.();
+  }
+
+  // The base pass arranges cloned widgets. Refresh geometry now so tiled/huge
+  // overlays use final computedHeight/y values rather than setup-time fallbacks.
+  if (widgetPlan) {
+    widgetPlan = joinWidgetRenderPlanToGraph(widgetPlan, graph, debugLog);
   }
 
   // Composite on a fresh canvas so overlays are not affected by LiteGraph
@@ -414,29 +462,34 @@ export async function renderGraphOffscreen(workflowJson, options = {}) {
       selectedNodeIds: options.selectedNodeIds,
       renderFilter: options.renderFilter || "all",
     }));
-    const domWidgetCoveredNodeIds = await timeSpan(perfLog, "dom.widget.overlays", () => drawDomWidgetOverlays({
+    await timeSpan(perfLog, "widget.plan.draw", () => drawPlannedWidgetOverlays({
       exportCtx: outputCtx,
-      uiCanvas: uiCanvasDom,
+      plan: widgetPlan,
       bounds,
       scale: scaleFactor,
-      nodeRects,
       debugLog,
-      skipWidgetCapture: "media-only",
-      selectedNodeIds: options.selectedNodeIds,
-      renderFilter: options.renderFilter || "all",
     }));
-    await timeSpan(perfLog, "dom.text.overlays", () => drawTextOverlays({
-      exportCtx: outputCtx,
-      uiCanvas: uiCanvasDom,
-      graph,
-      bounds,
-      scale: scaleFactor,
-      nodeRects,
-      skipNodeIds: domWidgetCoveredNodeIds,
-      debugLog,
-      selectedNodeIds: options.selectedNodeIds,
-      renderFilter: options.renderFilter || "all",
-    }));
+    if (isExternalTextOverlayEnabled(options)) {
+      await timeSpan(perfLog, "dom.external-text.overlays", () => drawExternalTextOverlays({
+        exportCtx: outputCtx,
+        uiCanvas: uiCanvasDom,
+        bounds,
+        scale: scaleFactor,
+        nodeRects,
+        debugLog,
+        selectedNodeIds: options.selectedNodeIds,
+        renderFilter: options.renderFilter || "all",
+      }));
+    } else {
+      debugLog?.("dom.external-text.summary", {
+        enabled: false,
+        candidates: 0,
+        drawn: 0,
+        skippedNoRect: 0,
+        skippedOversized: 0,
+        skippedEmpty: 0,
+      });
+    }
   } else {
     // Standard mode (Legacy Capture fallback logic)
     const bounds = {
@@ -449,8 +502,8 @@ export async function renderGraphOffscreen(workflowJson, options = {}) {
     };
     const nodeRects = collectNodeRects(graph);
 
-    // Draw text overlays on a fresh canvas to avoid any lingering clip state.
-    // Ensure output ctx has a clean state before compositing overlays.
+    // Each tile builds its own DOM-free plan and clips entries to this tile.
+    // Rendering the same widget in separate intersecting tiles is intentional.
     if (outputCtx?.setTransform) {
       outputCtx.setTransform(1, 0, 0, 1, 0, 0);
     }
@@ -461,22 +514,14 @@ export async function renderGraphOffscreen(workflowJson, options = {}) {
       outputCtx.shadowBlur = 0;
     }
 
-    const textOverlay = document.createElement("canvas");
-    textOverlay.width = canvas.width;
-    textOverlay.height = canvas.height;
-    const textCtx = textOverlay.getContext("2d", { alpha: true });
-    if (textCtx && !options.skipTextFallback) {
-      textCtx.setTransform(1, 0, 0, 1, 0, 0);
-      textCtx.globalAlpha = 1;
-      await timeSpan(perfLog, "fallback.text", () => drawWidgetTextFallback({
-        exportCtx: textCtx,
-        graph,
+    if (outputCtx && !options.skipTextFallback) {
+      await timeSpan(perfLog, "widget.plan.draw", () => drawPlannedWidgetOverlays({
+        exportCtx: outputCtx,
+        plan: widgetPlan,
         bounds,
         scale: scaleFactor,
-        coveredNodeIds: null,
         debugLog,
       }));
-      outputCtx.drawImage(textOverlay, 0, 0, deviceW, deviceH, 0, 0, cssW, cssH);
     }
     if (mediaMode === "force") {
       await timeSpan(perfLog, "fallback.image.thumbs", () => drawImageThumbnails({
