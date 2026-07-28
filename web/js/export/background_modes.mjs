@@ -8,6 +8,8 @@ const UI_BG_VARS = [
 export const DEFAULT_SOLID_COLOR = "#1e1e1e";
 export const EXTRACT_BG_1 = "#ff00ff";
 export const EXTRACT_BG_2 = "#00ff00";
+export const NODE2_MATTE_BG_A = "#000000";
+export const NODE2_MATTE_BG_B = "#ffffff";
 
 function readCssVar(target, name) {
   if (!target) return "";

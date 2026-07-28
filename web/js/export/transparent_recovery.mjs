@@ -62,7 +62,7 @@ export function isCanvasTransparent(canvas) {
   }
 }
 
-export function recoverTransparentCanvas(canvasA, canvasB, colorA, colorB) {
+export function recoverTransparentCanvas(canvasA, canvasB, colorA, colorB, options = {}) {
   const rgbA = parseColorToRgb(colorA);
   const rgbB = parseColorToRgb(colorB);
   if (!rgbA || !rgbB) return null;
@@ -89,6 +89,10 @@ export function recoverTransparentCanvas(canvasA, canvasB, colorA, colorB) {
 
   const b1 = [rgbA.r, rgbA.g, rgbA.b];
   const b2 = [rgbB.r, rgbB.g, rgbB.b];
+  const requestedEpsilon = Number(options.alphaEpsilon);
+  const alphaSnap = Number.isFinite(requestedEpsilon) && requestedEpsilon > 0
+    ? Math.min(255, requestedEpsilon) / 255
+    : 0;
 
   for (let i = 0; i < dataA.length; i += 4) {
     const c1 = [dataA[i], dataA[i + 1], dataA[i + 2]];
@@ -106,6 +110,10 @@ export function recoverTransparentCanvas(canvasA, canvasB, colorA, colorB) {
       ? alphas.reduce((sum, v) => sum + v, 0) / alphas.length
       : 1;
     alpha = Math.min(1, Math.max(0, alpha));
+    if (alphaSnap > 0) {
+      if (alpha >= 1 - alphaSnap) alpha = 1;
+      else if (alpha <= alphaSnap) alpha = 0;
+    }
 
     if (alpha <= 0.001) {
       out[i] = 0;
