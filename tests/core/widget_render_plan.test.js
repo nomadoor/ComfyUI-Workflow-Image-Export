@@ -138,6 +138,45 @@ test("missing widget.element still produces exactly one default-style text entry
   assert.equal(plan[0].element, null);
 });
 
+test("legacy runtime typed-array geometry and string node ids produce a plan entry", () => {
+  const textarea = new MockTextAreaElement();
+  const graph = {
+    nodes: [{
+      id: "72",
+      type: "TextEncodeJoyImageEdit",
+      title: "TextEncodeJoyImageEdit",
+      pos: new Float32Array([100, 200]),
+      size: new Float32Array([400, 260]),
+      widgets: [{
+        name: "prompt",
+        type: "customtext",
+        value: "runtime prompt",
+        y: 30,
+        computedHeight: 200,
+        margin: 10,
+        options: {
+          hideOnZoom: true,
+          minNodeSize: [400, 200],
+        },
+        element: textarea,
+      }],
+    }],
+  };
+
+  const plan = buildWidgetRenderPlan({ graph, allowDom: true });
+
+  assert.equal(plan.length, 1);
+  assert.equal(plan[0].key, "72:0");
+  assert.equal(plan[0].source, "text");
+  assert.equal(plan[0].styleSource, "dom");
+  assert.deepEqual(plan[0].graphRect, {
+    x: 110,
+    y: 240,
+    w: 380,
+    h: 180,
+  });
+});
+
 test("DOM-to-node lookup inputs cannot change plan entry count", () => {
   const graph = { nodes: [multilineNode(8, "Anything")] };
   const withoutCanvas = buildWidgetRenderPlan({ graph, allowDom: true });

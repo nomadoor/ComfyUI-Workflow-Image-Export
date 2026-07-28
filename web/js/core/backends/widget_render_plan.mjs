@@ -46,10 +46,19 @@ function getWidgetText(node, widget, widgetIndex) {
   return "";
 }
 
+function isFiniteCoordinatePair(value) {
+  return Boolean(
+    value &&
+    typeof value === "object" &&
+    Number.isFinite(Number(value[0])) &&
+    Number.isFinite(Number(value[1]))
+  );
+}
+
 function getWidgetGraphRect(node, widget) {
   const pos = node?.pos || node?._pos;
   const size = node?.size || node?._size;
-  if (!Array.isArray(pos) || pos.length < 2) return null;
+  if (!isFiniteCoordinatePair(pos)) return null;
 
   const nodeWidth = Number(widget?.width ?? node?.width ?? size?.[0]);
   const margin = Number.isFinite(Number(widget?.margin)) ? Number(widget.margin) : 4;
@@ -241,4 +250,3 @@ export function joinWidgetRenderPlanToGraph(plan, graph) {
     return Boolean(widgets && Number.isInteger(entry?.widgetIndex) && widgets[entry.widgetIndex]);
   });
 }
-
