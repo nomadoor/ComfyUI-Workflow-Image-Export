@@ -5,6 +5,7 @@ import {
   isWidgetOwnedDomElement,
 } from "../../web/js/core/overlays/dom_utils.mjs";
 import {
+  buildPickKey,
   getExternalTextElementText,
   isExternalTextOverlayEnabled,
   shouldSkipExternalTextElement,
@@ -75,6 +76,12 @@ test("external text overlay scanning requires explicit opt-in", () => {
   assert.equal(isExternalTextOverlayEnabled(), false);
   assert.equal(isExternalTextOverlayEnabled({ allowExternalDomText: false }), false);
   assert.equal(isExternalTextOverlayEnabled({ allowExternalDomText: true }), true);
+});
+
+test("external text pick keys distinguish a valid 'none' ID from an invalid ID", () => {
+  const rect = { x: 10, y: 20, w: 30, h: 40 };
+
+  assert.notEqual(buildPickKey(rect, "none"), buildPickKey(rect, null));
 });
 
 test("external text inputs use their value and only hidden inputs are skipped", () => {
