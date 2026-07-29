@@ -183,10 +183,22 @@ test("summarizes transparent tile recovery without hiding partial fallback", () 
   assert.deepEqual(summarizeNode2TransparentTileRecovery(2, 6), {
     attempted: true,
     ok: false,
-    fallback: "black-frame",
+    fallback: "matte-frame",
     failedTiles: 2,
     totalTiles: 6,
   });
+  assert.equal(
+    summarizeNode2TransparentTileRecovery(2, 6, ["white-frame"]).fallback,
+    "white-frame"
+  );
+  assert.equal(
+    summarizeNode2TransparentTileRecovery(
+      2,
+      6,
+      new Set(["black-frame", "white-frame"])
+    ).fallback,
+    "mixed-matte-frames"
+  );
 });
 
 test("startColor captures the current color first and returns the opposite end color", async () => {
@@ -329,6 +341,43 @@ test("camera arrival may reuse an identical visual signature", async () => {
 
   assert.equal(result.transparentRecovery.ok, true);
   assert.equal(result.endColor, "#000000");
+});
+
+test("white arrival frame remains available when black capture fails", async () => {
+  const whiteCanvas = { name: "white" };
+  const result = await captureTwoFrameTransparentMatte({
+    colorA: "#000000",
+    colorB: "#ffffff",
+    startColor: "#ffffff",
+    async setColor() {},
+    async captureCurrent() {
+      return frame("arrival-white", whiteCanvas);
+    },
+    async captureChanged() {
+      throw new Error("black frame unavailable");
+    },
+    recover() {
+      throw new Error("must not recover without both frames");
+    },
+    isTransparent() {
+      return false;
+    },
+  });
+
+  assert.equal(result.canvas, whiteCanvas);
+  assert.equal(result.transparentRecovery.ok, false);
+  assert.equal(result.transparentRecovery.fallback, "white-frame");
+});
+
+test("rejects a startColor outside the configured matte pair", async () => {
+  await assert.rejects(
+    captureTwoFrameTransparentMatte({
+      colorA: "#000000",
+      colorB: "#ffffff",
+      startColor: "#ff00ff",
+    }),
+    /startColor/
+  );
 });
 
 test("opaque final tiled output fails recovery and produces a warning", () => {

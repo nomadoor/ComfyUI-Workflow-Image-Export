@@ -72,14 +72,17 @@ Changed-frame polling is strict only for transparent matte capture. Ordinary
 UI and solid tiled captures retain their existing timeout behavior.
 
 If the second frame is stale, frame sizes differ, recovery fails, or the result
-cannot be recovered, the already captured black frame is exported. In the tile
-path this fallback is limited to the affected tile. The report contains:
+cannot be recovered, an already captured matte frame is exported. Black is
+preferred when available; if a tile entered on white and its black capture
+failed, the captured white frame is retained instead of aborting the entire
+export. In the tile path this fallback is limited to the affected tile. The
+report contains:
 
 ```js
 transparentRecovery: {
   attempted: true,
   ok: false,
-  fallback: "black-frame",
+  fallback: "black-frame", // or "white-frame"
   failedTiles: 1,
   totalTiles: 6,
 }
@@ -110,6 +113,6 @@ Transparent does not change the saved or effective exceed-mode policy.
   as Load3D and canvas widgets that continue drawing through
   `requestAnimationFrame` cannot be frozen generically; motion in those regions
   can corrupt recovered alpha.
-- A failed tile is emitted with its captured black background while other tiles
-  remain transparent, and the export reports a warning.
+- A failed tile is emitted with its captured black or white matte background
+  while other tiles remain transparent, and the export reports a warning.
 - Recovery and background state logic remain dependency-free and unit-testable.

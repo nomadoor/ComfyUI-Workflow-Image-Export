@@ -20,14 +20,26 @@ export function getNode2TransparentWarning(options = {}, report = null) {
   return null;
 }
 
-export function summarizeNode2TransparentTileRecovery(failedTiles, totalTiles) {
+export function summarizeNode2TransparentTileRecovery(
+  failedTiles,
+  totalTiles,
+  fallbackKinds = []
+) {
   const failed = Math.max(0, Math.trunc(Number(failedTiles) || 0));
   const total = Math.max(0, Math.trunc(Number(totalTiles) || 0));
   const normalizedFailed = Math.min(failed, total);
+  const kinds = [...new Set(Array.from(fallbackKinds || []).filter(Boolean))];
+  const fallback = normalizedFailed === 0
+    ? null
+    : kinds.length === 1
+      ? kinds[0]
+      : kinds.length > 1
+        ? "mixed-matte-frames"
+        : "matte-frame";
   return {
     attempted: true,
     ok: normalizedFailed === 0,
-    fallback: normalizedFailed === 0 ? null : "black-frame",
+    fallback,
     failedTiles: normalizedFailed,
     totalTiles: total,
   };
@@ -161,8 +173,9 @@ export async function captureTwoFrameTransparentMatte({
     recoveryFailure = new Error("Node 2.0 transparent capture did not produce both matte frames.");
   }
 
+  const fallbackCanvas = matteA || matteB;
   return {
-    canvas: matteA,
+    canvas: fallbackCanvas,
     frameA,
     frameB,
     endColor,
@@ -170,7 +183,7 @@ export async function captureTwoFrameTransparentMatte({
     transparentRecovery: {
       attempted: true,
       ok: false,
-      fallback: matteA ? "black-frame" : null,
+      fallback: matteA ? "black-frame" : (matteB ? "white-frame" : null),
       error: recoveryFailure?.message || "unknown recovery failure",
     },
   };

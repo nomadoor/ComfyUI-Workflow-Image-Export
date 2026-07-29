@@ -14,7 +14,7 @@ test("capture warnings survive on the returned blob", () => {
   ]);
 
   assert.deepEqual(blob.cwieWarnings, ["node2:transparent_recovery_failed"]);
-  assert.match(getNode2WarningMessage(blob.cwieWarnings), /black background/);
+  assert.match(getNode2WarningMessage(blob.cwieWarnings), /black or white matte/);
 });
 
 test("unavailable transparency warning has a user-facing message", () => {

@@ -23,6 +23,7 @@ const NODE2_CAPTURE_STYLE_ID = "cwie-node2-capture-style";
 const NODE2_CAPTURE_VERSION = "node2-transparent-matte-2026-07-29-1";
 const NODE2_TILE_MAX_PIXELS = 64 * 1024 * 1024;
 const NODE2_TILE_SETTLE_MS = 180;
+const NODE2_TILE_FRAME_TIMEOUT_MS = 5000;
 const NODE2_TILE_POLL_MIN_WAIT_MS = 80;
 const NODE2_TILE_POLL_INTERVAL_MS = 60;
 
@@ -1400,23 +1401,17 @@ async function captureChangedVideoFrame(prepared, options, log) {
 async function seedPreparedFrameSignature(prepared, log) {
   if (!prepared?.video) return null;
   await waitVideoPollDelay(180);
-  const { canvas, ctx, width, height } = drawVideoToCanvas(prepared.video);
-  const signature = sampleCanvasSignature(ctx, width, height);
-  releaseCanvasResource(canvas);
-  prepared.lastFrameSignature = signature;
-  const seed = { width, height, signature };
-  logStep(log, "frame.seed", seed);
-  return seed;
+  return samplePreparedFrameSignature(prepared, log, "frame.seed");
 }
 
-function samplePreparedFrameSignature(prepared, log) {
+function samplePreparedFrameSignature(prepared, log, label = "frame.baseline") {
   if (!prepared?.video) return null;
   const { canvas, ctx, width, height } = drawVideoToCanvas(prepared.video);
   const signature = sampleCanvasSignature(ctx, width, height);
   releaseCanvasResource(canvas);
   prepared.lastFrameSignature = signature;
   const seed = { width, height, signature };
-  logStep(log, "frame.baseline", seed);
+  logStep(log, label, seed);
   return seed;
 }
 
@@ -2228,6 +2223,7 @@ async function captureNode2TiledFromFit(fitInfo, options = {}) {
     }
     outputCtx.clearRect(0, 0, output.width, output.height);
     let transparentFailedTiles = 0;
+    const transparentFallbackKinds = new Set();
     let currentMatteColor = NODE2_MATTE_BG_B;
 
     const tileXs = Array.from({ length: cols }, (_, col) => {
@@ -2337,7 +2333,7 @@ async function captureNode2TiledFromFit(fitInfo, options = {}) {
                 ...options,
                 ...captureOptions,
                 frameCount: 1,
-                frameTimeoutMs: 5000,
+                frameTimeoutMs: NODE2_TILE_FRAME_TIMEOUT_MS,
                 probe: false,
                 pollChangedFrame: true,
                 pollMinWaitMs:
@@ -2362,7 +2358,12 @@ async function captureNode2TiledFromFit(fitInfo, options = {}) {
           currentMatteColor = matte.endColor;
           tileCanvas = matte.canvas;
           tileRecovery = matte.transparentRecovery;
-          if (!tileRecovery.ok) transparentFailedTiles += 1;
+          if (!tileRecovery.ok) {
+            transparentFailedTiles += 1;
+            if (tileRecovery.fallback) {
+              transparentFallbackKinds.add(tileRecovery.fallback);
+            }
+          }
           for (const resource of matte.resources) {
             if (resource !== tileCanvas) {
               releaseCanvasResource(resource);
@@ -2372,7 +2373,7 @@ async function captureNode2TiledFromFit(fitInfo, options = {}) {
           const frame = await captureFrameFromPreparedVideo(prepared, {
             ...options,
             frameCount: 1,
-            frameTimeoutMs: 5000,
+            frameTimeoutMs: NODE2_TILE_FRAME_TIMEOUT_MS,
             probe: false,
             pollChangedFrame: true,
             pollMinWaitMs:
@@ -2445,7 +2446,11 @@ async function captureNode2TiledFromFit(fitInfo, options = {}) {
     }
     options.onProgress?.({ value: 1, percent: 100 });
     let transparentRecovery = transparentTiles
-      ? summarizeNode2TransparentTileRecovery(transparentFailedTiles, rows * cols)
+      ? summarizeNode2TransparentTileRecovery(
+        transparentFailedTiles,
+        rows * cols,
+        transparentFallbackKinds
+      )
       : undefined;
     if (transparentTiles) {
       transparentRecovery = validateNode2TransparentTileOutput(
