@@ -12,17 +12,48 @@ import {
 } from "../../web/js/core/workflow_state.mjs";
 
 test("normalizeSelectedNodeIds accepts map, array of nodes, array of ids, and object maps", () => {
-  assert.deepEqual(normalizeSelectedNodeIds(new Map([[3, {}], ["4", {}], ["bad", {}]])), [3, 4]);
-  assert.deepEqual(normalizeSelectedNodeIds([{ id: 8 }, { id: "9" }, { id: "no" }]), [8, 9]);
-  assert.deepEqual(normalizeSelectedNodeIds([1, "2", "x"]), [1, 2]);
-  assert.deepEqual(normalizeSelectedNodeIds({ 5: true, 6: false, nope: true }), [5, 6]);
+  assert.deepEqual(
+    normalizeSelectedNodeIds(new Map([[3, {}], ["4", {}], ["node-five", {}]])),
+    ["3", "4", "node-five"]
+  );
+  assert.deepEqual(
+    normalizeSelectedNodeIds([{ id: 8 }, { id: "9" }, { id: "node-ten" }]),
+    ["8", "9", "node-ten"]
+  );
+  assert.deepEqual(normalizeSelectedNodeIds([1, "2", "node-three"]), ["1", "2", "node-three"]);
+  assert.deepEqual(
+    normalizeSelectedNodeIds({ 5: true, 6: false, "node-seven": true }),
+    ["5", "6", "node-seven"]
+  );
   assert.deepEqual(normalizeSelectedNodeIds(null), []);
 });
 
 test("getSelectedNodeIdsFromApp follows ComfyUI selection locations", () => {
-  assert.deepEqual(getSelectedNodeIdsFromApp({ canvas: { selected_nodes: { 1: true } } }), [1]);
-  assert.deepEqual(getSelectedNodeIdsFromApp({ canvas: { selectedNodes: [{ id: 2 }] } }), [2]);
-  assert.deepEqual(getSelectedNodeIdsFromApp({ graph: { selected_nodes: new Map([[3, true]]) } }), [3]);
+  assert.deepEqual(getSelectedNodeIdsFromApp({ canvas: { selected_nodes: { 1: true } } }), ["1"]);
+  assert.deepEqual(
+    getSelectedNodeIdsFromApp({ canvas: { selectedNodes: [{ id: "node-two" }] } }),
+    ["node-two"]
+  );
+  assert.deepEqual(
+    getSelectedNodeIdsFromApp({ graph: { selected_nodes: new Map([[3, true]]) } }),
+    ["3"]
+  );
+});
+
+test("getSelectedNodeIdsFromApp falls back to selectedItems and excludes non-node items", () => {
+  const selectedNode = { id: "3:5" };
+  const group = { id: "group-one" };
+  const app = {
+    canvas: {
+      selected_nodes: {},
+      selectedItems: new Set([selectedNode, group]),
+    },
+    graph: {
+      _nodes: [selectedNode],
+    },
+  };
+
+  assert.deepEqual(getSelectedNodeIdsFromApp(app), ["3:5"]);
 });
 
 test("workflow json helpers serialize graph state safely", () => {

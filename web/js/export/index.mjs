@@ -1,4 +1,5 @@
 import { toBlobAsync } from "../core/utils.mjs";
+import { normalizeNodeIdList } from "../core/node_ids.mjs";
 
 import {
   resolveUiBackgroundColor,
@@ -71,8 +72,7 @@ function scaleCanvas(baseCanvas, scale) {
 }
 
 function normalizeSelectedIds(value) {
-  if (!Array.isArray(value)) return [];
-  return value.map((id) => Number(id)).filter(Number.isFinite);
+  return normalizeNodeIdList(value);
 }
 
 async function renderOnce(workflowJson, options) {

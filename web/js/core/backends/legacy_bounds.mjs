@@ -1,3 +1,5 @@
+import { nodeIdSetHas, normalizeNodeIdSet } from "../node_ids.mjs";
+
 export function collectNodeRects(graph, debugLog) {
   const rects = [];
   const nodes = graph?._nodes || graph?.nodes || [];
@@ -109,11 +111,9 @@ export function applyPadding(bounds, padding, debugLog) {
 }
 
 export function filterNodeRectsBySelected(nodeRects, selectedNodeIds) {
-  const ids = Array.isArray(selectedNodeIds)
-    ? new Set(selectedNodeIds.map((id) => Number(id)).filter(Number.isFinite))
-    : null;
+  const ids = normalizeNodeIdSet(selectedNodeIds);
   if (!ids?.size) return [];
-  return (nodeRects || []).filter((rect) => rect && Number.isFinite(rect.id) && ids.has(rect.id));
+  return (nodeRects || []).filter((rect) => rect && nodeIdSetHas(ids, rect.id));
 }
 
 export function boundsFromNodeRects(nodeRects, debugLog) {

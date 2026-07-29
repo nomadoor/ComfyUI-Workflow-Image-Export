@@ -1,31 +1,36 @@
+import { normalizeNodeIdList } from "./node_ids.mjs";
+
 export function normalizeSelectedNodeIds(value) {
-  if (!value) return [];
-  if (value instanceof Map) {
-    return Array.from(value.keys()).map((id) => Number(id)).filter(Number.isFinite);
-  }
-  if (Array.isArray(value)) {
-    return value
-      .map((entry) => {
-        if (entry && typeof entry === "object" && "id" in entry) {
-          return Number(entry.id);
-        }
-        return Number(entry);
-      })
-      .filter(Number.isFinite);
-  }
-  if (typeof value === "object") {
-    return Object.keys(value).map((id) => Number(id)).filter(Number.isFinite);
-  }
-  return [];
+  return normalizeNodeIdList(value);
+}
+
+function getSelectedItemNodeIds(app) {
+  const selectedItems = app?.canvas?.selectedItems;
+  if (!(selectedItems instanceof Set) || selectedItems.size === 0) return [];
+
+  const graphNodes = app?.graph?._nodes || app?.graph?.nodes || [];
+  const nodes = graphNodes instanceof Map
+    ? Array.from(graphNodes.values())
+    : Array.isArray(graphNodes)
+      ? graphNodes
+      : Object.values(graphNodes || {});
+  const nodeObjects = new Set(nodes.filter(Boolean));
+  return normalizeSelectedNodeIds(
+    Array.from(selectedItems).filter((item) => nodeObjects.has(item))
+  );
 }
 
 export function getSelectedNodeIdsFromApp(app) {
-  return normalizeSelectedNodeIds(
-    app?.canvas?.selected_nodes ||
-      app?.canvas?.selectedNodes ||
-      app?.graph?.selected_nodes ||
-      null
-  );
+  const legacySources = [
+    app?.canvas?.selected_nodes,
+    app?.canvas?.selectedNodes,
+    app?.graph?.selected_nodes,
+  ];
+  for (const source of legacySources) {
+    const ids = normalizeSelectedNodeIds(source);
+    if (ids.length > 0) return ids;
+  }
+  return getSelectedItemNodeIds(app);
 }
 
 export function getWorkflowJsonFromApp(app) {

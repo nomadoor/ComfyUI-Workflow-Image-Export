@@ -1,4 +1,9 @@
 import { hideGraphLinks, syncNodeLinkRefsToGraphLinks } from "./link_visibility.mjs";
+import {
+  nodeIdSetHas,
+  normalizeNodeIdSet,
+  toNodeIdKey,
+} from "../core/node_ids.mjs";
 
 export function applyRenderFilter(graph, selectedNodeIds, mode) {
   if (!graph || !mode || mode === "all") return;
@@ -15,13 +20,11 @@ export function applyRenderFilter(graph, selectedNodeIds, mode) {
     }
     return;
   }
-  const ids = Array.isArray(selectedNodeIds)
-    ? new Set(selectedNodeIds.map((id) => Number(id)).filter(Number.isFinite))
-    : null;
+  const ids = normalizeNodeIdSet(selectedNodeIds);
   if (!ids || !ids.size) return;
   const shouldKeep = (node) => {
-    if (!node || !Number.isFinite(node.id)) return false;
-    const isSelected = ids.has(node.id);
+    if (!node || toNodeIdKey(node.id) === null) return false;
+    const isSelected = nodeIdSetHas(ids, node.id);
     if (mode === "selected") return isSelected;
     if (mode === "unselected") return !isSelected;
     return true;
@@ -44,22 +47,20 @@ export function applyLinkFilter(graph, selectedNodeIds, mode) {
     hideGraphLinks(graph);
     return;
   }
-  const ids = Array.isArray(selectedNodeIds)
-    ? new Set(selectedNodeIds.map((id) => Number(id)).filter(Number.isFinite))
-    : null;
+  const ids = normalizeNodeIdSet(selectedNodeIds);
   if (!ids || !ids.size) return;
 
   const getEndpoints = (link) => {
     if (!link || typeof link !== "object") return [null, null];
     const a = link.origin_id ?? link.from_id ?? link.originId ?? link.fromId;
     const b = link.target_id ?? link.to_id ?? link.targetId ?? link.toId;
-    return [Number(a), Number(b)];
+    return [toNodeIdKey(a), toNodeIdKey(b)];
   };
 
   const keepLink = (link) => {
     const [a, b] = getEndpoints(link);
-    const aSel = Number.isFinite(a) && ids.has(a);
-    const bSel = Number.isFinite(b) && ids.has(b);
+    const aSel = a !== null && ids.has(a);
+    const bSel = b !== null && ids.has(b);
     const bothSelected = aSel && bSel;
     if (mode === "selected") return bothSelected;
     if (mode === "unselected") return !bothSelected;

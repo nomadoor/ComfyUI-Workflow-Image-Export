@@ -15,6 +15,7 @@ import {
   isEffectivelyVisibleElement,
   parsePx,
 } from "./legacy_text_helpers.mjs";
+import { nodeIdsEqual, toNodeIdKey } from "../node_ids.mjs";
 
 export function isExternalTextOverlayEnabled(options = {}) {
   return options?.allowExternalDomText === true;
@@ -33,7 +34,7 @@ function intersectWithNodeRect(rect, nodeRect) {
 function buildPickKey(rect, nodeId) {
   const round = (value) => Math.round(value * 10) / 10;
   return [
-    Number.isFinite(nodeId) ? nodeId : "none",
+    toNodeIdKey(nodeId) ?? "none",
     round(rect.x),
     round(rect.y),
     round(rect.w),
@@ -123,8 +124,8 @@ export function drawExternalTextOverlays({
     // node-external extension DOM. It is never used for widget deduplication.
     const resolvedId = resolveNodeIdForGraphRect(nodeRects, rect, null);
     if (!shouldRenderResolvedNode(resolvedId, selectedIdSet, renderFilter)) continue;
-    const nodeRect = Number.isFinite(resolvedId)
-      ? nodeRects?.find((candidate) => candidate?.id === resolvedId) || null
+    const nodeRect = toNodeIdKey(resolvedId) !== null
+      ? nodeRects?.find((candidate) => nodeIdsEqual(candidate?.id, resolvedId)) || null
       : null;
     const clippedRect = intersectWithNodeRect(rect, nodeRect);
     if (!clippedRect) continue;

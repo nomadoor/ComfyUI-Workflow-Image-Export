@@ -1,6 +1,11 @@
 import { app } from "/scripts/app.js";
 import { toBlobAsync } from "../utils.mjs";
 import {
+  nodeIdSetHas,
+  normalizeNodeIdSet,
+  toNodeIdKey,
+} from "../node_ids.mjs";
+import {
   applyBackgroundFill,
   applyBackgroundMode,
   configureTransform,
@@ -64,9 +69,7 @@ function computeExportScale(srcW, srcH, options, debugLog) {
 }
 
 function applyScopeOpacityFallback(exportCtx, bounds, scale, nodeRects, selectedNodeIds, scopeOpacity, backgroundColor) {
-  const ids = Array.isArray(selectedNodeIds)
-    ? new Set(selectedNodeIds.map((id) => Number(id)).filter(Number.isFinite))
-    : null;
+  const ids = normalizeNodeIdSet(selectedNodeIds);
   if (!exportCtx || !bounds || !ids?.size) return;
   const dimAlpha = Math.min(1, Math.max(0, Number(scopeOpacity) / 100));
   const fadeAlpha = 1 - dimAlpha;
@@ -79,9 +82,8 @@ function applyScopeOpacityFallback(exportCtx, bounds, scale, nodeRects, selected
 
   for (const rect of nodeRects || []) {
     if (!rect) continue;
-    const rectId = Number(rect.id);
-    if (!Number.isFinite(rectId)) continue;
-    if (ids.has(rectId)) continue;
+    if (toNodeIdKey(rect.id) === null) continue;
+    if (nodeIdSetHas(ids, rect.id)) continue;
     const x = Math.round((rect.left - bounds.left) * scale);
     const y = Math.round((rect.top - bounds.top) * scale);
     const w = Math.max(1, Math.round((rect.right - rect.left) * scale));

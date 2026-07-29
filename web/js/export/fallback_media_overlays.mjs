@@ -26,6 +26,11 @@ import {
   selectDomMedia,
   shouldRenderResolvedNode,
 } from "./fallback_media_helpers.mjs";
+import {
+  nodeIdSetHas,
+  normalizeNodeIdSet,
+  toNodeIdKey,
+} from "../core/node_ids.mjs";
 
 export async function drawVideoThumbnails({
   exportCtx,
@@ -40,15 +45,15 @@ export async function drawVideoThumbnails({
   renderFilter = "all",
 }) {
   const selectedIdSet = normalizeSelectedNodeIds(selectedNodeIds);
+  const skippedIdSet = normalizeNodeIdSet(skipNodeIds);
   const nodes = graph?._nodes || graph?.nodes || [];
   if (!nodes.length) return;
   const videoNodes = nodes.filter((node) => node && isVideoNode(node));
   if (!videoNodes.length) return;
   const rectById = new Map();
   for (const rect of nodeRects || []) {
-    if (Number.isFinite(rect.id)) {
-      rectById.set(rect.id, rect);
-    }
+    const id = toNodeIdKey(rect?.id);
+    if (id !== null) rectById.set(id, rect);
   }
 
   let drawn = 0;
@@ -68,13 +73,15 @@ export async function drawVideoThumbnails({
   }
 
   for (const node of videoNodes) {
-    if (skipNodeIds?.has?.(node.id)) {
+    const nodeId = toNodeIdKey(node.id);
+    if (nodeId === null) continue;
+    if (nodeIdSetHas(skippedIdSet, node.id)) {
       continue;
     }
     if (!shouldRenderResolvedNode(node.id, selectedIdSet, renderFilter)) {
       continue;
     }
-    const rect = rectById.get(node.id);
+    const rect = rectById.get(nodeId);
     if (!rect) {
       skippedNoRect += 1;
       continue;
@@ -92,7 +99,7 @@ export async function drawVideoThumbnails({
     let directUrl = null;
     if (drawable instanceof HTMLVideoElement) {
       directUrl = sanitizeMediaUrl(drawable.currentSrc || drawable.src || null);
-      const prevSrc = lastVideoSrcByNodeId.get(node.id);
+      const prevSrc = lastVideoSrcByNodeId.get(nodeId);
       const ready = (drawable.readyState || 0) >= 2;
       const hasSize = (drawable.videoWidth || 0) > 1 && (drawable.videoHeight || 0) > 1;
       if (prevSrc && directUrl && prevSrc !== directUrl && !ready) {
@@ -106,10 +113,10 @@ export async function drawVideoThumbnails({
           const captured = captureVideoFrame(drawable);
           if (captured) {
             drawable = captured;
-            if (directUrl) lastVideoSrcByNodeId.set(node.id, directUrl);
+            if (directUrl) lastVideoSrcByNodeId.set(nodeId, directUrl);
           } else if (drawable.readyState < 2 && hasPoster) {
             drawable = await loadImageCached(drawable.poster);
-            if (directUrl) lastVideoSrcByNodeId.set(node.id, directUrl);
+            if (directUrl) lastVideoSrcByNodeId.set(nodeId, directUrl);
           } else {
             drawable = null;
           }
@@ -146,7 +153,7 @@ export async function drawVideoThumbnails({
       });
       if (matched) {
         const srcKey = matched.currentSrc || matched.src || "";
-        const prevSrc = lastVideoSrcByNodeId.get(node.id);
+        const prevSrc = lastVideoSrcByNodeId.get(nodeId);
         const ready = (matched.readyState || 0) >= 2;
         const hasSize = (matched.videoWidth || 0) > 1 && (matched.videoHeight || 0) > 1;
         if (prevSrc && srcKey && prevSrc !== srcKey && !ready) {
@@ -155,14 +162,14 @@ export async function drawVideoThumbnails({
           const captured = ready && hasSize ? captureVideoFrame(matched) : null;
           if (captured) {
             drawable = captured;
-            lastVideoSrcByNodeId.set(node.id, srcKey);
+            lastVideoSrcByNodeId.set(nodeId, srcKey);
             if (debugLog && logged < 5) {
               debugLog("video.thumbnail.steal", { id: node.id, type: "dom-match" });
               logged += 1;
             }
           } else if (matched.poster) {
             drawable = await loadImageCached(matched.poster);
-            lastVideoSrcByNodeId.set(node.id, srcKey);
+            lastVideoSrcByNodeId.set(nodeId, srcKey);
           }
         }
       }
@@ -230,9 +237,8 @@ export async function drawImageThumbnails({ exportCtx, graph, nodeRects, bounds,
   if (!imageNodes.length) return;
   const rectById = new Map();
   for (const rect of nodeRects || []) {
-    if (Number.isFinite(rect.id)) {
-      rectById.set(rect.id, rect);
-    }
+    const id = toNodeIdKey(rect?.id);
+    if (id !== null) rectById.set(id, rect);
   }
 
   let drawn = 0;
@@ -242,7 +248,7 @@ export async function drawImageThumbnails({ exportCtx, graph, nodeRects, bounds,
   let logged = 0;
 
   for (const node of imageNodes) {
-    const rect = rectById.get(node.id);
+    const rect = rectById.get(toNodeIdKey(node.id));
     if (!rect) {
       skippedNoRect += 1;
       continue;

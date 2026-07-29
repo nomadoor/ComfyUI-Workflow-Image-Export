@@ -1,3 +1,5 @@
+import { nodeIdSetHas, normalizeNodeIdSet } from "../core/node_ids.mjs";
+
 const DEFAULT_NODE_SIZE = [240, 120];
 
 function normalizeSize(size, fallback) {
@@ -42,9 +44,7 @@ export function computeGraphBBox(graph, options = {}) {
   const pad = Number(options.padding) || 0;
   const fallbackSize = normalizeSize(options.defaultSize, DEFAULT_NODE_SIZE);
   const debug = options.debug === true;
-  const selectedIds = Array.isArray(options.selectedNodeIds)
-    ? new Set(options.selectedNodeIds.map((id) => Number(id)).filter(Number.isFinite))
-    : null;
+  const selectedIds = normalizeNodeIdSet(options.selectedNodeIds);
   const useSelectionOnly = Boolean(options.useSelectionOnly) && selectedIds && selectedIds.size > 0;
 
   if (!nodes.length && !groups.length) {
@@ -70,7 +70,7 @@ export function computeGraphBBox(graph, options = {}) {
   const useBounding = options.useBounding !== false;
   nodes.forEach((node, index) => {
     if (!node) return;
-    if (useSelectionOnly && !selectedIds.has(node.id)) {
+    if (useSelectionOnly && !nodeIdSetHas(selectedIds, node.id)) {
       return;
     }
     if (useBounding) {

@@ -4,6 +4,12 @@ import {
   getDomElementGraphRect,
   getNodeIdFromElement,
 } from "../core/overlays/dom_utils.mjs";
+import {
+  nodeIdSetHas,
+  nodeIdsEqual,
+  normalizeNodeIdSet,
+  toNodeIdKey,
+} from "../core/node_ids.mjs";
 
 export function drawVideoPlaceholder(ctx, x, y, w, h) {
   ctx.save();
@@ -27,23 +33,15 @@ const bgImageCache = new Map();
 export const lastVideoSrcByNodeId = new Map();
 
 export function normalizeSelectedNodeIds(selectedNodeIds) {
-  if (selectedNodeIds instanceof Set) {
-    const ids = new Set(
-      Array.from(selectedNodeIds, (id) => Number(id)).filter(Number.isFinite)
-    );
-    return ids.size ? ids : null;
-  }
-  if (!Array.isArray(selectedNodeIds)) return null;
-  const ids = new Set(selectedNodeIds.map((id) => Number(id)).filter(Number.isFinite));
-  return ids.size ? ids : null;
+  return normalizeNodeIdSet(selectedNodeIds);
 }
 
 export function shouldRenderResolvedNode(nodeId, selectedNodeIds, mode) {
   if (!mode || mode === "all") return true;
   if (mode === "none") return false;
   const ids = normalizeSelectedNodeIds(selectedNodeIds);
-  if (!ids?.size || !Number.isFinite(nodeId)) return false;
-  const isSelected = ids.has(Number(nodeId));
+  if (!ids?.size || toNodeIdKey(nodeId) === null) return false;
+  const isSelected = nodeIdSetHas(ids, nodeId);
   if (mode === "selected") return isSelected;
   if (mode === "unselected") return !isSelected;
   return true;
@@ -235,7 +233,7 @@ export function extractFileRefFromNode(node) {
 
 export function findLiveNodeById(id) {
   const nodes = app?.graph?._nodes || app?.graph?.nodes || [];
-  return nodes.find((node) => node && Number.isFinite(node.id) && node.id === id) || null;
+  return nodes.find((node) => node && nodeIdsEqual(node.id, id)) || null;
 }
 
 export function buildDomMediaByNodeId(uiCanvas) {
@@ -243,7 +241,7 @@ export function buildDomMediaByNodeId(uiCanvas) {
   const byId = new Map();
   for (const el of media) {
     const nodeId = getNodeIdFromElement(el);
-    if (!Number.isFinite(nodeId)) continue;
+    if (nodeId === null) continue;
     const prev = byId.get(nodeId);
     if (!prev) {
       byId.set(nodeId, el);
@@ -279,7 +277,7 @@ export function buildDomMediaByOverlap(nodeRects, uiCanvas) {
     let best = null;
     let bestArea = 0;
     for (const nodeRect of nodeRects) {
-      if (!Number.isFinite(nodeRect?.id)) continue;
+      if (toNodeIdKey(nodeRect?.id) === null) continue;
       const left = Math.max(rect.left, nodeRect.left);
       const right = Math.min(rect.right, nodeRect.right);
       const top = Math.max(rect.top, nodeRect.top);
@@ -289,7 +287,7 @@ export function buildDomMediaByOverlap(nodeRects, uiCanvas) {
       const area = w * h;
       if (area > bestArea) {
         bestArea = area;
-        best = nodeRect.id;
+        best = toNodeIdKey(nodeRect.id);
       }
     }
     if (best !== null && bestArea > 0) {
@@ -315,8 +313,9 @@ export function buildDomMediaByOverlap(nodeRects, uiCanvas) {
 }
 
 export function selectDomMedia(nodeId, domMediaById, domMediaByOverlap) {
-  if (!Number.isFinite(nodeId)) return null;
-  return domMediaById.get(nodeId) || domMediaByOverlap.get(nodeId) || null;
+  const id = toNodeIdKey(nodeId);
+  if (id === null) return null;
+  return domMediaById.get(id) || domMediaByOverlap.get(id) || null;
 }
 
 export async function captureFromDomMedia(domMedia) {
