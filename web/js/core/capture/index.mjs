@@ -5,6 +5,7 @@ import { captureNode2 } from "../backends/node2_compositor_capture.mjs";
 import { applyBackground, downscaleIfNeeded } from "../postprocess/raster.mjs";
 import { exportWorkflowPng } from "../../export/index.mjs";
 import { embedWorkflowInPngBlob } from "../../export/png_embed_workflow.mjs";
+import { attachCaptureWarnings } from "./warnings.mjs";
 import {
   getSelectedNodeIdsFromApp,
   getWorkflowJsonFromApp,
@@ -99,9 +100,6 @@ export async function capture(options = {}) {
         tileBleed: normalized.tileBleed,
       });
       const warnings = blob?.cwieWarnings;
-      if (warnings?.length) {
-        console.warn("[workflow-image-export] export warnings", warnings);
-      }
       result = {
         type: "raster",
         mime: normalized.format === "webp" ? "image/webp" : "image/png",
@@ -132,6 +130,9 @@ export async function capture(options = {}) {
 
   if (normalized.format === "png" || normalized.format === "webp") {
     const warnings = result?.cwieWarnings || result?.blob?.cwieWarnings;
+    if (warnings?.length) {
+      console.warn("[workflow-image-export] export warnings", warnings);
+    }
     const forceTile =
       normalized.exceedMode === "tile" ||
       warnings?.includes?.("render:tiled-png");
@@ -141,10 +142,10 @@ export async function capture(options = {}) {
       const workflowText = toWorkflowJsonString(workflowJson);
       if (workflowText) {
         const blob = await embedWorkflowInPngBlob(scaled.blob, workflowText);
-        return blob || scaled.blob;
+        return attachCaptureWarnings(blob || scaled.blob, warnings);
       }
     }
-    return scaled.blob;
+    return attachCaptureWarnings(scaled.blob, warnings);
   }
 
   const withBg = await applyBackground(result, normalized);
@@ -156,7 +157,7 @@ export async function capture(options = {}) {
     normalized.exceedMode === "tile" ||
     warnings?.includes?.("render:tiled-png");
   const scaled = forceTile ? withBg : await downscaleIfNeeded(withBg, normalized);
-  return scaled.blob;
+  return attachCaptureWarnings(scaled.blob, warnings);
 }
 
 export function isNode2UnsupportedError(error) {

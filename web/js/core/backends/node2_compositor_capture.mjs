@@ -1,11 +1,29 @@
 import { app } from "/scripts/app.js";
 import { getSettingsAccess } from "../detect.mjs";
 import { computeGraphBBox } from "../../export/bbox.mjs";
+import {
+  NODE2_MATTE_BG_A,
+  NODE2_MATTE_BG_B,
+} from "../../export/background_modes.mjs";
+import {
+  isCanvasTransparent,
+  recoverTransparentCanvas,
+} from "../../export/transparent_recovery.mjs";
+import {
+  createBackgroundOverrideState,
+} from "./node2_background_override_state.mjs";
+import {
+  captureTwoFrameTransparentMatte,
+  getNode2TransparentWarning,
+  summarizeNode2TransparentTileRecovery,
+  validateNode2TransparentTileOutput,
+} from "./node2_transparent_matte.mjs";
 
 const NODE2_CAPTURE_STYLE_ID = "cwie-node2-capture-style";
-const NODE2_CAPTURE_VERSION = "node2-faster-tiles-2026-06-07-1";
+const NODE2_CAPTURE_VERSION = "node2-transparent-matte-2026-07-29-1";
 const NODE2_TILE_MAX_PIXELS = 64 * 1024 * 1024;
 const NODE2_TILE_SETTLE_MS = 180;
+const NODE2_TILE_FRAME_TIMEOUT_MS = 5000;
 const NODE2_TILE_POLL_MIN_WAIT_MS = 80;
 const NODE2_TILE_POLL_INTERVAL_MS = 60;
 
@@ -429,12 +447,15 @@ async function waitForNode2CaptureUiSettle(ms = 120) {
 function createNode2BackgroundOverride(options = {}) {
   const mode = String(options.background || "ui");
   if (mode !== "solid") {
-    return { async apply() {}, async restore() {} };
+    return {
+      async apply() {},
+      async setColor() {},
+      async restore() {},
+    };
   }
-  const color = typeof options.solidColor === "string" && options.solidColor.trim()
+  const initialColor = typeof options.solidColor === "string" && options.solidColor.trim()
     ? options.solidColor.trim()
     : "#000000";
-  const solidDataUrl = createSolidBackgroundDataUrl(color);
   const changedElements = new Map();
   const changedCanvas = new Map();
   let documentBgImg = null;
@@ -460,12 +481,26 @@ function createNode2BackgroundOverride(options = {}) {
       canvas?.draw?.(true, true);
     } catch (_) {}
   };
-  return {
-    async apply() {
+  const state = createBackgroundOverrideState({
+    saveOriginal() {
       const { root } = getNode2Layers();
       const graphContainer = document.querySelector("#graph-canvas-container");
       documentBgImg = document.documentElement.style.getPropertyValue("--bg-img");
       documentBgImgPriority = document.documentElement.style.getPropertyPriority("--bg-img");
+      for (const el of [root, graphContainer]) {
+        saveElement(el);
+      }
+      const canvas = app?.canvas;
+      if (canvas) {
+        saveCanvasProp(canvas, "clear_background_color");
+        saveCanvasProp(canvas, "background_image");
+        saveCanvasProp(canvas, "_pattern");
+      }
+    },
+    async writeColor(color) {
+      const solidDataUrl = createSolidBackgroundDataUrl(color);
+      const { root } = getNode2Layers();
+      const graphContainer = document.querySelector("#graph-canvas-container");
       document.documentElement.style.setProperty("--bg-img", `url("${solidDataUrl}")`);
       for (const el of [root, graphContainer]) {
         if (!(el instanceof HTMLElement)) continue;
@@ -489,7 +524,7 @@ function createNode2BackgroundOverride(options = {}) {
       await new Promise((resolve) => requestAnimationFrame(() => resolve()));
       await new Promise((resolve) => requestAnimationFrame(() => resolve()));
     },
-    async restore() {
+    async restoreOriginal() {
       if (documentBgImg === "") {
         document.documentElement.style.removeProperty("--bg-img");
       } else if (documentBgImg !== null) {
@@ -512,6 +547,17 @@ function createNode2BackgroundOverride(options = {}) {
       documentBgImgPriority = "";
       redraw();
       await new Promise((resolve) => requestAnimationFrame(() => resolve()));
+    },
+  });
+  return {
+    async apply() {
+      await state.apply(initialColor);
+    },
+    async setColor(color) {
+      await state.setColor(color);
+    },
+    async restore() {
+      await state.restore();
     },
   };
 }
@@ -1167,7 +1213,7 @@ async function attachHiddenVideo(stream, log) {
   video.autoplay = true;
   video.style.cssText = [
     "position:fixed",
-    "left:8px",
+    "left:-9999px",
     "top:8px",
     "width:320px",
     "height:180px",
@@ -1220,6 +1266,22 @@ async function canvasProbe(canvas, ctx, width, height) {
   };
 }
 
+function sampleCanvasCornerAlpha(canvas) {
+  const ctx = canvas?.getContext?.("2d", { alpha: true, willReadFrequently: true });
+  if (!ctx || !canvas.width || !canvas.height) return null;
+  const points = [
+    [0, 0],
+    [canvas.width - 1, 0],
+    [0, canvas.height - 1],
+    [canvas.width - 1, canvas.height - 1],
+  ];
+  try {
+    return points.map(([x, y]) => ctx.getImageData(x, y, 1, 1).data[3]);
+  } catch (_) {
+    return null;
+  }
+}
+
 function sampleCanvasSignature(ctx, width, height) {
   const sampleCols = 96;
   const sampleRows = 54;
@@ -1248,6 +1310,10 @@ function sampleCanvasSignature(ctx, width, height) {
 }
 
 async function captureChangedVideoFrame(prepared, options, log) {
+  const strictChangedFrame = options.strictChangedFrame === true;
+  if (strictChangedFrame && !prepared?.lastFrameSignature) {
+    throw new Error("strict changed-frame capture requires a seeded frame signature");
+  }
   const timeoutMs = Math.max(500, Number(options.frameTimeoutMs) || 3000);
   const intervalMs = Math.max(40, Math.min(250, Number(options.pollIntervalMs) || 120));
   const minWaitMs = Math.max(0, Number(options.pollMinWaitMs) || 240);
@@ -1299,6 +1365,10 @@ async function captureChangedVideoFrame(prepared, options, log) {
   if (!last) {
     throw new Error(`polled video frame unavailable after ${timeoutMs}ms`);
   }
+  if (strictChangedFrame) {
+    releaseCanvasResource(last.canvas);
+    throw new Error(`changed video frame unavailable after ${timeoutMs}ms`);
+  }
 
   const probe = options.probe === false
     ? { blobOk: true, blobType: null, blobSize: 0, probed: false }
@@ -1331,12 +1401,17 @@ async function captureChangedVideoFrame(prepared, options, log) {
 async function seedPreparedFrameSignature(prepared, log) {
   if (!prepared?.video) return null;
   await waitVideoPollDelay(180);
+  return samplePreparedFrameSignature(prepared, log, "frame.seed");
+}
+
+function samplePreparedFrameSignature(prepared, log, label = "frame.baseline") {
+  if (!prepared?.video) return null;
   const { canvas, ctx, width, height } = drawVideoToCanvas(prepared.video);
   const signature = sampleCanvasSignature(ctx, width, height);
   releaseCanvasResource(canvas);
   prepared.lastFrameSignature = signature;
   const seed = { width, height, signature };
-  logStep(log, "frame.seed", seed);
+  logStep(log, label, seed);
   return seed;
 }
 
@@ -1491,6 +1566,12 @@ async function captureFrameFromPreparedVideo(prepared, options, log) {
   const frameTimeoutMs = Math.max(50, Number(options.frameTimeoutMs) || 3000);
   await waitVideoFrame(prepared.video, frameCount, log, frameTimeoutMs);
   const { canvas, ctx, width, height } = drawVideoToCanvas(prepared.video);
+  const signature = options.updateFrameSignature
+    ? sampleCanvasSignature(ctx, width, height)
+    : null;
+  if (signature) {
+    prepared.lastFrameSignature = signature;
+  }
   const probe = options.probe === false
     ? { blobOk: true, blobType: null, blobSize: 0, probed: false }
     : await canvasProbe(canvas, ctx, width, height);
@@ -1498,6 +1579,7 @@ async function captureFrameFromPreparedVideo(prepared, options, log) {
     width,
     height,
     dpr: window.devicePixelRatio || 1,
+    ...(signature ? { signature } : {}),
     ...probe,
   };
   logStep(log, "frame.ok", frame);
@@ -1573,7 +1655,35 @@ async function applyTargetRestriction(track, target, { prefer = "restriction", r
   return result;
 }
 
-export async function captureNode2SingleFrame(options = {}) {
+function createNode2MediaFreezer(root, captureStream, log) {
+  const states = [];
+  for (const video of asArray(root?.querySelectorAll?.("video"))) {
+    if (!(video instanceof HTMLVideoElement) || video.srcObject === captureStream) continue;
+    const wasPaused = video.paused;
+    states.push({ video, wasPaused });
+    if (!wasPaused) {
+      try {
+        video.pause();
+      } catch (_) {}
+    }
+  }
+  logStep(log, "media.freeze", { videos: states.length });
+  return {
+    async restore() {
+      const playPromises = [];
+      for (const { video, wasPaused } of states) {
+        if (wasPaused || !video.isConnected) continue;
+        try {
+          playPromises.push(Promise.resolve(video.play()).catch(() => {}));
+        } catch (_) {}
+      }
+      states.length = 0;
+      await Promise.all(playPromises);
+    },
+  };
+}
+
+async function withNode2PreparedCapture(options, fn) {
   const log = Object.hasOwn(options, "log") ? options.log : console.log;
   const targetName = options.target || "commonRoot";
   const target = resolveTarget(targetName);
@@ -1586,20 +1696,36 @@ export async function captureNode2SingleFrame(options = {}) {
   const backgroundOverride = createNode2BackgroundOverride(options);
 
   let stream = null;
+  let prepared = null;
   let interactionShield = null;
   let cursorHider = null;
+  let mediaFreezer = null;
   try {
     stream = await requestDisplayMedia(log);
     document.documentElement.classList.add("cwie-node2-capturing");
     interactionShield = createNode2InteractionShield();
     cursorHider = createNode2InlineCursorHider(target);
+    mediaFreezer = createNode2MediaFreezer(getNode2Layers().root, stream, log);
     await backgroundOverride.apply();
     await canvasInfoHider.hide();
     hideNode2CaptureChrome(chromeHider);
     hideKnownComfyChrome(chromeHider);
     hideIntersectingChrome(chromeHider);
     await waitForNode2CaptureUiSettle();
-    return await captureFrameFromStream(stream, target, targetName, captureHandle, options, log);
+    prepared = await prepareFrameCaptureFromStream(
+      stream,
+      target,
+      targetName,
+      captureHandle,
+      options,
+      log
+    );
+    return await fn({
+      prepared,
+      backgroundOverride,
+      captureHandle,
+      log,
+    });
   } catch (error) {
     report.error = {
       name: error?.name || "",
@@ -1608,14 +1734,108 @@ export async function captureNode2SingleFrame(options = {}) {
     logStep(log, "failed", report.error);
     return report;
   } finally {
+    releaseHiddenVideo(prepared?.video);
     interactionShield?.remove();
     cursorHider?.remove();
     stopStream(stream);
     chromeHider.restore();
     await backgroundOverride.restore();
     await canvasInfoHider.restore();
+    await mediaFreezer?.restore();
     document.documentElement.classList.remove("cwie-node2-capturing");
   }
+}
+
+export async function captureNode2SingleFrame(options = {}) {
+  return withNode2PreparedCapture(options, async ({
+    prepared,
+    captureHandle,
+    log,
+  }) => {
+    const captured = await captureFrameFromPreparedVideo(prepared, options, log);
+    captured.captureHandle = captureHandle;
+    if (!options.includeCanvas) {
+      releaseCanvasResource(captured.canvas);
+      delete captured.canvas;
+    }
+    return captured;
+  });
+}
+
+async function captureNode2TransparentFrames(options, fitInfo) {
+  return withNode2PreparedCapture({
+    ...options,
+    background: "solid",
+    solidColor: NODE2_MATTE_BG_B,
+    frameCount: 1,
+    frameTimeoutMs: Math.max(1000, Number(options.frameTimeoutMs) || 3000),
+    probe: false,
+  }, async ({
+    prepared,
+    backgroundOverride,
+    captureHandle,
+    log,
+  }) => {
+    const matte = await captureTwoFrameTransparentMatte({
+      colorA: NODE2_MATTE_BG_A,
+      colorB: NODE2_MATTE_BG_B,
+      async setColor(color) {
+        await backgroundOverride.setColor(color);
+      },
+      async seedBaseline() {
+        await waitForNode2CaptureUiSettle(160);
+        return samplePreparedFrameSignature(prepared, log);
+      },
+      async captureChanged(captureOptions) {
+        if (!prepared.lastFrameSignature) {
+          throw new Error("Node 2.0 transparent capture lost its frame signature.");
+        }
+        return captureFrameFromPreparedVideo(prepared, {
+          ...options,
+          ...captureOptions,
+          pollChangedFrame: true,
+          frameCount: 1,
+          frameTimeoutMs: Math.max(1000, Number(options.frameTimeoutMs) || 3000),
+          probe: false,
+        }, log);
+      },
+      cropCanvas(canvas) {
+        return fitInfo ? cropNode2CanvasToFit(canvas, fitInfo) : canvas;
+      },
+      recover(canvasA, canvasB, colorA, colorB) {
+        return recoverTransparentCanvas(canvasA, canvasB, colorA, colorB, {
+          alphaEpsilon: 3,
+        });
+      },
+      isTransparent: isCanvasTransparent,
+    });
+
+    for (const resource of matte.resources) {
+      if (resource !== matte.canvas) {
+        releaseCanvasResource(resource);
+      }
+    }
+    const sourceFrame = matte.frameA;
+    logStep(log, "transparent.recovery", {
+      ...matte.transparentRecovery,
+      width: matte.canvas?.width || 0,
+      height: matte.canvas?.height || 0,
+      cornerAlpha: sampleCanvasCornerAlpha(matte.canvas),
+    });
+    return {
+      ...sourceFrame,
+      captureHandle,
+      canvas: matte.canvas,
+      frame: {
+        ...sourceFrame?.frame,
+        blobOk: sourceFrame?.frame?.blobOk ?? true,
+        croppedWidth: matte.canvas?.width,
+        croppedHeight: matte.canvas?.height,
+      },
+      fit: fitInfo || null,
+      transparentRecovery: matte.transparentRecovery,
+    };
+  });
 }
 
 async function waitForNode2CameraSettle(ms = 320) {
@@ -1920,10 +2140,19 @@ async function captureNode2TiledFromFit(fitInfo, options = {}) {
   let output = null;
   let outputCtx = null;
   const log = options.debug ? console.log : null;
+  const transparentTiles = options.background === "transparent";
   const captureHandle = await maybeSetCaptureHandle(log);
   const chromeHider = createNode2ChromeHider();
   const canvasInfoHider = createNode2CanvasInfoHider(canvas);
-  const backgroundOverride = createNode2BackgroundOverride(options);
+  const backgroundOverride = createNode2BackgroundOverride(
+    transparentTiles
+      ? {
+        ...options,
+        background: "solid",
+        solidColor: NODE2_MATTE_BG_B,
+      }
+      : options
+  );
 
   ensureNode2CaptureStyle();
 
@@ -1931,11 +2160,13 @@ async function captureNode2TiledFromFit(fitInfo, options = {}) {
   let prepared = null;
   let interactionShield = null;
   let cursorHider = null;
+  let mediaFreezer = null;
   try {
     stream = await requestDisplayMedia(log);
     document.documentElement.classList.add("cwie-node2-capturing");
     interactionShield = createNode2InteractionShield();
     cursorHider = createNode2InlineCursorHider(root);
+    mediaFreezer = createNode2MediaFreezer(root, stream, log);
     await backgroundOverride.apply();
     await canvasInfoHider.hide();
     hideNode2CaptureChrome(chromeHider);
@@ -1991,6 +2222,9 @@ async function captureNode2TiledFromFit(fitInfo, options = {}) {
       return { error: { message: "Node 2.0 tiled capture failed: 2d context unavailable." } };
     }
     outputCtx.clearRect(0, 0, output.width, output.height);
+    let transparentFailedTiles = 0;
+    const transparentFallbackKinds = new Set();
+    let currentMatteColor = NODE2_MATTE_BG_B;
 
     const tileXs = Array.from({ length: cols }, (_, col) => {
       const planned = minX + col * tileStepX;
@@ -2070,19 +2304,100 @@ async function captureNode2TiledFromFit(fitInfo, options = {}) {
         }));
 
         const frameStarted = performance.now();
-        const frame = await captureFrameFromPreparedVideo(prepared, {
-          ...options,
-          frameCount: 1,
-          frameTimeoutMs: 5000,
-          probe: false,
-          pollChangedFrame: true,
-          pollMinWaitMs: Number(options.node2TilePollMinWaitMs) || NODE2_TILE_POLL_MIN_WAIT_MS,
-          pollIntervalMs: Number(options.node2TilePollIntervalMs) || NODE2_TILE_POLL_INTERVAL_MS,
-        }, log);
+        let tileCanvas = null;
+        let tileRecovery = null;
+        if (transparentTiles) {
+          const matte = await captureTwoFrameTransparentMatte({
+            colorA: NODE2_MATTE_BG_A,
+            colorB: NODE2_MATTE_BG_B,
+            startColor: currentMatteColor,
+            async setColor(color) {
+              await backgroundOverride.setColor(color);
+            },
+            async captureCurrent() {
+              return captureFrameFromPreparedVideo(prepared, {
+                ...options,
+                frameCount: 1,
+                frameTimeoutMs:
+                  Number(options.node2TileArrivalTimeoutMs) || 1500,
+                probe: false,
+                pollChangedFrame: false,
+                updateFrameSignature: true,
+              }, log);
+            },
+            async captureChanged(captureOptions) {
+              if (!prepared.lastFrameSignature) {
+                throw new Error("Node 2.0 transparent tile lost its frame signature.");
+              }
+              return captureFrameFromPreparedVideo(prepared, {
+                ...options,
+                ...captureOptions,
+                frameCount: 1,
+                frameTimeoutMs: NODE2_TILE_FRAME_TIMEOUT_MS,
+                probe: false,
+                pollChangedFrame: true,
+                pollMinWaitMs:
+                  Number(options.node2TilePollMinWaitMs) ||
+                  NODE2_TILE_POLL_MIN_WAIT_MS,
+                pollIntervalMs:
+                  Number(options.node2TilePollIntervalMs) ||
+                  NODE2_TILE_POLL_INTERVAL_MS,
+              }, log);
+            },
+            recover(canvasA, canvasB, colorA, colorB) {
+              return recoverTransparentCanvas(canvasA, canvasB, colorA, colorB, {
+                alphaEpsilon: 3,
+              });
+            },
+            // A tile can legitimately be fully opaque. Strict frame signatures
+            // already prevent the A === B silent-failure case.
+            isTransparent() {
+              return true;
+            },
+          });
+          currentMatteColor = matte.endColor;
+          tileCanvas = matte.canvas;
+          tileRecovery = matte.transparentRecovery;
+          if (!tileRecovery.ok) {
+            transparentFailedTiles += 1;
+            if (tileRecovery.fallback) {
+              transparentFallbackKinds.add(tileRecovery.fallback);
+            }
+          }
+          for (const resource of matte.resources) {
+            if (resource !== tileCanvas) {
+              releaseCanvasResource(resource);
+            }
+          }
+        } else {
+          const frame = await captureFrameFromPreparedVideo(prepared, {
+            ...options,
+            frameCount: 1,
+            frameTimeoutMs: NODE2_TILE_FRAME_TIMEOUT_MS,
+            probe: false,
+            pollChangedFrame: true,
+            pollMinWaitMs:
+              Number(options.node2TilePollMinWaitMs) ||
+              NODE2_TILE_POLL_MIN_WAIT_MS,
+            pollIntervalMs:
+              Number(options.node2TilePollIntervalMs) ||
+              NODE2_TILE_POLL_INTERVAL_MS,
+          }, log);
+          if (frame.error || !frame.canvas) {
+            return {
+              error: frame.error || {
+                message: "Node 2.0 tiled capture failed: no captured frame.",
+              },
+            };
+          }
+          tileCanvas = frame.canvas;
+        }
         const frameElapsedMs = Math.round(performance.now() - frameStarted);
-        if (frame.error || !frame.canvas) {
+        if (!tileCanvas) {
           return {
-            error: frame.error || { message: "Node 2.0 tiled capture failed: no captured frame." },
+            error: {
+              message: "Node 2.0 tiled capture failed: no captured tile canvas.",
+            },
           };
         }
         const tileLeft = tileX;
@@ -2098,20 +2413,20 @@ async function captureNode2TiledFromFit(fitInfo, options = {}) {
         const drawRight = Math.min(cellRight, tileRight);
         const drawBottom = Math.min(cellBottom, tileBottom);
         if (drawRight <= drawLeft || drawBottom <= drawTop) {
-          releaseCanvasResource(frame.canvas);
+          releaseCanvasResource(tileCanvas);
           continue;
         }
 
         const sx = Math.max(0, Math.floor((drawLeft - tileLeft) * pxPerGraphX));
         const sy = Math.max(0, Math.floor((drawTop - tileTop) * pxPerGraphY));
-        const sw = Math.max(1, Math.min(frame.canvas.width - sx, Math.ceil((drawRight - drawLeft) * pxPerGraphX)));
-        const sh = Math.max(1, Math.min(frame.canvas.height - sy, Math.ceil((drawBottom - drawTop) * pxPerGraphY)));
+        const sw = Math.max(1, Math.min(tileCanvas.width - sx, Math.ceil((drawRight - drawLeft) * pxPerGraphX)));
+        const sh = Math.max(1, Math.min(tileCanvas.height - sy, Math.ceil((drawBottom - drawTop) * pxPerGraphY)));
         const dx = Math.round((drawLeft - minX) * pxPerGraphX);
         const dy = Math.round((drawTop - minY) * pxPerGraphY);
         const dw = Math.max(1, Math.round((drawRight - drawLeft) * pxPerGraphX));
         const dh = Math.max(1, Math.round((drawBottom - drawTop) * pxPerGraphY));
-        outputCtx.drawImage(frame.canvas, sx, sy, sw, sh, dx, dy, dw, dh);
-        releaseCanvasResource(frame.canvas);
+        outputCtx.drawImage(tileCanvas, sx, sy, sw, sh, dx, dy, dw, dh);
+        releaseCanvasResource(tileCanvas);
         logStep(log, "capture.tile.blit", () => ({
           row,
           col,
@@ -2125,10 +2440,30 @@ async function captureNode2TiledFromFit(fitInfo, options = {}) {
           elapsedMs: Math.round(performance.now() - tileStarted),
           settleElapsedMs,
           frameElapsedMs,
+          transparentRecovery: tileRecovery,
         }));
       }
     }
     options.onProgress?.({ value: 1, percent: 100 });
+    let transparentRecovery = transparentTiles
+      ? summarizeNode2TransparentTileRecovery(
+        transparentFailedTiles,
+        rows * cols,
+        transparentFallbackKinds
+      )
+      : undefined;
+    if (transparentTiles) {
+      transparentRecovery = validateNode2TransparentTileOutput(
+        transparentRecovery,
+        isCanvasTransparent(output)
+      );
+      logStep(log, "transparent.recovery", {
+        ...transparentRecovery,
+        width: output.width,
+        height: output.height,
+        cornerAlpha: sampleCanvasCornerAlpha(output),
+      });
+    }
 
     return {
       type: "raster",
@@ -2138,6 +2473,7 @@ async function captureNode2TiledFromFit(fitInfo, options = {}) {
         width: output?.width || 0,
         height: output?.height || 0,
         tiled: true,
+        transparent: transparentTiles,
         cols,
         rows,
         tileScale,
@@ -2153,6 +2489,7 @@ async function captureNode2TiledFromFit(fitInfo, options = {}) {
         },
       },
       restriction: { attempted: "restriction", ok: true },
+      transparentRecovery,
     };
   } catch (error) {
     return {
@@ -2169,6 +2506,7 @@ async function captureNode2TiledFromFit(fitInfo, options = {}) {
     chromeHider.restore();
     await backgroundOverride.restore();
     await canvasInfoHider.restore();
+    await mediaFreezer?.restore();
     document.documentElement.classList.remove("cwie-node2-capturing");
     setNode2CanvasView(canvas, ds, saved.offset, saved.scale);
     await waitForNode2CameraSettle(120);
@@ -2187,11 +2525,10 @@ function toBlob(canvas, mime) {
   });
 }
 
-function collectNode2Warnings(options = {}) {
+function collectNode2Warnings(options = {}, report = null) {
   const warnings = [];
-  if (options.background === "transparent") {
-    warnings.push("node2:transparent_background_unsupported");
-  }
+  const transparentWarning = getNode2TransparentWarning(options, report);
+  if (transparentWarning) warnings.push(transparentWarning);
   if (Number(options.padding) > 0) {
     warnings.push("node2:padding_unsupported");
   }
@@ -2246,16 +2583,19 @@ export async function captureNode2(options = {}) {
     if (!report) {
       report = await withFitNode2View(options, async (fitInfo) => {
         logStep(options.debug ? console.log : null, "capture.fit", fitInfo);
-        const captured = await captureNode2SingleFrame({
+        const captureOptions = {
           ...options,
           target: options.target || "commonRoot",
           includeCanvas: true,
           frameCount: 1,
-          frameTimeoutMs: 250,
+          frameTimeoutMs: options.background === "transparent" ? 3000 : 250,
           probe: false,
           log: options.debug ? console.log : null,
-        });
-        if (captured.canvas && fitInfo) {
+        };
+        const captured = options.background === "transparent"
+          ? await captureNode2TransparentFrames(captureOptions, fitInfo)
+          : await captureNode2SingleFrame(captureOptions);
+        if (captured.canvas && fitInfo && options.background !== "transparent") {
           captured.canvas = cropNode2CanvasToFit(captured.canvas, fitInfo);
           captured.frame = {
             ...captured.frame,
@@ -2297,7 +2637,7 @@ export async function captureNode2(options = {}) {
       size: blob.size,
       type: blob.type,
     });
-    const warnings = collectNode2Warnings(options);
+    const warnings = collectNode2Warnings(options, report);
     if (report.restriction?.attempted && !report.restriction.ok) {
       warnings.push(`node2:target_restriction_failed:${report.restriction.attempted}`);
     }
