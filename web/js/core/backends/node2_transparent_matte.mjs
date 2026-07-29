@@ -63,6 +63,7 @@ export async function captureTwoFrameTransparentMatte({
   colorB,
   setColor,
   seedBaseline,
+  captureCurrent,
   captureChanged,
   cropCanvas = (canvas) => canvas,
   recover,
@@ -82,9 +83,15 @@ export async function captureTwoFrameTransparentMatte({
     const firstColor = startColor;
     const secondColor = firstColor === colorA ? colorB : colorA;
     endColor = firstColor;
-    const firstFrame = await captureChanged({ strictChangedFrame: true });
+    const firstFrame = await (captureCurrent || captureChanged)({
+      strictChangedFrame: false,
+      cameraArrivalFrame: true,
+    });
     addResource(resources, firstFrame?.canvas);
-    const firstSignature = assertFreshFrame(firstFrame, null, firstColor);
+    const firstSignature = getFrameSignature(firstFrame);
+    if (!firstSignature || !firstFrame?.canvas) {
+      throw new Error("Node 2.0 transparent capture did not receive a camera-arrival frame.");
+    }
     if (firstColor === colorA) frameA = firstFrame;
     else frameB = firstFrame;
 

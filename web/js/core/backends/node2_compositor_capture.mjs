@@ -1571,6 +1571,12 @@ async function captureFrameFromPreparedVideo(prepared, options, log) {
   const frameTimeoutMs = Math.max(50, Number(options.frameTimeoutMs) || 3000);
   await waitVideoFrame(prepared.video, frameCount, log, frameTimeoutMs);
   const { canvas, ctx, width, height } = drawVideoToCanvas(prepared.video);
+  const signature = options.updateFrameSignature
+    ? sampleCanvasSignature(ctx, width, height)
+    : null;
+  if (signature) {
+    prepared.lastFrameSignature = signature;
+  }
   const probe = options.probe === false
     ? { blobOk: true, blobType: null, blobSize: 0, probed: false }
     : await canvasProbe(canvas, ctx, width, height);
@@ -1578,6 +1584,7 @@ async function captureFrameFromPreparedVideo(prepared, options, log) {
     width,
     height,
     dpr: window.devicePixelRatio || 1,
+    ...(signature ? { signature } : {}),
     ...probe,
   };
   logStep(log, "frame.ok", frame);
@@ -2310,6 +2317,17 @@ async function captureNode2TiledFromFit(fitInfo, options = {}) {
             startColor: currentMatteColor,
             async setColor(color) {
               await backgroundOverride.setColor(color);
+            },
+            async captureCurrent() {
+              return captureFrameFromPreparedVideo(prepared, {
+                ...options,
+                frameCount: 1,
+                frameTimeoutMs:
+                  Number(options.node2TileArrivalTimeoutMs) || 1500,
+                probe: false,
+                pollChangedFrame: false,
+                updateFrameSignature: true,
+              }, log);
             },
             async captureChanged(captureOptions) {
               if (!prepared.lastFrameSignature) {

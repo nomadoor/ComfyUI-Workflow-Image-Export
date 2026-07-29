@@ -1052,6 +1052,10 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
       } else {
         log?.("export:error", { message: error?.message || String(error) });
         console.error("[workflow-image-export] export failed", error);
+        messageDialogPayload = {
+          title: "Export failed",
+          message: error?.message || String(error),
+        };
       }
     } finally {
       exportButton.classList.remove("is-progressing");

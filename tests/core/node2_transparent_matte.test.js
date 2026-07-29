@@ -194,7 +194,8 @@ test("startColor captures the current color first and returns the opposite end c
   const blackCanvas = { name: "black" };
   const whiteCanvas = { name: "white" };
   const recoverCalls = [];
-  const strictCalls = [];
+  const arrivalCalls = [];
+  const changedCalls = [];
 
   const result = await captureTwoFrameTransparentMatte({
     colorA: "#000000",
@@ -203,16 +204,14 @@ test("startColor captures the current color first and returns the opposite end c
     setColor(color) {
       colorChanges.push(color);
     },
-    captureChanged: (() => {
-      const frames = [
-        frame("arrival-white", whiteCanvas),
-        frame("changed-black", blackCanvas),
-      ];
-      return (options) => {
-        strictCalls.push(options.strictChangedFrame);
-        return frames.shift();
-      };
-    })(),
+    captureCurrent(options) {
+      arrivalCalls.push(options);
+      return frame("arrival-white", whiteCanvas);
+    },
+    captureChanged(options) {
+      changedCalls.push(options);
+      return frame("changed-black", blackCanvas);
+    },
     recover(canvasA, canvasB, colorA, colorB) {
       recoverCalls.push({ canvasA, canvasB, colorA, colorB });
       return { transparent: true };
@@ -223,7 +222,11 @@ test("startColor captures the current color first and returns the opposite end c
   });
 
   assert.deepEqual(colorChanges, ["#000000"]);
-  assert.deepEqual(strictCalls, [true, true]);
+  assert.deepEqual(arrivalCalls, [{
+    strictChangedFrame: false,
+    cameraArrivalFrame: true,
+  }]);
+  assert.deepEqual(changedCalls, [{ strictChangedFrame: true }]);
   assert.equal(result.endColor, "#000000");
   assert.deepEqual(recoverCalls, [{
     canvasA: blackCanvas,
@@ -243,10 +246,6 @@ test("alternating tiles pass each end color into the next tile without swapping 
     const firstCanvas = { color: currentColor, tile };
     const secondColor = currentColor === "#ffffff" ? "#000000" : "#ffffff";
     const secondCanvas = { color: secondColor, tile };
-    const captures = [
-      frame(`arrival-${tile}`, firstCanvas),
-      frame(`changed-${tile}`, secondCanvas),
-    ];
     const result = await captureTwoFrameTransparentMatte({
       colorA: "#000000",
       colorB: "#ffffff",
@@ -254,8 +253,11 @@ test("alternating tiles pass each end color into the next tile without swapping 
       setColor(color) {
         changes.push(color);
       },
+      captureCurrent() {
+        return frame(`arrival-${tile}`, firstCanvas);
+      },
       captureChanged() {
-        return captures.shift();
+        return frame(`changed-${tile}`, secondCanvas);
       },
       recover(canvasA, canvasB, colorA, colorB) {
         assert.equal(canvasA.color, colorA);
@@ -273,31 +275,60 @@ test("alternating tiles pass each end color into the next tile without swapping 
   assert.deepEqual(changes, ["#000000", "#ffffff", "#000000"]);
 });
 
-test("startColor mode rejects an unchanged strict frame", async () => {
-  await assert.rejects(
-    captureTwoFrameTransparentMatte({
-      colorA: "#000000",
-      colorB: "#ffffff",
-      startColor: "#ffffff",
-      async setColor() {},
-      async captureChanged() {
-        return {
-          ...frame("unchanged"),
-          frame: {
-            signature: "unchanged",
-            unchangedFrame: true,
-          },
-        };
-      },
-      recover() {
-        return { transparent: true };
-      },
-      isTransparent() {
-        return true;
-      },
-    }),
-    /fresh/
-  );
+test("startColor mode rejects an unchanged strict background frame", async () => {
+  const blackCanvas = { name: "black" };
+  const result = await captureTwoFrameTransparentMatte({
+    colorA: "#000000",
+    colorB: "#ffffff",
+    startColor: "#000000",
+    async setColor() {},
+    async captureCurrent() {
+      return frame("arrival-black", blackCanvas);
+    },
+    async captureChanged() {
+      return {
+        ...frame("arrival-black"),
+        frame: {
+          signature: "arrival-black",
+          unchangedFrame: true,
+        },
+      };
+    },
+    recover() {
+      return { transparent: true };
+    },
+    isTransparent() {
+      return true;
+    },
+  });
+
+  assert.equal(result.canvas, blackCanvas);
+  assert.equal(result.transparentRecovery.ok, false);
+  assert.match(result.transparentRecovery.error, /fresh/);
+});
+
+test("camera arrival may reuse an identical visual signature", async () => {
+  const result = await captureTwoFrameTransparentMatte({
+    colorA: "#000000",
+    colorB: "#ffffff",
+    startColor: "#ffffff",
+    async setColor() {},
+    async captureCurrent() {
+      return frame("same-as-previous", { name: "white" });
+    },
+    async captureChanged() {
+      return frame("changed-black", { name: "black" });
+    },
+    recover() {
+      return { transparent: true };
+    },
+    isTransparent(canvas) {
+      return canvas.transparent;
+    },
+  });
+
+  assert.equal(result.transparentRecovery.ok, true);
+  assert.equal(result.endColor, "#000000");
 });
 
 test("opaque final tiled output fails recovery and produces a warning", () => {

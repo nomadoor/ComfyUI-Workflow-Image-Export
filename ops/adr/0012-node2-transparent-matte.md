@@ -33,9 +33,9 @@ and solid backgrounds retain the same size policy and output resolution.
 3. For fit capture, keep one fitted camera position, record a disposable white
    baseline signature, then strictly capture black (`A`) and white (`B`).
 4. For tiled capture, seed the stream signature once before the loop. At each
-   tile, strictly capture the camera-arrival frame in the background color left
-   by the previous tile, switch to the opposite color, and strictly capture the
-   second frame.
+   tile, wait for the next display-media frame and capture it in the background
+   color left by the previous tile, switch to the opposite color, and strictly
+   capture the changed second frame.
 5. Assign the two tile frames to `A` and `B` by their known colors, independent
    of chronological order. Leave the second color applied for the next tile.
 6. Crop both fit frames with the same geometry, or blit each recovered tile
@@ -43,13 +43,19 @@ and solid backgrounds retain the same size policy and output resolution.
 7. Recover alpha with `recoverTransparentCanvas(A, B, black, white)`.
 8. Snap alpha values within 3/255 of fully opaque or transparent.
 
-The alternating tile colors separate the two pending visual changes. On tile
-entry, the only awaited change is camera arrival in the already-applied color;
-after that frame arrives, the only awaited change is the background switch.
+The alternating tile colors separate camera arrival from the background
+change. The arrival frame becomes the new signature baseline; after it is
+sampled, the only strictly awaited visual change is the background switch.
 This prevents a delayed display-media stream from mistaking a late white
-camera-arrival frame for black `A` and reversing the matte pair. It keeps the
-cost at two captured frames per tile with no extra settling wait. Existing tile
-scale, overlap, and output dimensions remain unchanged.
+camera-arrival frame for black `A` and reversing the matte pair.
+
+Camera arrival itself cannot require a changed visual signature. Two different
+tiles can be visually identical or can collide in the downsampled signature,
+as observed in a 5x4 tiled export where strict arrival polling timed out after
+5 seconds. The tile camera is first settled in the DOM, then the next available
+video frame is sampled even if its signature equals the previous tile. The
+background switch remains strict because black and white must produce a visual
+change. Existing tile scale, overlap, and output dimensions remain unchanged.
 
 Black and white maximize the luminance difference and reduce sensitivity to
 chroma subsampling in the browser's video pipeline. The legacy renderer keeps
