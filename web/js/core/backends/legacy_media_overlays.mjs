@@ -15,16 +15,17 @@ import {
   shouldRenderResolvedNode,
 } from "./legacy_overlay_utils.mjs";
 import { drawMediaSafely } from "./safe_media_draw.mjs";
+import { nodeIdsEqual, toNodeIdKey } from "../node_ids.mjs";
 
 function findGraphNodeById(graph, id) {
-  if (!Number.isFinite(id)) return null;
+  if (toNodeIdKey(id) === null) return null;
   const nodes = graph?._nodes || graph?.nodes || [];
-  return nodes.find((node) => node && Number.isFinite(node.id) && node.id === id) || null;
+  return nodes.find((node) => node && nodeIdsEqual(node.id, id)) || null;
 }
 
 function findNodeRectById(nodeRects, id) {
-  if (!Number.isFinite(id)) return null;
-  return (nodeRects || []).find((rect) => rect && Number.isFinite(rect.id) && rect.id === id) || null;
+  if (toNodeIdKey(id) === null) return null;
+  return (nodeRects || []).find((rect) => rect && nodeIdsEqual(rect.id, id)) || null;
 }
 
 function resolveVideoNodeFromElement({ video, uiCanvas, nodeRects, graphRect, graph }) {

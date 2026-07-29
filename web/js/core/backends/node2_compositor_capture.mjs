@@ -1,5 +1,6 @@
 import { app } from "/scripts/app.js";
 import { getSettingsAccess } from "../detect.mjs";
+import { toNodeIdKey } from "../node_ids.mjs";
 import { computeGraphBBox } from "../../export/bbox.mjs";
 import {
   NODE2_MATTE_BG_A,
@@ -760,7 +761,7 @@ function getGraphNodes(graph) {
 }
 
 function getNodeId(node) {
-  return node?.id == null ? null : String(node.id);
+  return toNodeIdKey(node?.id);
 }
 
 function normalizeNodeId(value) {
@@ -1005,7 +1006,8 @@ function measureNode2StableGraphBBox(root, ds, graph) {
     const top = Number(pos[1]);
     if (!Number.isFinite(left) || !Number.isFinite(top)) continue;
 
-    const dom = domById.get(String(node.id));
+    const nodeId = toNodeIdKey(node.id);
+    const dom = nodeId === null ? null : domById.get(nodeId);
     const rect = dom?.getBoundingClientRect?.();
     let width = rect && rect.width > 1 ? rect.width / scale : null;
     let height = rect && rect.height > 1 ? rect.height / scale : null;

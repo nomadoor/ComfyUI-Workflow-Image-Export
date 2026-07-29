@@ -35,6 +35,7 @@ function getGraphNodes(graph) {
 }
 
 function getLinkIdSet(links) {
+  // These are LiteGraph link IDs, not node IDs; link IDs remain numeric.
   if (links instanceof Map) {
     return new Set([...links.keys()].map((id) => Number(id)).filter(Number.isFinite));
   }

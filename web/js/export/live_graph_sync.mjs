@@ -6,14 +6,14 @@ import {
   getNodeIdFromElement,
   resolveNodeIdForGraphRect,
 } from "../core/overlays/dom_utils.mjs";
+import { toNodeIdKey } from "../core/node_ids.mjs";
 
 function buildNodeIdMap(graph) {
   const nodes = graph?._nodes || graph?.nodes || [];
   const byId = new Map();
   for (const node of nodes) {
-    if (node && Number.isFinite(node.id)) {
-      byId.set(node.id, node);
-    }
+    const id = toNodeIdKey(node?.id);
+    if (id !== null) byId.set(id, node);
   }
   return byId;
 }
@@ -72,8 +72,9 @@ function syncLiveNodeMedia(exportGraph, liveGraph, debugLog) {
 
   let copiedCount = 0;
   for (const node of exportNodes) {
-    if (!node || !Number.isFinite(node.id)) continue;
-    const liveNode = liveById.get(node.id);
+    const id = toNodeIdKey(node?.id);
+    if (id === null) continue;
+    const liveNode = liveById.get(id);
     if (!liveNode) continue;
     if (copyNodeMedia(liveNode, node)) {
       copiedCount += 1;
@@ -96,8 +97,9 @@ function syncLiveNodeText(exportGraph, liveGraph) {
   };
 
   for (const node of exportNodes) {
-    if (!node || !Number.isFinite(node.id)) continue;
-    const liveNode = liveById.get(node.id);
+    const id = toNodeIdKey(node?.id);
+    if (id === null) continue;
+    const liveNode = liveById.get(id);
     if (!liveNode) continue;
 
     if (liveNode.widgets_values !== undefined) {
@@ -247,8 +249,9 @@ function syncLiveNodeGeometry(exportGraph, liveGraph) {
     && Number.isFinite(Number(pair[1]));
 
   for (const node of exportNodes) {
-    if (!node || !Number.isFinite(node.id)) continue;
-    const liveNode = liveById.get(node.id);
+    const id = toNodeIdKey(node?.id);
+    if (id === null) continue;
+    const liveNode = liveById.get(id);
     if (!liveNode) continue;
 
     const livePos = liveNode.pos || liveNode._pos;
@@ -294,7 +297,7 @@ function syncLiveDomWidgetHeights(exportGraph, uiCanvas) {
       rect,
       getNodeIdFromElement(widget)
     );
-    if (!Number.isFinite(nodeId)) continue;
+    if (nodeId === null) continue;
 
     const exportNode = exportById.get(nodeId);
     if (exportNode) resizeNodeForDomRect(exportNode, rect);
@@ -311,7 +314,7 @@ function syncLiveDomWidgetHeights(exportGraph, uiCanvas) {
       rect,
       getNodeIdFromElement(video)
     );
-    if (!Number.isFinite(nodeId)) continue;
+    if (nodeId === null) continue;
 
     const exportNode = exportById.get(nodeId);
     if (exportNode) resizeNodeForDomRect(exportNode, rect);

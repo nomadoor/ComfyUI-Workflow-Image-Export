@@ -1,4 +1,5 @@
 import { canvasPointToGraph as transformCanvasPointToGraph } from "../graph_transform.mjs";
+import { toNodeIdKey } from "../node_ids.mjs";
 
 const NODE_SELECTORS = [
   ".comfy-node",
@@ -141,13 +142,13 @@ export function getNodeIdFromElement(element) {
   if (!nodeRoot) return null;
   const idAttr = nodeRoot.getAttribute?.("data-node-id") ?? nodeRoot.getAttribute?.("data-nodeid");
   if (!idAttr) return null;
-  const id = Number.parseInt(idAttr, 10);
-  return Number.isFinite(id) ? id : null;
+  return toNodeIdKey(idAttr);
 }
 
 // This is a best-effort media/selection lookup, never a widget dedup authority.
 export function resolveNodeIdForGraphRect(nodeRects, rect, fallbackId = null) {
-  if (Number.isFinite(fallbackId)) return fallbackId;
+  const fallbackKey = toNodeIdKey(fallbackId);
+  if (fallbackKey !== null) return fallbackKey;
   if (!rect || !nodeRects?.length) return null;
   const cx = rect.x + rect.w / 2;
   const cy = rect.y + rect.h / 2;
@@ -155,7 +156,7 @@ export function resolveNodeIdForGraphRect(nodeRects, rect, fallbackId = null) {
     const node = nodeRects[i];
     if (!node) continue;
     if (cx >= node.left && cx <= node.right && cy >= node.top && cy <= node.bottom) {
-      return Number.isFinite(node.id) ? node.id : null;
+      return toNodeIdKey(node.id);
     }
   }
   return null;

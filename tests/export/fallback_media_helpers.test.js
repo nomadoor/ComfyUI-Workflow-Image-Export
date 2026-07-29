@@ -60,18 +60,25 @@ async function importFallbackMediaHelpers(t) {
   return import(pathToFileURL(path.join(tempRoot, ENTRY)).href);
 }
 
-test("normalizeSelectedNodeIds converts Set values to numeric ids", async (t) => {
+test("normalizeSelectedNodeIds uses frontend string ids without discarding named ids", async (t) => {
   const { normalizeSelectedNodeIds } = await importFallbackMediaHelpers(t);
 
-  assert.deepEqual([...normalizeSelectedNodeIds(new Set(["12", 13, "bad"]))], [12, 13]);
-  assert.equal(normalizeSelectedNodeIds(new Set(["bad", Number.NaN])), null);
+  assert.deepEqual(
+    [...normalizeSelectedNodeIds(new Set(["12", 13, "node-alpha"]))],
+    ["12", "13", "node-alpha"]
+  );
+  assert.equal(normalizeSelectedNodeIds(new Set([Number.NaN, 1.5])), null);
 });
 
-test("shouldRenderResolvedNode matches numeric node ids against string Set ids", async (t) => {
+test("shouldRenderResolvedNode matches serialized and arbitrary frontend ids", async (t) => {
   const { shouldRenderResolvedNode } = await importFallbackMediaHelpers(t);
 
   assert.equal(shouldRenderResolvedNode(12, new Set(["12"]), "selected"), true);
   assert.equal(shouldRenderResolvedNode(12, new Set(["12"]), "unselected"), false);
+  assert.equal(
+    shouldRenderResolvedNode("node-alpha", new Set(["node-alpha"]), "selected"),
+    true
+  );
 });
 
 test("computePreviewRect projects x from the live node position", async (t) => {

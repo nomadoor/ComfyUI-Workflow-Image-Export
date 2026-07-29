@@ -7,6 +7,7 @@ import {
   getEffectiveBackground,
   parsePx,
 } from "./legacy_text_helpers.mjs";
+import { toNodeIdKey } from "../node_ids.mjs";
 
 const MARKDOWN_SELECTORS = ".comfy-markdown-content, .tiptap";
 const TEXT_ELEMENT_SELECTORS = "textarea, [contenteditable='true'], .ProseMirror, .cm-content";
@@ -204,7 +205,7 @@ export function buildWidgetRenderPlan({
 
   for (const node of nodes) {
     if (!node || node.id === undefined || node.id === null) continue;
-    if (!shouldRenderResolvedNode(Number(node.id), selectedNodeIds, renderFilter)) continue;
+    if (!shouldRenderResolvedNode(node.id, selectedNodeIds, renderFilter)) continue;
     const widgets = Array.isArray(node.widgets) ? node.widgets : [];
     for (let widgetIndex = 0; widgetIndex < widgets.length; widgetIndex += 1) {
       const widget = widgets[widgetIndex];
@@ -275,14 +276,16 @@ export function joinWidgetRenderPlanToGraph(plan, graph, debugLog = null) {
   const nodes = graph?._nodes || graph?.nodes || [];
   const nodesById = new Map();
   for (const node of nodes) {
-    if (!node || node.id === undefined || node.id === null) continue;
-    nodesById.set(String(node.id), node);
+    const nodeId = toNodeIdKey(node?.id);
+    if (nodeId === null) continue;
+    nodesById.set(nodeId, node);
   }
 
   const input = Array.isArray(plan) ? plan : [];
   const joined = [];
   for (const entry of input) {
-    const node = nodesById.get(String(entry?.nodeId));
+    const entryNodeId = toNodeIdKey(entry?.nodeId);
+    const node = entryNodeId === null ? null : nodesById.get(entryNodeId);
     const widgets = Array.isArray(node?.widgets) ? node.widgets : [];
     const widget = Number.isInteger(entry?.widgetIndex)
       ? widgets[entry.widgetIndex]
@@ -318,7 +321,8 @@ export function collectPlannedWidgetIndexes(plan) {
     }
     if (entry.source !== "capture" && !String(entry.text || "").trim()) continue;
 
-    const nodeId = String(entry.nodeId);
+    const nodeId = toNodeIdKey(entry.nodeId);
+    if (nodeId === null) continue;
     if (!byNodeId.has(nodeId)) byNodeId.set(nodeId, new Set());
     byNodeId.get(nodeId).add(entry.widgetIndex);
     claimedKeys.add(entry.key);
@@ -340,7 +344,8 @@ export function installPlannedWidgetDrawSuppression(canvas, plan) {
 
   const previousDescriptor = Object.getOwnPropertyDescriptor(canvas, "drawNodeWidgets");
   const wrappedDrawNodeWidgets = function (node, ...args) {
-    const indexes = byNodeId.get(String(node?.id));
+    const nodeId = toNodeIdKey(node?.id);
+    const indexes = nodeId === null ? null : byNodeId.get(nodeId);
     const widgets = node?.widgets;
     if (!indexes?.size || !Array.isArray(widgets)) {
       return baseDrawNodeWidgets.call(this, node, ...args);

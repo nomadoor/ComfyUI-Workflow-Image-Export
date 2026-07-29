@@ -40,6 +40,16 @@ test("applyRenderFilter preserves selected filtering behavior", () => {
   assert.deepEqual(graph._nodes, [{ id: 2 }]);
 });
 
+test("applyRenderFilter supports frontend string node ids", () => {
+  const graph = {
+    _nodes: [{ id: "node-one" }, { id: "node-two" }],
+  };
+
+  applyRenderFilter(graph, ["node-two"], "selected");
+
+  assert.deepEqual(graph._nodes, [{ id: "node-two" }]);
+});
+
 test("applyLinkFilter clears Map links for none mode without selected ids", () => {
   const graph = {
     links: new Map([
@@ -129,4 +139,22 @@ test("applyLinkFilter preserves selected link filtering behavior", () => {
   assert.equal(graph._nodes[1].inputs[0].link, 1);
   assert.deepEqual(graph._nodes[1].outputs[0].links, []);
   assert.equal(graph._nodes[2].inputs[0].link, null);
+});
+
+test("applyLinkFilter supports string node endpoints", () => {
+  const graph = {
+    _nodes: [
+      { id: "node-one", inputs: [], outputs: [{ links: [1] }] },
+      { id: "node-two", inputs: [{ link: 1 }], outputs: [] },
+    ],
+    links: {
+      1: { origin_id: "node-one", target_id: "node-two" },
+    },
+  };
+
+  applyLinkFilter(graph, ["node-one", "node-two"], "selected");
+
+  assert.deepEqual(graph.links, {
+    1: { origin_id: "node-one", target_id: "node-two" },
+  });
 });
