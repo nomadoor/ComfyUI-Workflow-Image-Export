@@ -14,6 +14,7 @@ https://github.com/user-attachments/assets/f705aae4-d082-4d68-a1be-57c0d3076327
 - Embed workflow JSON metadata (PNG only)
 - Selection-based cropping with opacity control
 - Node 2.0 compositor capture support for current Chromium-based browsers
+- Transparent Node 2.0 export with full-resolution tiled capture
 
 ## Installation
 
@@ -34,14 +35,13 @@ Install via **ComfyUI Manager**:
 
 > [!NOTE]
 > Node 2.0 mode disables or simplifies options that cannot be reproduced by browser compositor capture.
-> Transparent background, padding, link visibility, selection scope, and node opacity are not available in Node 2.0 mode.
+> Padding, link visibility, selection scope, and node opacity are not available in Node 2.0 mode.
 
 - **Format**: PNG / WebP  
   - Workflow embedding is **PNG only**.
 - **Embed workflow**: include workflow JSON in PNG.
-- **Background**:
-  - Classic: UI / Transparent / Solid.
-  - Node 2.0: UI / Solid.
+- **Background**: UI / Transparent / Solid.
+  - In Node 2.0, Transparent reconstructs alpha from black and white compositor captures.
 - **Padding**: margin around the captured bounds (slider).
 - **Show links**: include node links in Classic/LiteGraph exports.
 - **Scope** (when nodes are selected):
@@ -53,7 +53,8 @@ Install via **ComfyUI Manager**:
 ## Notes
 - Classic export uses the legacy LiteGraph renderer.
 - Node 2.0 export uses Chromium browser compositor capture. The browser will ask you to share the current tab/window when exporting.
-- Node 2.0 cannot preserve transparent pixels, so transparent background is Classic-only.
+- Node 2.0 transparent tiled exports may take longer than UI or Solid exports.
+- Animated video, WebGL, or canvas content may produce transparency artifacts.
 - Some Classic-only controls are disabled in Node 2.0 mode because browser compositor capture cannot faithfully reproduce them.
 - Preview is a faster render path and may skip heavy things (like video thumbnails).
 - DOM-backed widgets are handled best-effort.
