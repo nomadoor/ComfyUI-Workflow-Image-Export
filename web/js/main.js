@@ -59,7 +59,10 @@ function buildMenuLabel() {
 
 async function openDialog(log) {
   try {
-    const mod = await import("./ui/dialog.mjs");
+    // ComfyUI's cache middleware currently marks .js, but not .mjs, as no-store.
+    // Rev the dialog URL when its import graph changes so browsers cannot reuse a
+    // stale UI module after the backend restarts.
+    const mod = await import("./ui/dialog.mjs?v=20260825-inline-exceed");
     const openExportDialog = mod?.openExportDialog;
     if (typeof openExportDialog !== "function") {
       throw new Error("workflow-image-export: openExportDialog not available");

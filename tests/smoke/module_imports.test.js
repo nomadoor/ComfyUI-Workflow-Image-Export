@@ -63,7 +63,10 @@ async function mirrorModule(sourcePath, tempRoot, appStubPath, seen = new Set())
 
   for (const specifier of specifiers) {
     if (specifier.startsWith("./") || specifier.startsWith("../")) {
-      const dependencyPath = path.resolve(path.dirname(normalizedSourcePath), specifier);
+      const dependencyPath = path.resolve(
+        path.dirname(normalizedSourcePath),
+        specifier.split(/[?#]/, 1)[0]
+      );
       await mirrorModule(dependencyPath, tempRoot, appStubPath, seen);
     }
   }
@@ -139,6 +142,11 @@ test("main.js is the only ComfyUI auto-loaded JS entry under web/js", async () =
 
   await walk(webJsRoot);
   assert.deepEqual(jsFiles.sort(), ["web/js/main.js"]);
+});
+
+test("main.js cache-busts the mjs dialog entry", async () => {
+  const mainSource = await fs.readFile(path.join(REPO_ROOT, "web/js/main.js"), "utf8");
+  assert.match(mainSource, /import\("\.\/ui\/dialog\.mjs\?v=[^"?]+"\)/);
 });
 
 test("fallback media overlays never draw unverified media into the export canvas", async () => {

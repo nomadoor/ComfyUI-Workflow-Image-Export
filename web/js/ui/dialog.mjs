@@ -355,7 +355,7 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
   maxLongEdgeInput.step = "1";
   maxLongEdgeInput.className = "cwie-input";
 
-  const exceedSelect = createSelect("exceed", [
+  const exceedGroup = createRadioGroup("cwie-exceed", [
     { value: "downscale", label: "Downscale" },
     { value: "tile", label: "Tile" },
   ]);
@@ -480,7 +480,11 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
     pngCompressionInput.value = String(nextState.pngCompression);
     pngCompressionValue.textContent = String(nextState.pngCompression);
     maxLongEdgeInput.value = String(nextState.maxLongEdge);
-    exceedSelect.setValue(isNode2Backend ? "tile" : nextState.exceedMode);
+    const exceedMode = isNode2Backend ? "tile" : nextState.exceedMode;
+    const exceedInput = exceedGroup.inputs.get(exceedMode);
+    if (exceedInput) {
+      exceedInput.checked = true;
+    }
     if (solidColorRow) {
       solidColorRow.classList.toggle("is-hidden", background !== "solid");
     }
@@ -504,7 +508,9 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
       maxLongEdgeInput.disabled = true;
       scopeToggle.input.disabled = true;
       scopeOpacityInput.disabled = true;
-      exceedSelect.setDisabled(true);
+      exceedGroup.inputs.forEach((input) => {
+        input.disabled = true;
+      });
     }
   }
 
@@ -520,7 +526,7 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
       nodeOpacity: nodeOpacityInput.value,
       pngCompression: pngCompressionInput.value,
       maxLongEdge: maxLongEdgeInput.value,
-      exceedMode: exceedSelect.getValue(),
+      exceedMode: [...exceedGroup.inputs.values()].find((input) => input.checked)?.value,
     });
     state = {
       ...normalized,
@@ -834,9 +840,11 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
     handleChange();
     scheduleWebpCheck();
   });
-  exceedSelect.onChange(() => {
-    handleChange();
-    scheduleWebpCheck();
+  exceedGroup.inputs.forEach((input) => {
+    input.addEventListener("change", () => {
+      handleChange();
+      scheduleWebpCheck();
+    });
   });
   scopeToggle.input.addEventListener("change", () => {
     updateScopeAvailability();
@@ -1106,7 +1114,7 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
     maxLongEdgeRow,
     "Max long edge downscaling is not used for Node 2.0 tiled compositor capture."
   ));
-  const exceedRow = createRow("If exceeded", exceedSelect.root);
+  const exceedRow = createRow("If exceeded", exceedGroup.group);
   advancedBody.appendChild(markNode2UnsupportedRow(
     exceedRow,
     "Node 2.0 currently uses its compositor capture path; this mode is fixed by the backend."

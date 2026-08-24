@@ -1,7 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { createRow, createSelect } from "../../web/js/ui/elements.mjs";
+import {
+  createRadioGroup,
+  createRow,
+  createSelect,
+} from "../../web/js/ui/elements.mjs";
 
 class MockElement {
   constructor(tagName) {
@@ -148,4 +152,18 @@ test("disabled custom selects cannot open or receive option input", () => {
   assert.equal(summary.attributes["aria-disabled"], "true");
   assert.equal(summary.attributes.tabindex, "-1");
   assert.ok(select.root.querySelectorAll("input").every((input) => input.disabled));
+});
+
+test("radio groups render all choices inline without dropdown elements", () => {
+  const group = createRadioGroup("exceed", [
+    { value: "downscale", label: "Downscale" },
+    { value: "tile", label: "Tile" },
+  ]);
+
+  assert.equal(group.group.className, "cwie-radio-group");
+  assert.equal(group.inputs.size, 2);
+  assert.equal(group.inputs.get("downscale").type, "radio");
+  assert.equal(group.inputs.get("tile").type, "radio");
+  assert.equal(group.group.querySelector("details"), null);
+  assert.equal(group.group.querySelector("summary"), null);
 });

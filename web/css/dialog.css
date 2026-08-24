@@ -530,6 +530,10 @@
   margin: 0;
 }
 
+.cwie-radio input:disabled + span {
+  cursor: default;
+}
+
 .cwie-note {
   font-size: 0.7rem;
   opacity: 0.6;
