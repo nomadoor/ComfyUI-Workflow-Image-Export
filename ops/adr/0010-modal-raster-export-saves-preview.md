@@ -2,7 +2,8 @@
 
 ### Status
 
-Accepted
+Superseded by [ADR 0014](./0014-export-policy-and-local-defaults.md). Saving
+the preview ignored final output resolution, maximum-edge, and tile settings.
 
 ### Context
 

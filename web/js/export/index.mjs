@@ -212,7 +212,8 @@ export async function exportWorkflowPng(workflowJson, options = {}) {
   }
 
   const tileEnabled =
-    !previewFast && bboxOverride && shouldTile(bboxOverride.width, bboxOverride.height);
+    !previewFast && bboxOverride &&
+    (options.forceTile === true || shouldTile(bboxOverride.width, bboxOverride.height));
   if (tileEnabled) {
     warnings.push("render:tiled");
   }

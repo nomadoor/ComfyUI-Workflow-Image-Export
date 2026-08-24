@@ -31,6 +31,7 @@ import {
   normalizeNodeIdSet,
   toNodeIdKey,
 } from "../core/node_ids.mjs";
+import { drawMediaSafely } from "../core/backends/safe_media_draw.mjs";
 
 export async function drawVideoThumbnails({
   exportCtx,
@@ -194,21 +195,24 @@ export async function drawVideoThumbnails({
     const { x, y, w, h } = previewRect;
 
     if (drawable) {
-      try {
-        const dw = drawable.videoWidth || drawable.width || drawable.naturalWidth || 0;
-        const dh = drawable.videoHeight || drawable.height || drawable.naturalHeight || 0;
-        if (dw > 0 && dh > 0) {
-          const scaleFit = Math.min(w / dw, h / dh);
-          const fitW = dw * scaleFit;
-          const fitH = dh * scaleFit;
-          const fitX = x + (w - fitW) / 2;
-          const fitY = y + (h - fitH) / 2;
-          exportCtx.drawImage(drawable, fitX, fitY, fitW, fitH);
-        } else {
-          exportCtx.drawImage(drawable, x, y, w, h);
-        }
+      const dw = drawable.videoWidth || drawable.width || drawable.naturalWidth || 0;
+      const dh = drawable.videoHeight || drawable.height || drawable.naturalHeight || 0;
+      let result;
+      if (dw > 0 && dh > 0) {
+        const scaleFit = Math.min(w / dw, h / dh);
+        const fitW = dw * scaleFit;
+        const fitH = dh * scaleFit;
+        const fitX = x + (w - fitW) / 2;
+        const fitY = y + (h - fitH) / 2;
+        result = drawMediaSafely(exportCtx, drawable, fitX, fitY, fitW, fitH);
+      } else {
+        result = drawMediaSafely(exportCtx, drawable, x, y, w, h);
+      }
+      if (result.ok) {
         drawn += 1;
-      } catch (_) {}
+      } else {
+        skippedNoDrawable += 1;
+      }
     } else if (drawPlaceholderOnMiss) {
       skippedNoDrawable += 1;
       drawVideoPlaceholder(exportCtx, x, y, w, h);
@@ -303,21 +307,24 @@ export async function drawImageThumbnails({ exportCtx, graph, nodeRects, bounds,
       });
     }
 
-    try {
-      const dw = drawable.width || drawable.naturalWidth || 0;
-      const dh = drawable.height || drawable.naturalHeight || 0;
-      if (dw > 0 && dh > 0) {
-        const scaleFit = Math.min(w / dw, h / dh);
-        const fitW = dw * scaleFit;
-        const fitH = dh * scaleFit;
-        const fitX = x + (w - fitW) / 2;
-        const fitY = y + (h - fitH) / 2;
-        exportCtx.drawImage(drawable, fitX, fitY, fitW, fitH);
-      } else {
-        exportCtx.drawImage(drawable, x, y, w, h);
-      }
+    const dw = drawable.width || drawable.naturalWidth || 0;
+    const dh = drawable.height || drawable.naturalHeight || 0;
+    let result;
+    if (dw > 0 && dh > 0) {
+      const scaleFit = Math.min(w / dw, h / dh);
+      const fitW = dw * scaleFit;
+      const fitH = dh * scaleFit;
+      const fitX = x + (w - fitW) / 2;
+      const fitY = y + (h - fitH) / 2;
+      result = drawMediaSafely(exportCtx, drawable, fitX, fitY, fitW, fitH);
+    } else {
+      result = drawMediaSafely(exportCtx, drawable, x, y, w, h);
+    }
+    if (result.ok) {
       drawn += 1;
-    } catch (_) {}
+    } else {
+      skippedNoDrawable += 1;
+    }
   }
 
   debugLog?.("image.thumbnail", {
@@ -359,8 +366,6 @@ export async function drawBackgroundImageOverlays({ exportCtx, uiCanvas, bounds,
     const w = rect.w * scale;
     const h = rect.h * scale;
 
-    try {
-      exportCtx.drawImage(img, x, y, w, h);
-    } catch (_) {}
+    drawMediaSafely(exportCtx, img, x, y, w, h);
   }
 }

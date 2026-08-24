@@ -15,9 +15,8 @@ test("normalizeScopeOpacity clamps values into the supported range", () => {
   assert.equal(normalizeScopeOpacity("bad"), 40);
 });
 
-test("buildInitialState prefers last used values over defaults", () => {
+test("buildInitialState overlays last used values on fixed defaults", () => {
   const state = buildInitialState({
-    defaults: DEFAULTS,
     lastUsed: {
       format: "webp",
       background: "solid",
@@ -34,9 +33,8 @@ test("buildInitialState prefers last used values over defaults", () => {
   assert.equal(state.debug, true);
 });
 
-test("buildInitialState falls back when last used contains unsupported format", () => {
+test("buildInitialState falls back to fixed defaults for unsupported last used values", () => {
   const state = buildInitialState({
-    defaults: DEFAULTS,
     lastUsed: { format: "svg" },
     debugEnabled: false,
   });
@@ -44,6 +42,17 @@ test("buildInitialState falls back when last used contains unsupported format", 
   assert.equal(state.format, "png");
   assert.equal(state.scopeSelected, false);
   assert.equal(state.scopeOpacity, 40);
+});
+
+test("buildInitialState uses fixed defaults when no last used state exists", () => {
+  const state = buildInitialState();
+
+  assert.deepEqual(state, {
+    ...DEFAULTS,
+    debug: false,
+    scopeSelected: false,
+    scopeOpacity: 40,
+  });
 });
 
 test("normalizeDialogState keeps dialog-only fields alongside normalized export settings", () => {
@@ -87,4 +96,13 @@ test("toLastUsedState serializes only normalized export and scope values", () =>
     scopeOpacity: 0,
   });
   assert.equal("debug" in state, false);
+});
+
+test("toLastUsedState can preserve the Legacy exceed policy after a Node 2.0 export", () => {
+  const state = toLastUsedState({
+    ...DEFAULTS,
+    exceedMode: "tile",
+  }, { preserveExceedMode: "downscale" });
+
+  assert.equal(state.exceedMode, "downscale");
 });

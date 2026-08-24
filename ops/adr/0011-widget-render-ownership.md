@@ -63,13 +63,14 @@ Hidden, disabled, node-filtered, and collapsed widgets do not enter the plan.
 The default widget margin is the frontend `BaseDOMWidgetImpl.DEFAULT_MARGIN`
 value of 10.
 
-Modal preview/export intentionally passes `skipWidgetCapture: true` under ADRs
-0008–0010, so Markdown is rendered as deterministic default-styled text in that
-path. Other callers may retain `source: capture`; failure falls back inside the
-same entry.
+Modal preview intentionally passes `skipWidgetCapture: true`, so Markdown is
+rendered as deterministic default-styled text in that path. Final export may
+retain `source: capture`; failure falls back inside the same entry.
 
 `source: media` entries are always delegated to the existing media overlay
-paths and never use foreignObject capture. The tiled renderer therefore no
+paths and never use foreignObject capture. Their native widget draw is
+suppressed so an unverified media source cannot taint the base export canvas;
+the delegated overlay performs the origin-clean check. The tiled renderer no
 longer needs the legacy `"media-only"` capture-suppression sentinel described
 in ADR 0009.
 
@@ -113,9 +114,9 @@ regions. The one-widget/one-draw invariant applies within each tile.
 - Note, CLIPTextEncode, and third-party nodes follow the same property-based
   widget classification.
 - Single-line widgets remain owned by LiteGraph canvas rendering.
-- Media remains on the existing media overlay paths; plan-owned element
-  references are delegation hints only. Native media widget drawing is not
-  suppressed by text/capture ownership.
+- Media remains on the existing origin-clean media overlay paths; plan-owned
+  element references are delegation hints, and native media widget drawing is
+  suppressed while the base graph is drawn.
 - Node-external extension text is omitted unless explicitly enabled.
 - Node 2.0 compositor capture is unchanged.
 

@@ -334,6 +334,29 @@ test("media entries retain ownedElement only as a delegation hint", () => {
   assert.equal(plan[0].element, media);
 });
 
+test("DOM-free media plans suppress native media without inventing a text fallback", () => {
+  const graph = {
+    nodes: [{
+      id: 14,
+      pos: [0, 0],
+      size: [220, 120],
+      widgets: [{
+        type: "preview",
+        y: 30,
+        computedHeight: 80,
+        margin: 4,
+      }],
+    }],
+  };
+
+  const plan = buildWidgetRenderPlan({ graph, allowDom: false });
+
+  assert.equal(plan.length, 1);
+  assert.equal(plan[0].source, "media");
+  assert.equal(plan[0].element, null);
+  assert.deepEqual([...collectPlannedWidgetIndexes(plan).get("14")], [0]);
+});
+
 test("selection filtering happens while the plan is built", () => {
   const graph = {
     nodes: [
@@ -440,7 +463,7 @@ test("plan joins to an export graph only by node id and widget index", () => {
   });
 });
 
-test("only entries that can paint claim native widget draw ownership", () => {
+test("planned text, capture, and delegated media claim native widget draw ownership", () => {
   const indexes = collectPlannedWidgetIndexes([
     { key: "72:0", nodeId: "72", widgetIndex: 0, source: "text", text: "owned" },
     { key: "72:0", nodeId: "72", widgetIndex: 0, source: "text", text: "owned" },
@@ -449,7 +472,7 @@ test("only entries that can paint claim native widget draw ownership", () => {
     { key: "72:3", nodeId: "72", widgetIndex: 3, source: "capture", text: "" },
   ]);
 
-  assert.deepEqual([...indexes.get("72")], [0, 3]);
+  assert.deepEqual([...indexes.get("72")], [0, 1, 3]);
 });
 
 test("offscreen suppression filters planned widgets synchronously and restores the instance", () => {
@@ -470,9 +493,9 @@ test("offscreen suppression filters planned widgets synchronously and restores t
     { key: "72:1", nodeId: "72", widgetIndex: 1, source: "media", text: "media" },
   ]);
 
-  assert.equal(suppression.suppressed, 1);
+  assert.equal(suppression.suppressed, 2);
   assert.equal(canvas.drawNodeWidgets(node), "drawn");
-  assert.deepEqual(seenWidgets, [[mediaWidget]]);
+  assert.deepEqual(seenWidgets, [[]]);
   assert.equal(node.widgets, widgets);
   assert.equal(textWidget.type, "customtext");
   assert.equal(Object.hasOwn(canvas, "drawNodeWidgets"), true);

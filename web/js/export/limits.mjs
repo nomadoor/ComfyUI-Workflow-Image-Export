@@ -24,3 +24,46 @@ export function isHugeRasterExport({ width, height, scale = 1 } = {}) {
     normalizeCanvasDimension(height) * safeScale
   );
 }
+
+export function resolveRasterExceedPlan({
+  width,
+  height,
+  scale = 1,
+  maxLongEdge = 0,
+  exceedMode = "downscale",
+} = {}) {
+  const safeScale = Number.isFinite(Number(scale)) && Number(scale) > 0
+    ? Number(scale)
+    : 1;
+  const outputWidth = normalizeCanvasDimension(width) * safeScale;
+  const outputHeight = normalizeCanvasDimension(height) * safeScale;
+  const limit = Number(maxLongEdge);
+  if (exceedMode === "downscale") {
+    const longEdge = Math.max(outputWidth, outputHeight);
+    if (Number.isFinite(limit) && limit > 0 && longEdge > limit) {
+      const downscale = limit / longEdge;
+      return {
+        useTiledExport: shouldTile(outputWidth * downscale, outputHeight * downscale),
+        renderScale: safeScale * downscale,
+      };
+    }
+    return {
+      useTiledExport: shouldTile(outputWidth, outputHeight),
+      renderScale: safeScale,
+    };
+  }
+  if (exceedMode !== "tile") {
+    return { useTiledExport: false, renderScale: safeScale };
+  }
+  return {
+    useTiledExport:
+      shouldTile(outputWidth, outputHeight) ||
+      (Number.isFinite(limit) && limit > 0 &&
+        Math.max(outputWidth, outputHeight) > limit),
+    renderScale: safeScale,
+  };
+}
+
+export function shouldUseTiledExceedMode(options = {}) {
+  return resolveRasterExceedPlan(options).useTiledExport;
+}

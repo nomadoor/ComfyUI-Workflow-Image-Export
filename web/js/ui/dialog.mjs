@@ -9,7 +9,6 @@ import { getNode2WarningMessage } from "../core/capture/warnings.mjs";
 import { captureLegacy } from "../core/backends/legacy_capture.mjs";
 import { triggerDownload } from "../core/download.mjs";
 import { computeGraphBBox } from "../export/bbox.mjs";
-import { embedWorkflowInPngBlob } from "../export/png_embed_workflow.mjs";
 import { loadLastUsed, saveLastUsed } from "../core/storage.mjs";
 import {
   getSelectedNodeIdsFromApp,
@@ -18,10 +17,8 @@ import {
 import { toBlobAsync } from "../core/utils.mjs";
 import {
   DEFAULTS,
-  getDefaultsFromSettings,
   normalizeState as normalizeSettingsState,
-  setDefaultsInSettings,
-} from "../core/settings.mjs";
+} from "../core/settings_state.mjs";
 import { buildInitialState, toLastUsedState } from "./state.mjs";
 import {
   buildPreviewState as buildPreviewStateForDialog,
@@ -36,7 +33,7 @@ import {
   evaluateWebpAvailability,
   getOutputResolutionScale,
 } from "./webp_availability.mjs";
-import { resolveNode2ExportPolicy } from "./node2_export_policy.mjs";
+import { resolveExportCaptureOptions } from "../core/node2_export_policy.mjs";
 import {
   createCaretIcon,
   createRadioGroup,
@@ -145,10 +142,13 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
   const isNode2Backend = backendType === "node2";
 
   let state = buildInitialState({
-    defaults: getDefaultsFromSettings(),
     lastUsed: loadLastUsed(),
     debugEnabled: isDebugEnabled(),
   });
+  const persistedExceedMode = state.exceedMode;
+  if (isNode2Backend) {
+    state = { ...state, exceedMode: "tile" };
+  }
 
   const backdrop = document.createElement("div");
   backdrop.className = "cwie-backdrop";
@@ -480,7 +480,7 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
     pngCompressionInput.value = String(nextState.pngCompression);
     pngCompressionValue.textContent = String(nextState.pngCompression);
     maxLongEdgeInput.value = String(nextState.maxLongEdge);
-    exceedSelect.setValue(nextState.exceedMode);
+    exceedSelect.setValue(isNode2Backend ? "tile" : nextState.exceedMode);
     if (solidColorRow) {
       solidColorRow.classList.toggle("is-hidden", background !== "solid");
     }
@@ -941,10 +941,7 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
 
     updateScopeAvailability();
     updateStateFromControls();
-    const isRasterExport = state.format === "png" || state.format === "webp";
-    const expectsTiling =
-      (!isRasterExport || isNode2Backend) &&
-      state.exceedMode === "tile";
+    const expectsTiling = state.exceedMode === "tile";
     if (expectsTiling) {
       exportButton.classList.add("is-progressing");
       exportProgressText.textContent = "0%";
@@ -958,21 +955,14 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
     try {
       let blob;
       if (isNode2Backend) {
-        const node2Policy = resolveNode2ExportPolicy(state);
         closeDialog();
         dialogClosed = true;
         logExportPhase("dialog.closed.beforeNode2Capture");
         logExportPhase("capture.node2.start");
-        blob = await capture({
-          ...state,
-          background: state.background,
-          padding: 0,
-          nodeOpacity: 100,
-          scopeSelected: false,
-          exceedMode: node2Policy.exceedMode,
-          node2TiledCapture: node2Policy.node2TiledCapture,
+        blob = await capture(resolveExportCaptureOptions(state, {
+          isNode2Backend: true,
           onProgress: updateExportProgress,
-        });
+        }));
         const warningMessage = getNode2WarningMessage(blob?.cwieWarnings);
         if (warningMessage) {
           messageDialogPayload = {
@@ -981,36 +971,11 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
           };
         }
         logExportPhase("capture.node2.done");
-      } else if (state.format === "png" || state.format === "webp") {
-        const previewState = buildPreviewState();
-        const previewKey = getPreviewStateKey(previewState);
-        logExportPhase("preview.capture.start");
-        const snapshot =
-          previewSnapshot?.key === previewKey
-            ? previewSnapshot
-            : await renderPreview(previewState, { force: true });
-        blob = await encodePreviewSnapshot(snapshot, previewState);
-        logExportPhase("preview.capture.done");
-        if (!blob) {
-          throw new Error("Export failed: preview blob unavailable.");
-        }
-        if (state.format === "png" && state.embedWorkflow) {
-          const workflowJson =
-            previewSnapshot?.key === previewKey
-              ? previewSnapshot.state?.workflowJsonText
-              : previewState.workflowJsonText || getWorkflowJsonText();
-          if (workflowJson) {
-            logExportPhase("embed.workflow.start");
-            blob = await embedWorkflowInPngBlob(blob, workflowJson);
-            logExportPhase("embed.workflow.done");
-          }
-        }
       } else {
         logExportPhase("capture.start");
-        blob = await capture({
-          ...state,
+        blob = await capture(resolveExportCaptureOptions(state, {
           onProgress: updateExportProgress,
-        });
+        }));
         logExportPhase("capture.done");
       }
       if (!dialogClosed) {
@@ -1018,9 +983,10 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
         dialogClosed = true;
         logExportPhase("dialog.closed.beforeDownload");
       }
-      setDefaultsInSettings(state);
       try {
-        saveLastUsed(toLastUsedState(state));
+        saveLastUsed(toLastUsedState(state, {
+          preserveExceedMode: isNode2Backend ? persistedExceedMode : undefined,
+        }));
       } catch (error) {
         log?.("export:saveLastUsed.error", {
           message: error?.message || String(error),

@@ -8,16 +8,16 @@ This file defines working rules for coding agents in this repository.
 - Python is only the custom-node entry point: `__init__.py` exposes `WEB_DIRECTORY`.
 - The product code is JavaScript under `web/js/`, with styles under `web/css/`.
 - `web/js/main.js` is the only ComfyUI extension entry file. Supporting browser modules should use `.mjs` so ComfyUI does not auto-load them as standalone extensions.
-- Current repair focus is ComfyUI Classic / LiteGraph legacy export.
-- Node 2.0 support is not part of the legacy repair path. Treat it as a future backend with a different architecture.
+- Classic uses a LiteGraph renderer; Node 2.0 uses an established browser-compositor backend. Keep their rendering architectures separate.
+- Shared UI and export policy may cover both backends, but backend-specific repairs should remain isolated.
 
 ## Current Priorities
 
-1. Stabilize and simplify the legacy export path.
-2. Keep the context menu and dialog usable in current ComfyUI Classic.
+1. Stabilize and simplify the Classic export path without reviving unsafe preview-save or direct-media paths.
+2. Keep the context menu and dialog usable in current ComfyUI Classic and Node 2.0.
 3. Preserve PNG/WebP export, PNG workflow embedding, background options, padding, and selection cropping.
 4. Add tests around fragile pure logic before or while refactoring it.
-5. Avoid expanding scope into Node 2.0, SVG export, or a new UI framework during the legacy cleanup.
+5. Avoid expanding scope into SVG export or a new UI framework during export cleanup.
 
 ## Non-Negotiables
 
@@ -44,9 +44,9 @@ This file defines working rules for coding agents in this repository.
 - Run `npm test` after meaningful JavaScript changes.
 - The current test suite uses Node's built-in test runner.
 - Add focused tests for pure functions when refactoring:
-  - `web/js/export/bbox.js`
-  - `web/js/export/png_embed_workflow.js`
-  - `web/js/core/utils.js`
+  - `web/js/export/bbox.mjs`
+  - `web/js/export/png_embed_workflow.mjs`
+  - `web/js/core/utils.mjs`
   - settings/state/storage modules
 - Prefer structural assertions over golden image tests.
 - Browser/ComfyUI integration behavior should be manually checked when possible and recorded in `AGENTS-STATE.md`.

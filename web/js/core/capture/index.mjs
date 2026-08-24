@@ -4,6 +4,8 @@ import { captureLegacy } from "../backends/legacy_capture.mjs";
 import { captureNode2 } from "../backends/node2_compositor_capture.mjs";
 import { applyBackground, downscaleIfNeeded } from "../postprocess/raster.mjs";
 import { exportWorkflowPng } from "../../export/index.mjs";
+import { computeGraphBBox } from "../../export/bbox.mjs";
+import { resolveRasterExceedPlan } from "../../export/limits.mjs";
 import { embedWorkflowInPngBlob } from "../../export/png_embed_workflow.mjs";
 import { attachCaptureWarnings } from "./warnings.mjs";
 import {
@@ -70,18 +72,30 @@ export async function capture(options = {}) {
     const selectedNodeIds = Array.isArray(normalized.selectedNodeIds)
       ? normalized.selectedNodeIds
       : getSelectedNodeIds();
-    if (normalized.exceedMode === "tile") {
+    const scale = resolveOutputScale(normalized);
+    const bbox = computeGraphBBox(app?.graph, {
+      padding: normalized.padding,
+      selectedNodeIds,
+      useSelectionOnly: Boolean(normalized.scopeSelected),
+    });
+    const exceedPlan = resolveRasterExceedPlan({
+      width: bbox.width,
+      height: bbox.height,
+      scale,
+      maxLongEdge: normalized.maxLongEdge,
+      exceedMode: normalized.exceedMode,
+    });
+    if (exceedPlan.useTiledExport) {
       const workflowJson = getWorkflowJson();
       if (!workflowJson) {
         throw new Error("Capture failed: workflow JSON unavailable.");
       }
-      const scale = resolveOutputScale(normalized);
       const blob = await exportWorkflowPng(workflowJson, {
         backgroundMode: normalized.background,
         backgroundColor: normalized.solidColor,
         padding: normalized.padding,
         nodeOpacity: normalized.nodeOpacity,
-        scale,
+        scale: exceedPlan.renderScale,
         pngCompression: normalized.pngCompression,
         includeGrid: true,
         includeDomOverlays: true,
@@ -97,6 +111,7 @@ export async function capture(options = {}) {
         linkFilter: normalized.showLinks === false ? "none" : "all",
         onProgress: normalized.onProgress,
         exceedMode: normalized.exceedMode,
+        forceTile: true,
         tileBleed: normalized.tileBleed,
       });
       const warnings = blob?.cwieWarnings;

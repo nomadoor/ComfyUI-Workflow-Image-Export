@@ -1,5 +1,9 @@
 ## 0001: ComfyUI Settings の表示順固定
 
+### Status
+
+Superseded by [ADR 0014](./0014-export-policy-and-local-defaults.md).
+
 ### 状況
 
 ComfyUI Settings の拡張項目は、定義順（配列順）で表示されない場合があり、

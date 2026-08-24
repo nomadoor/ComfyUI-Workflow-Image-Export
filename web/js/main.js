@@ -1,6 +1,5 @@
 import { app } from "/scripts/app.js";
 import { installLegacyCanvasMenuItem } from "./core/menu.mjs";
-import { registerLegacySettings } from "./core/settings.mjs";
 
 const DEBUG_STORAGE_KEY = "cwie.debug";
 const DEBUG_SESSION_KEY = "cwie.debug.session";
@@ -110,7 +109,6 @@ app.registerExtension({
     };
     installNode2DebugApi();
     log("extension loaded", window.__cwie__);
-    registerLegacySettings(log);
     setTimeout(() => {
       if (usedOfficialMenu) {
         return;

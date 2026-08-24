@@ -31,7 +31,6 @@ async function writeAppStub(tempRoot) {
       "    settings: {",
       "      getSettingValue(_id, fallback) { return fallback; },",
       "      setSettingValue() {},",
-      "      addSetting() {},",
       "    },",
       "  },",
       "};",
@@ -140,4 +139,25 @@ test("main.js is the only ComfyUI auto-loaded JS entry under web/js", async () =
 
   await walk(webJsRoot);
   assert.deepEqual(jsFiles.sort(), ["web/js/main.js"]);
+});
+
+test("fallback media overlays never draw unverified media into the export canvas", async () => {
+  const source = await fs.readFile(
+    path.join(REPO_ROOT, "web/js/export/fallback_media_overlays.mjs"),
+    "utf8"
+  );
+
+  assert.equal(source.includes("exportCtx.drawImage"), false);
+  assert.equal(source.includes("drawMediaSafely"), true);
+});
+
+test("removed extension Settings registration does not return to the import graph", async () => {
+  await assert.rejects(
+    fs.access(path.join(REPO_ROOT, "web/js/core/settings.mjs"))
+  );
+  const mainSource = await fs.readFile(path.join(REPO_ROOT, "web/js/main.js"), "utf8");
+  const dialogSource = await fs.readFile(path.join(REPO_ROOT, "web/js/ui/dialog.mjs"), "utf8");
+  assert.equal(mainSource.includes("registerLegacySettings"), false);
+  assert.equal(dialogSource.includes("getDefaultsFromSettings"), false);
+  assert.equal(dialogSource.includes("setDefaultsInSettings"), false);
 });
