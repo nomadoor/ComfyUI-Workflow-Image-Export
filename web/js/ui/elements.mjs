@@ -135,6 +135,7 @@ export function createSelect(name, options) {
 
   const items = new Map();
   let currentValue = options[0]?.value ?? "";
+  let disabled = false;
   const changeHandlers = new Set();
 
   options.forEach((option) => {
@@ -172,12 +173,35 @@ export function createSelect(name, options) {
     changeHandlers.add(handler);
   }
 
-  function setDisabled(disabled) {
-    wrapper.toggleAttribute("data-disabled", disabled);
+  function setDisabled(nextDisabled) {
+    disabled = Boolean(nextDisabled);
+    if (disabled) {
+      wrapper.setAttribute("data-disabled", "true");
+      wrapper.removeAttribute("open");
+      summary.setAttribute("aria-disabled", "true");
+      summary.setAttribute("tabindex", "-1");
+    } else {
+      wrapper.removeAttribute("data-disabled");
+      summary.removeAttribute("aria-disabled");
+      summary.removeAttribute("tabindex");
+    }
     wrapper.querySelectorAll("input").forEach((input) => {
       input.disabled = disabled;
     });
   }
+
+  function blockDisabledInteraction(event) {
+    if (!disabled) return;
+    event.preventDefault?.();
+    event.stopImmediatePropagation?.();
+    wrapper.removeAttribute("open");
+  }
+
+  wrapper.addEventListener("click", blockDisabledInteraction, true);
+  wrapper.addEventListener("keydown", blockDisabledInteraction, true);
+  wrapper.addEventListener("toggle", () => {
+    if (disabled) wrapper.removeAttribute("open");
+  });
 
   wrapper.addEventListener("change", (event) => {
     if (event.target && event.target.matches("input[type=radio]")) {
