@@ -330,8 +330,7 @@ function syncLiveGroups(exportGraph, liveGraph) {
   }
 }
 
-export function syncLiveGraphState(exportGraph, liveGraph, uiCanvas, debugLog) {
-  void debugLog;
+export function syncLiveGraphState(exportGraph, liveGraph, uiCanvas) {
   syncLiveNodeGeometry(exportGraph, liveGraph);
   syncLiveNodeText(exportGraph, liveGraph);
   syncLiveDomWidgetHeights(exportGraph, uiCanvas);

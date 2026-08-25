@@ -63,7 +63,3 @@ export function resolveRasterExceedPlan({
     renderScale: safeScale,
   };
 }
-
-export function shouldUseTiledExceedMode(options = {}) {
-  return resolveRasterExceedPlan(options).useTiledExport;
-}

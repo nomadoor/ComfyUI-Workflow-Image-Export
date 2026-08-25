@@ -330,8 +330,35 @@ test("media entries retain ownedElement only as a delegation hint", () => {
 
   assert.equal(plan.length, 1);
   assert.equal(plan[0].source, "media");
+  assert.equal(plan[0].mediaDelegationEligible, true);
   assert.equal(plan[0].ownedElement, container);
   assert.equal(plan[0].element, media);
+});
+
+test("type-only media wrappers are not eligible for DOM media delegation", () => {
+  const wrapper = new MockElement();
+  const graph = {
+    nodes: [{
+      id: 131,
+      pos: [0, 0],
+      size: [220, 120],
+      widgets: [{
+        type: "preview",
+        y: 30,
+        computedHeight: 80,
+        margin: 4,
+        element: wrapper,
+      }],
+    }],
+  };
+
+  const plan = buildWidgetRenderPlan({ graph, allowDom: true });
+
+  assert.equal(plan.length, 1);
+  assert.equal(plan[0].source, "media");
+  assert.equal(plan[0].ownedElement, wrapper);
+  assert.equal(plan[0].element, wrapper);
+  assert.equal(plan[0].mediaDelegationEligible, false);
 });
 
 test("DOM-free media plans suppress native media without inventing a text fallback", () => {
@@ -354,6 +381,7 @@ test("DOM-free media plans suppress native media without inventing a text fallba
   assert.equal(plan.length, 1);
   assert.equal(plan[0].source, "media");
   assert.equal(plan[0].element, null);
+  assert.equal(plan[0].mediaDelegationEligible, false);
   assert.deepEqual([...collectPlannedWidgetIndexes(plan).get("14")], [0]);
 });
 

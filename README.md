@@ -55,6 +55,8 @@ Install via **ComfyUI Manager**:
 The dialog starts from the extension's built-in defaults, overlaid with the
 last successfully used values. **Reset to defaults** restores the built-in
 defaults. This extension does not register a separate ComfyUI Settings section.
+Obsolete `WorkflowImageExport.*` values left by older releases are ignored;
+current defaults and Last used values are managed only by the export dialog.
 
 ## Notes
 - Classic export uses the legacy LiteGraph renderer.

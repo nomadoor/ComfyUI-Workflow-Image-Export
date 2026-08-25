@@ -1,13 +1,14 @@
 import { app } from "/scripts/app.js";
-import { detectBackend } from "../detect.mjs";
-import { captureLegacy } from "../backends/legacy_capture.mjs";
-import { captureNode2 } from "../backends/node2_compositor_capture.mjs";
+import { detectBackend } from "../detect.mjs?v=20260825-2";
+import { captureLegacy } from "../backends/legacy_capture.mjs?v=20260825-2";
+import { captureNode2 } from "../backends/node2_compositor_capture.mjs?v=20260825-2";
 import { applyBackground, downscaleIfNeeded } from "../postprocess/raster.mjs";
-import { exportWorkflowPng } from "../../export/index.mjs";
+import { exportWorkflowPng } from "../../export/index.mjs?v=20260825-2";
 import { computeGraphBBox } from "../../export/bbox.mjs";
-import { resolveRasterExceedPlan } from "../../export/limits.mjs";
+import { resolveRasterExceedPlan } from "../../export/limits.mjs?v=20260825-2";
 import { embedWorkflowInPngBlob } from "../../export/png_embed_workflow.mjs";
 import { attachCaptureWarnings } from "./warnings.mjs";
+import { resolveOutputResolutionScale } from "../output_scale.mjs?v=20260825-2";
 import {
   getSelectedNodeIdsFromApp,
   getWorkflowJsonFromApp,
@@ -49,10 +50,6 @@ export async function getPreviewInfo(options = {}) {
   };
 }
 
-function resolveOutputScale(options) {
-  return options?.outputResolution === "200%" ? 2 : 1;
-}
-
 function getWorkflowJson() {
   return getWorkflowJsonFromApp(app);
 }
@@ -72,7 +69,11 @@ export async function capture(options = {}) {
     const selectedNodeIds = Array.isArray(normalized.selectedNodeIds)
       ? normalized.selectedNodeIds
       : getSelectedNodeIds();
-    const scale = resolveOutputScale(normalized);
+    const scale = resolveOutputResolutionScale(normalized.outputResolution);
+    // Route selection uses the live graph visible to the user. The offscreen
+    // exporter later remeasures its synchronized serialized clone because that
+    // clone is the geometry it actually renders; the two measurements are not
+    // interchangeable.
     const bbox = computeGraphBBox(app?.graph, {
       padding: normalized.padding,
       selectedNodeIds,

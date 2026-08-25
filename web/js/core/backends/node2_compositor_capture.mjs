@@ -1,5 +1,5 @@
 import { app } from "/scripts/app.js";
-import { getSettingsAccess } from "../detect.mjs";
+import { getSettingsAccess } from "../detect.mjs?v=20260825-2";
 import { toNodeIdKey } from "../node_ids.mjs";
 import { computeGraphBBox } from "../../export/bbox.mjs";
 import {
@@ -13,7 +13,10 @@ import {
 import {
   createBackgroundOverrideState,
 } from "./node2_background_override_state.mjs";
-import { resolveNode2OutputScale } from "../node2_export_policy.mjs";
+import {
+  formatNode2TilePixelLimitMessage,
+  resolveNode2OutputScale,
+} from "../node2_export_policy.mjs?v=20260825-2";
 import {
   captureTwoFrameTransparentMatte,
   getNode2TransparentWarning,
@@ -2214,9 +2217,11 @@ async function captureNode2TiledFromFit(fitInfo, options = {}) {
     if (outputWidth * outputHeight > NODE2_TILE_MAX_PIXELS) {
       return {
         error: {
-          message:
-            `Node 2.0 tiled capture requires ${outputWidth}x${outputHeight} pixels, ` +
-            "which exceeds the 64 MP safety limit. Use 100% output resolution or reduce the workflow bounds.",
+          message: formatNode2TilePixelLimitMessage({
+            width: outputWidth,
+            height: outputHeight,
+            outputResolution: options.outputResolution,
+          }),
         },
       };
     }

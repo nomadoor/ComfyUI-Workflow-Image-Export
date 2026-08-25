@@ -4,9 +4,9 @@ import {
   detectBackendType,
   isNode2UnsupportedError,
   isWebpHugeUnsupportedError,
-} from "../core/capture/index.mjs";
+} from "../core/capture/index.mjs?v=20260825-2";
 import { getNode2WarningMessage } from "../core/capture/warnings.mjs";
-import { captureLegacy } from "../core/backends/legacy_capture.mjs";
+import { captureLegacy } from "../core/backends/legacy_capture.mjs?v=20260825-2";
 import { triggerDownload } from "../core/download.mjs";
 import { computeGraphBBox } from "../export/bbox.mjs";
 import { loadLastUsed, saveLastUsed } from "../core/storage.mjs";
@@ -18,8 +18,8 @@ import { toBlobAsync } from "../core/utils.mjs";
 import {
   DEFAULTS,
   normalizeState as normalizeSettingsState,
-} from "../core/settings_state.mjs";
-import { buildInitialState, toLastUsedState } from "./state.mjs";
+} from "../core/settings_state.mjs?v=20260825-2";
+import { buildInitialState, toLastUsedState } from "./state.mjs?v=20260825-2";
 import {
   buildPreviewState as buildPreviewStateForDialog,
   getPreviewMime,
@@ -32,15 +32,15 @@ import {
 import {
   evaluateWebpAvailability,
   getOutputResolutionScale,
-} from "./webp_availability.mjs";
-import { resolveExportCaptureOptions } from "../core/node2_export_policy.mjs";
+} from "./webp_availability.mjs?v=20260825-2";
+import { resolveExportCaptureOptions } from "../core/node2_export_policy.mjs?v=20260825-2";
 import {
   createCaretIcon,
   createRadioGroup,
   createRow,
   createSelect,
   createToggle,
-} from "./elements.mjs";
+} from "./elements.mjs?v=20260825-2";
 
 let activeDialog = null;
 let activeMessageDialog = null;
@@ -53,7 +53,9 @@ function ensureStyles() {
   const link = document.createElement("link");
   link.id = "cwie-styles";
   link.rel = "stylesheet";
-  link.href = new URL("../../css/dialog.css", import.meta.url).toString();
+  const styleUrl = new URL("../../css/dialog.css", import.meta.url);
+  styleUrl.searchParams.set("v", "20260825-2");
+  link.href = styleUrl.toString();
   document.head.appendChild(link);
 }
 
@@ -949,11 +951,6 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
 
     updateScopeAvailability();
     updateStateFromControls();
-    const expectsTiling = state.exceedMode === "tile";
-    if (expectsTiling) {
-      exportButton.classList.add("is-progressing");
-      exportProgressText.textContent = "0%";
-    }
     // Allow the busy spinner/progress to paint before heavy export work.
     await new Promise((resolve) => requestAnimationFrame(resolve));
     await new Promise((resolve) => requestAnimationFrame(resolve));

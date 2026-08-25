@@ -3,7 +3,10 @@ import {
   drawTextBlockToRect,
   isCanvasBlank,
 } from "./legacy_text_helpers.mjs";
-import { drawMediaSafely } from "./safe_media_draw.mjs";
+import {
+  drawBlockedMediaPlaceholder,
+  drawMediaSafely,
+} from "./safe_media_draw.mjs";
 
 function intersectGraphRects(a, b) {
   if (!a || !b) return null;
@@ -113,12 +116,20 @@ export async function drawPlannedWidgetOverlays({
   debugLog = null,
 } = {}) {
   if (!exportCtx || !bounds || !Number.isFinite(scale) || scale <= 0) {
-    return { planned: 0, drawn: 0, delegated: 0, skippedDuplicate: 0, skippedOutside: 0 };
+    return {
+      planned: 0,
+      drawn: 0,
+      delegated: 0,
+      mediaPlaceholder: 0,
+      skippedDuplicate: 0,
+      skippedOutside: 0,
+    };
   }
 
   const renderedKeys = new Set();
   let drawn = 0;
   let delegated = 0;
+  let mediaPlaceholder = 0;
   let skippedDuplicate = 0;
   let skippedOutside = 0;
 
@@ -137,9 +148,39 @@ export async function drawPlannedWidgetOverlays({
     }
 
     if (entry.source === "media") {
-      // Existing media overlay paths remain responsible for actual media drawing.
-      // ownedElement is a delegation hint only and is never a dedup key.
-      delegated += 1;
+      // Delegation is valid only when the caller actually ran the media overlay
+      // suite and this entry retained a DOM-owned media element. Native widget
+      // drawing was already suppressed, so every other media entry must claim
+      // its pixels here rather than silently disappearing.
+      const canDelegate =
+        options.mediaDelegationAvailable === true &&
+        entry.mediaDelegationEligible === true &&
+        Boolean(entry.ownedElement) &&
+        Boolean(entry.element);
+      if (canDelegate) {
+        delegated += 1;
+        continue;
+      }
+
+      const exportRect = toExportRect(entry.graphRect, bounds, scale);
+      let didDraw = false;
+      await withEntryClip(exportCtx, entry, bounds, scale, async () => {
+        paintOwnedBackground(exportCtx, exportRect, entry.style);
+        drawBlockedMediaPlaceholder(
+          exportCtx,
+          exportRect.x,
+          exportRect.y,
+          exportRect.w,
+          exportRect.h,
+          "media unavailable"
+        );
+        didDraw = true;
+        return true;
+      });
+      if (didDraw) {
+        drawn += 1;
+        mediaPlaceholder += 1;
+      }
       continue;
     }
 
@@ -175,6 +216,7 @@ export async function drawPlannedWidgetOverlays({
     planned: renderedKeys.size,
     drawn,
     delegated,
+    mediaPlaceholder,
     skippedDuplicate,
     skippedOutside,
   };

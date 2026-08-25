@@ -59,10 +59,8 @@ function buildMenuLabel() {
 
 async function openDialog(log) {
   try {
-    // ComfyUI's cache middleware currently marks .js, but not .mjs, as no-store.
-    // Rev the dialog URL when its import graph changes so browsers cannot reuse a
-    // stale UI module after the backend restarts.
-    const mod = await import("./ui/dialog.mjs?v=20260825-inline-exceed");
+    // Bump this URL and the affected static import chain together. See AGENTS.md.
+    const mod = await import("./ui/dialog.mjs?v=20260825-2");
     const openExportDialog = mod?.openExportDialog;
     if (typeof openExportDialog !== "function") {
       throw new Error("workflow-image-export: openExportDialog not available");
@@ -81,19 +79,19 @@ function installNode2DebugApi() {
   const root = window.__cwie__ || {};
   const api = {
     async inspect() {
-      const mod = await import("./core/backends/node2_compositor_capture.mjs");
+      const mod = await import("./core/backends/node2_compositor_capture.mjs?v=20260825-2");
       return mod.inspectNode2Targets();
     },
     async captureFrame(options = {}) {
-      const mod = await import("./core/backends/node2_compositor_capture.mjs");
+      const mod = await import("./core/backends/node2_compositor_capture.mjs?v=20260825-2");
       return mod.captureNode2SingleFrame(options);
     },
     async tileProbe(options = {}) {
-      const mod = await import("./core/backends/node2_compositor_capture.mjs");
+      const mod = await import("./core/backends/node2_compositor_capture.mjs?v=20260825-2");
       return mod.runNode2TileProbe(options);
     },
     async cameraMoveProbe(options = {}) {
-      const mod = await import("./core/backends/node2_compositor_capture.mjs");
+      const mod = await import("./core/backends/node2_compositor_capture.mjs?v=20260825-2");
       return mod.runNode2CameraMoveProbe(options);
     },
   };

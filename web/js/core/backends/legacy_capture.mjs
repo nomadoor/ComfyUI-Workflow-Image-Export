@@ -35,10 +35,10 @@ import {
 import {
   buildWidgetRenderPlan,
   installPlannedWidgetDrawSuppression,
-} from "./widget_render_plan.mjs";
+} from "./widget_render_plan.mjs?v=20260825-2";
 import {
   drawPlannedWidgetOverlays,
-} from "./widget_overlay_renderer.mjs";
+} from "./widget_overlay_renderer.mjs?v=20260825-2";
 import {
   createWidgetTextTrace,
 } from "./legacy_widget_text_trace.mjs";
@@ -48,10 +48,11 @@ import {
   drawVhsVideoOverlays,
   logDomMedia,
 } from "./legacy_media_overlays.mjs";
-import { drawVideoThumbnails } from "../../export/fallback_media_overlays.mjs";
+import { drawVideoThumbnails } from "../../export/fallback_media_overlays.mjs?v=20260825-2";
+import { resolveOutputResolutionScale } from "../output_scale.mjs?v=20260825-2";
 
 function computeExportScale(srcW, srcH, options, debugLog) {
-  const resolutionScale = options?.outputResolution === "200%" ? 2 : 1;
+  const resolutionScale = resolveOutputResolutionScale(options?.outputResolution);
   let scale = resolutionScale;
 
   const maxLongEdge = Number(options?.maxLongEdge) || 0;
@@ -344,6 +345,7 @@ export async function captureLegacy(options = {}) {
         bounds,
         scale,
         options: {
+          mediaDelegationAvailable: true,
           skipWidgetCapture:
             options?.skipWidgetCapture === true ||
             options?.skipDomWidgetOverlays === true,

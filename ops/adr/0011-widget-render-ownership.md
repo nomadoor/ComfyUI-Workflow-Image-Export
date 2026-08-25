@@ -67,12 +67,18 @@ Modal preview intentionally passes `skipWidgetCapture: true`, so Markdown is
 rendered as deterministic default-styled text in that path. Final export may
 retain `source: capture`; failure falls back inside the same entry.
 
-`source: media` entries are always delegated to the existing media overlay
-paths and never use foreignObject capture. Their native widget draw is
-suppressed so an unverified media source cannot taint the base export canvas;
-the delegated overlay performs the origin-clean check. The tiled renderer no
-longer needs the legacy `"media-only"` capture-suppression sentinel described
-in ADR 0009.
+`source: media` entries never use foreignObject capture. Their native widget
+draw is suppressed so an unverified media source cannot taint the base export
+canvas. Delegation is accepted only when the caller confirms that its media
+overlay suite ran and the plan entry retains both its owned DOM root and the
+classified `canvas`, `img`, or `video` element. A media-like widget type with
+only a generic DOM wrapper is not delegation-eligible. The delegated overlay
+performs the origin-clean check. If either condition is absent (including DOM-free tiled/huge rendering
+with media overlays disabled), the widget renderer claims the clipped owned
+region with an opaque `media unavailable` placeholder. A suppressed media
+widget therefore always has exactly one responsible output path and cannot
+silently disappear. The tiled renderer no longer needs the legacy
+`"media-only"` capture-suppression sentinel described in ADR 0009.
 
 ### DOM Scanner Boundary
 
@@ -114,9 +120,10 @@ regions. The one-widget/one-draw invariant applies within each tile.
 - Note, CLIPTextEncode, and third-party nodes follow the same property-based
   widget classification.
 - Single-line widgets remain owned by LiteGraph canvas rendering.
-- Media remains on the existing origin-clean media overlay paths; plan-owned
-  element references are delegation hints, and native media widget drawing is
-  suppressed while the base graph is drawn.
+- Media uses the existing origin-clean overlay paths only when delegation is
+  explicitly available and the plan owns a DOM media element. Otherwise its
+  clipped owned region receives a deterministic safe placeholder. Native media
+  widget drawing remains suppressed while the base graph is drawn.
 - Node-external extension text is omitted unless explicitly enabled.
 - Node 2.0 compositor capture is unchanged.
 

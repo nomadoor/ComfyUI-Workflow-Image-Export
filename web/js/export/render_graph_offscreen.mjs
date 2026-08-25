@@ -5,7 +5,7 @@ import {
   drawBackgroundImageOverlays,
   drawImageThumbnails,
   drawVideoThumbnails,
-} from "./fallback_media_overlays.mjs";
+} from "./fallback_media_overlays.mjs?v=20260825-2";
 import {
   applyLinkFilter,
   applyRenderFilter,
@@ -20,7 +20,7 @@ import {
   disableCanvasInfoOverlay,
   prepareGraph,
   safeCleanup,
-} from "./offscreen_graph_setup.mjs";
+} from "./offscreen_graph_setup.mjs?v=20260825-2";
 import { collectNodeRects } from "../core/backends/legacy_bounds.mjs";
 import {
   drawExternalTextOverlays,
@@ -30,16 +30,16 @@ import {
   buildWidgetRenderPlan,
   installPlannedWidgetDrawSuppression,
   joinWidgetRenderPlanToGraph,
-} from "../core/backends/widget_render_plan.mjs";
+} from "../core/backends/widget_render_plan.mjs?v=20260825-2";
 import {
   drawPlannedWidgetOverlays,
-} from "../core/backends/widget_overlay_renderer.mjs";
+} from "../core/backends/widget_overlay_renderer.mjs?v=20260825-2";
 import {
   drawImageOverlays,
   drawVideoOverlays,
   drawVhsVideoOverlays,
 } from "../core/backends/legacy_media_overlays.mjs";
-import { PREVIEW_MAX_PIXELS } from "./limits.mjs";
+import { PREVIEW_MAX_PIXELS } from "./limits.mjs?v=20260825-2";
 
 function getNowMs() {
   if (typeof performance !== "undefined" && typeof performance.now === "function") {
@@ -467,6 +467,7 @@ export async function renderGraphOffscreen(workflowJson, options = {}) {
       plan: widgetPlan,
       bounds,
       scale: scaleFactor,
+      options: { mediaDelegationAvailable: true },
       debugLog,
     }));
     if (isExternalTextOverlayEnabled(options)) {
@@ -520,6 +521,7 @@ export async function renderGraphOffscreen(workflowJson, options = {}) {
         plan: widgetPlan,
         bounds,
         scale: scaleFactor,
+        options: { mediaDelegationAvailable: false },
         debugLog,
       }));
     }

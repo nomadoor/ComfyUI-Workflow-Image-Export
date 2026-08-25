@@ -51,6 +51,13 @@ This file defines working rules for coding agents in this repository.
 - Prefer structural assertions over golden image tests.
 - Browser/ComfyUI integration behavior should be manually checked when possible and recorded in `AGENTS-STATE.md`.
 
+## Browser Module Cache Updates
+
+- ComfyUI may cache supporting `.mjs` files across backend restarts. A restart alone is not proof that a changed browser module was loaded.
+- When `web/js/ui/dialog.mjs` or any module in its static import graph changes, bump the dialog import query in `web/js/main.js`.
+- The dialog query string does not automatically version its static dependencies. If a changed dependency was already cached, also revise that dependency's import specifier in its direct importer, then propagate a revision through importers up to `dialog.mjs`.
+- After a cache revision, manually reload ComfyUI and verify the affected control or export path in the browser. Record the revision and result in `AGENTS-STATE.md`.
+
 ## Stop And Ask
 
 Ask before:

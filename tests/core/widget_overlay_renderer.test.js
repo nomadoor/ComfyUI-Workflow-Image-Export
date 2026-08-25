@@ -138,9 +138,32 @@ test("skipWidgetCapture renders capture entries as text without capturing DOM", 
   assert.equal(ctx.calls.filter((call) => call[0] === "fillText").length, 1);
 });
 
-test("media entries are delegated without painting their owned region", async () => {
+test("media entries are delegated only when the caller has an overlay path", async () => {
   const ctx = createMockContext();
   const entry = textEntry("10:0", 10);
+  entry.source = "media";
+  entry.ownedElement = {};
+  entry.element = {};
+  entry.mediaDelegationEligible = true;
+
+  const result = await drawPlannedWidgetOverlays({
+    exportCtx: ctx,
+    plan: [entry],
+    bounds: { left: 0, top: 0, right: 300, bottom: 100 },
+    scale: 1,
+    options: { mediaDelegationAvailable: true },
+  });
+
+  assert.equal(result.drawn, 0);
+  assert.equal(result.delegated, 1);
+  assert.equal(result.mediaPlaceholder, 0);
+  assert.equal(ctx.calls.filter((call) => call[0] === "fillRect").length, 0);
+  assert.equal(ctx.calls.filter((call) => call[0] === "fillText").length, 0);
+});
+
+test("media entries without a delegation path paint a safe owned placeholder", async () => {
+  const ctx = createMockContext();
+  const entry = textEntry("11:0", 10);
   entry.source = "media";
   entry.ownedElement = {};
   entry.element = {};
@@ -150,12 +173,57 @@ test("media entries are delegated without painting their owned region", async ()
     plan: [entry],
     bounds: { left: 0, top: 0, right: 300, bottom: 100 },
     scale: 1,
+    options: { mediaDelegationAvailable: false },
   });
 
-  assert.equal(result.drawn, 0);
-  assert.equal(result.delegated, 1);
-  assert.equal(ctx.calls.filter((call) => call[0] === "fillRect").length, 0);
-  assert.equal(ctx.calls.filter((call) => call[0] === "fillText").length, 0);
+  assert.equal(result.drawn, 1);
+  assert.equal(result.delegated, 0);
+  assert.equal(result.mediaPlaceholder, 1);
+  assert.ok(ctx.calls.filter((call) => call[0] === "fillRect").length >= 2);
+  assert.ok(ctx.calls.some((call) =>
+    call[0] === "fillText" && call[1] === "media unavailable"
+  ));
+});
+
+test("media entries without an owned DOM element cannot be delegated", async () => {
+  const ctx = createMockContext();
+  const entry = textEntry("12:0", 10);
+  entry.source = "media";
+  entry.ownedElement = null;
+  entry.element = null;
+
+  const result = await drawPlannedWidgetOverlays({
+    exportCtx: ctx,
+    plan: [entry],
+    bounds: { left: 0, top: 0, right: 300, bottom: 100 },
+    scale: 1,
+    options: { mediaDelegationAvailable: true },
+  });
+
+  assert.equal(result.drawn, 1);
+  assert.equal(result.delegated, 0);
+  assert.equal(result.mediaPlaceholder, 1);
+});
+
+test("type-only media wrappers cannot be delegated as actual media elements", async () => {
+  const ctx = createMockContext();
+  const entry = textEntry("13:0", 10);
+  entry.source = "media";
+  entry.ownedElement = {};
+  entry.element = {};
+  entry.mediaDelegationEligible = false;
+
+  const result = await drawPlannedWidgetOverlays({
+    exportCtx: ctx,
+    plan: [entry],
+    bounds: { left: 0, top: 0, right: 300, bottom: 100 },
+    scale: 1,
+    options: { mediaDelegationAvailable: true },
+  });
+
+  assert.equal(result.drawn, 1);
+  assert.equal(result.delegated, 0);
+  assert.equal(result.mediaPlaceholder, 1);
 });
 
 test("duplicate keys are rendered only once", async () => {

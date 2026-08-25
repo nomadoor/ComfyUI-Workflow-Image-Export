@@ -10,7 +10,6 @@ import {
   normalizeCanvasDimension,
   resolveRasterExceedPlan,
   shouldTile,
-  shouldUseTiledExceedMode,
 } from "../../web/js/export/limits.mjs";
 
 test("normalizeCanvasDimension returns safe positive integer dimensions", () => {
@@ -37,50 +36,50 @@ test("PREVIEW_MAX_PIXELS is shared preview budget", () => {
 });
 
 test("tiled exceed mode activates only after the configured output edge is exceeded", () => {
-  assert.equal(shouldUseTiledExceedMode({
+  assert.equal(resolveRasterExceedPlan({
     width: 2000,
     height: 1000,
     scale: 2,
     maxLongEdge: 4096,
     exceedMode: "tile",
-  }), false);
-  assert.equal(shouldUseTiledExceedMode({
+  }).useTiledExport, false);
+  assert.equal(resolveRasterExceedPlan({
     width: 2050,
     height: 1000,
     scale: 2,
     maxLongEdge: 4096,
     exceedMode: "tile",
-  }), true);
-  assert.equal(shouldUseTiledExceedMode({
+  }).useTiledExport, true);
+  assert.equal(resolveRasterExceedPlan({
     width: 8000,
     height: 1000,
     maxLongEdge: 0,
     exceedMode: "tile",
-  }), true);
-  assert.equal(shouldUseTiledExceedMode({
+  }).useTiledExport, true);
+  assert.equal(resolveRasterExceedPlan({
     width: 5000,
     height: 1000,
     maxLongEdge: 4096,
     exceedMode: "downscale",
-  }), false);
-  assert.equal(shouldUseTiledExceedMode({
+  }).useTiledExport, false);
+  assert.equal(resolveRasterExceedPlan({
     width: 17000,
     height: 1000,
     maxLongEdge: 20000,
     exceedMode: "downscale",
-  }), true);
-  assert.equal(shouldUseTiledExceedMode({
+  }).useTiledExport, true);
+  assert.equal(resolveRasterExceedPlan({
     width: 20000,
     height: 10000,
     maxLongEdge: 4096,
     exceedMode: "downscale",
-  }), false);
-  assert.equal(shouldUseTiledExceedMode({
+  }).useTiledExport, false);
+  assert.equal(resolveRasterExceedPlan({
     width: 50000,
     height: 50000,
     maxLongEdge: 20000,
     exceedMode: "downscale",
-  }), true);
+  }).useTiledExport, true);
 });
 
 test("raster exceed planning carries the downscaled render scale into safety tiling", () => {

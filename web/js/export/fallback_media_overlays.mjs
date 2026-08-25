@@ -58,6 +58,7 @@ export async function drawVideoThumbnails({
   }
 
   let drawn = 0;
+  let blockedMedia = 0;
   let skippedNoDrawable = 0;
   let skippedNoRect = 0;
   let skippedEmptyRect = 0;
@@ -211,7 +212,7 @@ export async function drawVideoThumbnails({
       if (result.ok) {
         drawn += 1;
       } else {
-        skippedNoDrawable += 1;
+        blockedMedia += 1;
       }
     } else if (drawPlaceholderOnMiss) {
       skippedNoDrawable += 1;
@@ -228,6 +229,7 @@ export async function drawVideoThumbnails({
 
   debugLog?.("video.thumbnail", {
     drawn,
+    blockedMedia,
     skippedNoDrawable,
     skippedNoRect,
     skippedEmptyRect,
@@ -246,6 +248,7 @@ export async function drawImageThumbnails({ exportCtx, graph, nodeRects, bounds,
   }
 
   let drawn = 0;
+  let blockedMedia = 0;
   let skippedNoDrawable = 0;
   let skippedNoRect = 0;
   let skippedEmptyRect = 0;
@@ -323,12 +326,13 @@ export async function drawImageThumbnails({ exportCtx, graph, nodeRects, bounds,
     if (result.ok) {
       drawn += 1;
     } else {
-      skippedNoDrawable += 1;
+      blockedMedia += 1;
     }
   }
 
   debugLog?.("image.thumbnail", {
     drawn,
+    blockedMedia,
     skippedNoDrawable,
     skippedNoRect,
     skippedEmptyRect,

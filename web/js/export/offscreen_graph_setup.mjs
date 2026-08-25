@@ -1,5 +1,5 @@
 import { app } from "/scripts/app.js";
-import { syncLiveGraphState } from "./live_graph_sync.mjs";
+import { syncLiveGraphState } from "./live_graph_sync.mjs?v=20260825-2";
 
 function resolveGraphConstructor() {
   if (app?.graph?.constructor) {
@@ -225,6 +225,6 @@ export async function prepareGraph(workflowJson, debugLog) {
   }
   const graph = new LGraphRef();
   configureGraph(graph, workflowJson);
-  syncLiveGraphState(graph, app?.graph, app?.canvas, debugLog);
+  syncLiveGraphState(graph, app?.graph, app?.canvas);
   return { graph, LGraphCanvasRef };
 }

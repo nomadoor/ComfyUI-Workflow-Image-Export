@@ -177,17 +177,21 @@ function classifyWidget(widget, ownedElement) {
     };
   }
 
-  const mediaElement = findElement(ownedElement, MEDIA_SELECTORS);
-  if (
-    MEDIA_TYPES.has(type) ||
-    mediaElement ||
+  const directMediaElement =
     isInstance(ownedElement, "HTMLCanvasElement") ||
     isInstance(ownedElement, "HTMLImageElement") ||
     isInstance(ownedElement, "HTMLVideoElement")
+      ? ownedElement
+      : null;
+  const mediaElement = findElement(ownedElement, MEDIA_SELECTORS) || directMediaElement;
+  if (
+    MEDIA_TYPES.has(type) ||
+    mediaElement
   ) {
     return {
       kind: "media",
       renderElement: mediaElement || ownedElement,
+      mediaDelegationEligible: Boolean(mediaElement),
     };
   }
   return null;
@@ -266,6 +270,8 @@ export function buildWidgetRenderPlan({
         nodeGraphRect,
         source,
         styleSource,
+        mediaDelegationEligible:
+          source === "media" && classification.mediaDelegationEligible === true,
         ownedElement,
         element: renderElement,
         text,
