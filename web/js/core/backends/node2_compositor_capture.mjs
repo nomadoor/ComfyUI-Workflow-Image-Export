@@ -1,5 +1,5 @@
 import { app } from "/scripts/app.js";
-import { getSettingsAccess } from "../detect.mjs";
+import { getSettingsAccess } from "../detect.mjs?v=20260825-2";
 import { toNodeIdKey } from "../node_ids.mjs";
 import { computeGraphBBox } from "../../export/bbox.mjs";
 import {
@@ -13,6 +13,10 @@ import {
 import {
   createBackgroundOverrideState,
 } from "./node2_background_override_state.mjs";
+import {
+  formatNode2TilePixelLimitMessage,
+  resolveNode2OutputScale,
+} from "../node2_export_policy.mjs?v=20260825-2";
 import {
   captureTwoFrameTransparentMatte,
   getNode2TransparentWarning,
@@ -2064,9 +2068,9 @@ function useRestrictedFrameAsTile(canvas, captureRect) {
 function getNode2TileScale(options = {}) {
   const requested = Number(options.node2TileScale);
   if (Number.isFinite(requested) && requested > 0) {
-    return Math.max(0.25, Math.min(1.25, requested));
+    return Math.max(0.25, Math.min(2, requested));
   }
-  return options.outputResolution === "200%" ? 1.25 : 1;
+  return resolveNode2OutputScale(options.outputResolution);
 }
 
 function shouldUseNode2TiledCapture(options, fitInfo, root) {
@@ -2075,13 +2079,7 @@ function shouldUseNode2TiledCapture(options, fitInfo, root) {
     options.exceedMode === "tile";
   if (!requested || !fitInfo?.bbox || !root) return false;
   const captureRect = getCapturableRootRect(root);
-  if (!captureRect) return false;
-  const tileScale = getNode2TileScale(options);
-  const padGraph = Math.max(8, Math.min(128, Number(options.cropPaddingPx) || 56)) / tileScale;
-  const graphWidth = fitInfo.bbox.width + padGraph * 2;
-  const graphHeight = fitInfo.bbox.height + padGraph * 2;
-  const dpr = window.devicePixelRatio || 1;
-  return graphWidth * tileScale * dpr * graphHeight * tileScale * dpr <= NODE2_TILE_MAX_PIXELS;
+  return Boolean(captureRect);
 }
 
 function getNode2CurrentGraphBBox() {
@@ -2216,6 +2214,17 @@ async function captureNode2TiledFromFit(fitInfo, options = {}) {
     const pxPerGraphY = frameCssRatioY * tileScale;
     const outputWidth = Math.max(1, Math.ceil(graphWidth * pxPerGraphX));
     const outputHeight = Math.max(1, Math.ceil(graphHeight * pxPerGraphY));
+    if (outputWidth * outputHeight > NODE2_TILE_MAX_PIXELS) {
+      return {
+        error: {
+          message: formatNode2TilePixelLimitMessage({
+            width: outputWidth,
+            height: outputHeight,
+            outputResolution: options.outputResolution,
+          }),
+        },
+      };
+    }
     output = document.createElement("canvas");
     output.width = outputWidth;
     output.height = outputHeight;

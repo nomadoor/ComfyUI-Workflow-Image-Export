@@ -2,15 +2,15 @@
 
 * ComfyUI上で表示されているワークフロー（Legacy / Nodes 2.0 を含む）を、**UIそのまま**画像としてエクスポートできる機能を提供する。
 * 右クリックメニューは汚さず、**項目は1つのみ**にする。
-* エクスポート設定はダイアログで行い、**Last used（前回使用設定）をデフォルトON**で保存する。
-* 設定画面（ComfyUI Settings）から初期値（デフォルト）を変更できるようにする。
+* エクスポート設定はダイアログで行い、正常に使用した設定を **Last used** として保存する。
+* 初期状態は作者側の固定デフォルトに Last used を上書きして作る。
 * 将来の多言語化に備えたフォルダ構成を採用する（ただし現時点で自作UIの翻訳は未実装）。
 
 ## 1. 対応環境
 
 * ComfyUI（フロントエンドの更新に耐えられる実装方針：内部変数への強い依存を避け、feature detection中心）
 * Legacy（LiteGraph）と Nodes 2.0（Vue/DOMベース）どちらでも動作
-* 出力形式：PNG / WebP / SVG（初期から用意）
+* 出力形式：PNG / WebP
 
 ## 2. UI要件
 
@@ -31,7 +31,7 @@
 
 #### Basic（常時表示）
 
-* Format：Dropdown（PNG / WebP / SVG）
+* Format：Dropdown（PNG / WebP）
 * Embed workflow：Toggle（デフォルトON）
 * Background：Radio（UI / Transparent / Solid）
 
@@ -45,7 +45,7 @@
   * 表記は “Quality” ではなく **Output resolution / 出力解像度**
 * Max long edge：Number（px）
 * If exceeded：Downscale / Tile
-* Remember last used：Toggle（デフォルトON）
+* Nodes 2.0 の If exceeded は Tile 固定で、保存済みの Legacy 値を引き継がない
 
 #### Footer
 
@@ -60,7 +60,6 @@
 * Format：PNG
 * Background：UI
 * Embed workflow：ON
-* Remember last used：ON
 * Padding：例 100（適宜調整可能）
 
 ### 2.3 通知
@@ -105,13 +104,13 @@
 ### 3.6 ワークフロー埋め込み
 
 * Embed workflow=ON の場合、出力に workflow JSON を埋め込む
-* PNG/WebP/SVGそれぞれ埋め込み方式は実装選択（互換性を重視しつつ、将来の変更を見越してコードを分離）
+* workflow埋め込みは互換性を優先したPNGのみとする
 
 ## 4. 設定要件
 
-* ComfyUI Settings から「デフォルト設定」を変更可能にする
-* ダイアログは **Last used（前回値）をデフォルトで復元**する
-* `Reset to defaults` は Settingsで定義されたデフォルトへ戻す
+* この拡張専用の項目を ComfyUI Settings へ登録しない
+* ダイアログは固定デフォルトへ **Last used（前回値）** を上書きして復元する
+* `Reset to defaults` は固定デフォルトへ戻す
 
 ## 5. 実装要件（カスタムノードとして）
 

@@ -1,5 +1,5 @@
 import { toUint32, concatUint8, crc32 } from "../core/utils.mjs";
-import { TILE_SIZE } from "./limits.mjs";
+import { TILE_SIZE } from "./limits.mjs?v=20260825-2";
 
 const ADLER_MOD = 65521;
 const ADLER_NMAX = 5552;

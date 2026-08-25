@@ -1,5 +1,9 @@
 # Workflow Image Export - Notes
 
+> Historical milestone notes. They explain early implementation states and are
+> not the current product contract. Use `README.md`, accepted non-superseded
+> ADRs, and the implementation for current behavior.
+
 ## Milestone 1 (Day-0 "hello export")
 
 ### Manual test checklist

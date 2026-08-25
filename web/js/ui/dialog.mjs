@@ -4,12 +4,11 @@ import {
   detectBackendType,
   isNode2UnsupportedError,
   isWebpHugeUnsupportedError,
-} from "../core/capture/index.mjs";
+} from "../core/capture/index.mjs?v=20260825-2";
 import { getNode2WarningMessage } from "../core/capture/warnings.mjs";
-import { captureLegacy } from "../core/backends/legacy_capture.mjs";
+import { captureLegacy } from "../core/backends/legacy_capture.mjs?v=20260825-2";
 import { triggerDownload } from "../core/download.mjs";
 import { computeGraphBBox } from "../export/bbox.mjs";
-import { embedWorkflowInPngBlob } from "../export/png_embed_workflow.mjs";
 import { loadLastUsed, saveLastUsed } from "../core/storage.mjs";
 import {
   getSelectedNodeIdsFromApp,
@@ -18,11 +17,9 @@ import {
 import { toBlobAsync } from "../core/utils.mjs";
 import {
   DEFAULTS,
-  getDefaultsFromSettings,
   normalizeState as normalizeSettingsState,
-  setDefaultsInSettings,
-} from "../core/settings.mjs";
-import { buildInitialState, toLastUsedState } from "./state.mjs";
+} from "../core/settings_state.mjs?v=20260825-2";
+import { buildInitialState, toLastUsedState } from "./state.mjs?v=20260825-2";
 import {
   buildPreviewState as buildPreviewStateForDialog,
   getPreviewMime,
@@ -35,15 +32,15 @@ import {
 import {
   evaluateWebpAvailability,
   getOutputResolutionScale,
-} from "./webp_availability.mjs";
-import { resolveNode2ExportPolicy } from "./node2_export_policy.mjs";
+} from "./webp_availability.mjs?v=20260825-2";
+import { resolveExportCaptureOptions } from "../core/node2_export_policy.mjs?v=20260825-2";
 import {
   createCaretIcon,
   createRadioGroup,
   createRow,
   createSelect,
   createToggle,
-} from "./elements.mjs";
+} from "./elements.mjs?v=20260825-2";
 
 let activeDialog = null;
 let activeMessageDialog = null;
@@ -56,7 +53,9 @@ function ensureStyles() {
   const link = document.createElement("link");
   link.id = "cwie-styles";
   link.rel = "stylesheet";
-  link.href = new URL("../../css/dialog.css", import.meta.url).toString();
+  const styleUrl = new URL("../../css/dialog.css", import.meta.url);
+  styleUrl.searchParams.set("v", "20260825-2");
+  link.href = styleUrl.toString();
   document.head.appendChild(link);
 }
 
@@ -145,10 +144,13 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
   const isNode2Backend = backendType === "node2";
 
   let state = buildInitialState({
-    defaults: getDefaultsFromSettings(),
     lastUsed: loadLastUsed(),
     debugEnabled: isDebugEnabled(),
   });
+  const persistedExceedMode = state.exceedMode;
+  if (isNode2Backend) {
+    state = { ...state, exceedMode: "tile" };
+  }
 
   const backdrop = document.createElement("div");
   backdrop.className = "cwie-backdrop";
@@ -355,7 +357,7 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
   maxLongEdgeInput.step = "1";
   maxLongEdgeInput.className = "cwie-input";
 
-  const exceedSelect = createSelect("exceed", [
+  const exceedGroup = createRadioGroup("cwie-exceed", [
     { value: "downscale", label: "Downscale" },
     { value: "tile", label: "Tile" },
   ]);
@@ -480,7 +482,11 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
     pngCompressionInput.value = String(nextState.pngCompression);
     pngCompressionValue.textContent = String(nextState.pngCompression);
     maxLongEdgeInput.value = String(nextState.maxLongEdge);
-    exceedSelect.setValue(nextState.exceedMode);
+    const exceedMode = isNode2Backend ? "tile" : nextState.exceedMode;
+    const exceedInput = exceedGroup.inputs.get(exceedMode);
+    if (exceedInput) {
+      exceedInput.checked = true;
+    }
     if (solidColorRow) {
       solidColorRow.classList.toggle("is-hidden", background !== "solid");
     }
@@ -504,7 +510,9 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
       maxLongEdgeInput.disabled = true;
       scopeToggle.input.disabled = true;
       scopeOpacityInput.disabled = true;
-      exceedSelect.setDisabled(true);
+      exceedGroup.inputs.forEach((input) => {
+        input.disabled = true;
+      });
     }
   }
 
@@ -520,7 +528,7 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
       nodeOpacity: nodeOpacityInput.value,
       pngCompression: pngCompressionInput.value,
       maxLongEdge: maxLongEdgeInput.value,
-      exceedMode: exceedSelect.getValue(),
+      exceedMode: [...exceedGroup.inputs.values()].find((input) => input.checked)?.value,
     });
     state = {
       ...normalized,
@@ -834,9 +842,11 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
     handleChange();
     scheduleWebpCheck();
   });
-  exceedSelect.onChange(() => {
-    handleChange();
-    scheduleWebpCheck();
+  exceedGroup.inputs.forEach((input) => {
+    input.addEventListener("change", () => {
+      handleChange();
+      scheduleWebpCheck();
+    });
   });
   scopeToggle.input.addEventListener("change", () => {
     updateScopeAvailability();
@@ -941,14 +951,6 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
 
     updateScopeAvailability();
     updateStateFromControls();
-    const isRasterExport = state.format === "png" || state.format === "webp";
-    const expectsTiling =
-      (!isRasterExport || isNode2Backend) &&
-      state.exceedMode === "tile";
-    if (expectsTiling) {
-      exportButton.classList.add("is-progressing");
-      exportProgressText.textContent = "0%";
-    }
     // Allow the busy spinner/progress to paint before heavy export work.
     await new Promise((resolve) => requestAnimationFrame(resolve));
     await new Promise((resolve) => requestAnimationFrame(resolve));
@@ -958,21 +960,14 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
     try {
       let blob;
       if (isNode2Backend) {
-        const node2Policy = resolveNode2ExportPolicy(state);
         closeDialog();
         dialogClosed = true;
         logExportPhase("dialog.closed.beforeNode2Capture");
         logExportPhase("capture.node2.start");
-        blob = await capture({
-          ...state,
-          background: state.background,
-          padding: 0,
-          nodeOpacity: 100,
-          scopeSelected: false,
-          exceedMode: node2Policy.exceedMode,
-          node2TiledCapture: node2Policy.node2TiledCapture,
+        blob = await capture(resolveExportCaptureOptions(state, {
+          isNode2Backend: true,
           onProgress: updateExportProgress,
-        });
+        }));
         const warningMessage = getNode2WarningMessage(blob?.cwieWarnings);
         if (warningMessage) {
           messageDialogPayload = {
@@ -981,36 +976,11 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
           };
         }
         logExportPhase("capture.node2.done");
-      } else if (state.format === "png" || state.format === "webp") {
-        const previewState = buildPreviewState();
-        const previewKey = getPreviewStateKey(previewState);
-        logExportPhase("preview.capture.start");
-        const snapshot =
-          previewSnapshot?.key === previewKey
-            ? previewSnapshot
-            : await renderPreview(previewState, { force: true });
-        blob = await encodePreviewSnapshot(snapshot, previewState);
-        logExportPhase("preview.capture.done");
-        if (!blob) {
-          throw new Error("Export failed: preview blob unavailable.");
-        }
-        if (state.format === "png" && state.embedWorkflow) {
-          const workflowJson =
-            previewSnapshot?.key === previewKey
-              ? previewSnapshot.state?.workflowJsonText
-              : previewState.workflowJsonText || getWorkflowJsonText();
-          if (workflowJson) {
-            logExportPhase("embed.workflow.start");
-            blob = await embedWorkflowInPngBlob(blob, workflowJson);
-            logExportPhase("embed.workflow.done");
-          }
-        }
       } else {
         logExportPhase("capture.start");
-        blob = await capture({
-          ...state,
+        blob = await capture(resolveExportCaptureOptions(state, {
           onProgress: updateExportProgress,
-        });
+        }));
         logExportPhase("capture.done");
       }
       if (!dialogClosed) {
@@ -1018,9 +988,10 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
         dialogClosed = true;
         logExportPhase("dialog.closed.beforeDownload");
       }
-      setDefaultsInSettings(state);
       try {
-        saveLastUsed(toLastUsedState(state));
+        saveLastUsed(toLastUsedState(state, {
+          preserveExceedMode: isNode2Backend ? persistedExceedMode : undefined,
+        }));
       } catch (error) {
         log?.("export:saveLastUsed.error", {
           message: error?.message || String(error),
@@ -1140,7 +1111,7 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
     maxLongEdgeRow,
     "Max long edge downscaling is not used for Node 2.0 tiled compositor capture."
   ));
-  const exceedRow = createRow("If exceeded", exceedSelect.root);
+  const exceedRow = createRow("If exceeded", exceedGroup.group);
   advancedBody.appendChild(markNode2UnsupportedRow(
     exceedRow,
     "Node 2.0 currently uses its compositor capture path; this mode is fixed by the backend."

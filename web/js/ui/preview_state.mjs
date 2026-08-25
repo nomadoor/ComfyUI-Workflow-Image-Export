@@ -1,5 +1,5 @@
 import { createWorkflowSignature } from "../core/workflow_state.mjs";
-import { PREVIEW_MAX_PIXELS } from "../export/limits.mjs";
+import { PREVIEW_MAX_PIXELS } from "../export/limits.mjs?v=20260825-2";
 
 export function buildPreviewState({
   state,

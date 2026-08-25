@@ -31,7 +31,6 @@ async function writeAppStub(tempRoot) {
       "    settings: {",
       "      getSettingValue(_id, fallback) { return fallback; },",
       "      setSettingValue() {},",
-      "      addSetting() {},",
       "    },",
       "  },",
       "};",
@@ -64,7 +63,10 @@ async function mirrorModule(sourcePath, tempRoot, appStubPath, seen = new Set())
 
   for (const specifier of specifiers) {
     if (specifier.startsWith("./") || specifier.startsWith("../")) {
-      const dependencyPath = path.resolve(path.dirname(normalizedSourcePath), specifier);
+      const dependencyPath = path.resolve(
+        path.dirname(normalizedSourcePath),
+        specifier.split(/[?#]/, 1)[0]
+      );
       await mirrorModule(dependencyPath, tempRoot, appStubPath, seen);
     }
   }
@@ -140,4 +142,68 @@ test("main.js is the only ComfyUI auto-loaded JS entry under web/js", async () =
 
   await walk(webJsRoot);
   assert.deepEqual(jsFiles.sort(), ["web/js/main.js"]);
+});
+
+test("main.js cache-busts the mjs dialog entry", async () => {
+  const mainSource = await fs.readFile(path.join(REPO_ROOT, "web/js/main.js"), "utf8");
+  assert.match(mainSource, /import\("\.\/ui\/dialog\.mjs\?v=[^"?]+"\)/);
+});
+
+test("local browser modules do not mix versioned and unversioned identities", async () => {
+  const webJsRoot = path.join(REPO_ROOT, "web", "js");
+  const sourceFiles = [];
+
+  async function walk(dir) {
+    const entries = await fs.readdir(dir, { withFileTypes: true });
+    for (const entry of entries) {
+      const fullPath = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        await walk(fullPath);
+      } else if (entry.isFile() && /\.(?:m?js)$/.test(entry.name)) {
+        sourceFiles.push(fullPath);
+      }
+    }
+  }
+
+  await walk(webJsRoot);
+  const formsByTarget = new Map();
+  for (const sourcePath of sourceFiles) {
+    const source = await fs.readFile(sourcePath, "utf8");
+    for (const match of source.matchAll(IMPORT_SPECIFIER_RE)) {
+      const specifier = match[1] || match[2];
+      if (!specifier?.startsWith(".")) continue;
+      const bareSpecifier = specifier.split(/[?#]/, 1)[0];
+      const targetPath = path.resolve(path.dirname(sourcePath), bareSpecifier);
+      const forms = formsByTarget.get(targetPath) || new Set();
+      forms.add(specifier.includes("?") ? "versioned" : "plain");
+      formsByTarget.set(targetPath, forms);
+    }
+  }
+
+  const mixedTargets = [...formsByTarget.entries()]
+    .filter(([, forms]) => forms.size > 1)
+    .map(([targetPath]) => toPosix(path.relative(REPO_ROOT, targetPath)))
+    .sort();
+  assert.deepEqual(mixedTargets, []);
+});
+
+test("fallback media overlays never draw unverified media into the export canvas", async () => {
+  const source = await fs.readFile(
+    path.join(REPO_ROOT, "web/js/export/fallback_media_overlays.mjs"),
+    "utf8"
+  );
+
+  assert.equal(source.includes("exportCtx.drawImage"), false);
+  assert.equal(source.includes("drawMediaSafely"), true);
+});
+
+test("removed extension Settings registration does not return to the import graph", async () => {
+  await assert.rejects(
+    fs.access(path.join(REPO_ROOT, "web/js/core/settings.mjs"))
+  );
+  const mainSource = await fs.readFile(path.join(REPO_ROOT, "web/js/main.js"), "utf8");
+  const dialogSource = await fs.readFile(path.join(REPO_ROOT, "web/js/ui/dialog.mjs"), "utf8");
+  assert.equal(mainSource.includes("registerLegacySettings"), false);
+  assert.equal(dialogSource.includes("getDefaultsFromSettings"), false);
+  assert.equal(dialogSource.includes("setDefaultsInSettings"), false);
 });

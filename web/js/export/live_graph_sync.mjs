@@ -18,71 +18,6 @@ function buildNodeIdMap(graph) {
   return byId;
 }
 
-function copyNodeMedia(fromNode, toNode) {
-  if (!fromNode || !toNode) return false;
-  const mediaKeys = [
-    "imgs",
-    "img",
-    "image",
-    "preview",
-    "preview_image",
-    "previewImage",
-    "previewMediaType",
-    "canvas",
-    "previewCanvas",
-    "images",
-    "animatedImages",
-    "frames",
-    "frame",
-    "video_path",
-    "filepath",
-    "file",
-    "url",
-    "media",
-    "media_el",
-    "mediaEl",
-    "texture",
-    "tex",
-    "_texture",
-    "output_image",
-  ];
-  let copied = false;
-  for (const key of mediaKeys) {
-    if (fromNode[key] === undefined || fromNode[key] === null) continue;
-    if (
-      key === "video" ||
-      key === "videos" ||
-      key === "videoEl" ||
-      key === "videoElement" ||
-      key === "media_el" ||
-      key === "mediaEl"
-    ) {
-      continue;
-    }
-    toNode[key] = fromNode[key];
-    copied = true;
-  }
-  return copied;
-}
-
-function syncLiveNodeMedia(exportGraph, liveGraph, debugLog) {
-  const exportNodes = exportGraph?._nodes || exportGraph?.nodes || [];
-  const liveById = buildNodeIdMap(liveGraph);
-  if (!liveById.size || !exportNodes.length) return;
-
-  let copiedCount = 0;
-  for (const node of exportNodes) {
-    const id = toNodeIdKey(node?.id);
-    if (id === null) continue;
-    const liveNode = liveById.get(id);
-    if (!liveNode) continue;
-    if (copyNodeMedia(liveNode, node)) {
-      copiedCount += 1;
-    }
-  }
-  debugLog?.("media.sync", { copiedCount });
-}
-
 function syncLiveNodeText(exportGraph, liveGraph) {
   const exportNodes = exportGraph?._nodes || exportGraph?.nodes || [];
   const liveById = buildNodeIdMap(liveGraph);
@@ -395,9 +330,8 @@ function syncLiveGroups(exportGraph, liveGraph) {
   }
 }
 
-export function syncLiveGraphState(exportGraph, liveGraph, uiCanvas, debugLog) {
+export function syncLiveGraphState(exportGraph, liveGraph, uiCanvas) {
   syncLiveNodeGeometry(exportGraph, liveGraph);
-  syncLiveNodeMedia(exportGraph, liveGraph, debugLog);
   syncLiveNodeText(exportGraph, liveGraph);
   syncLiveDomWidgetHeights(exportGraph, uiCanvas);
   syncLiveGroups(exportGraph, liveGraph);

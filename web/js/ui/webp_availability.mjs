@@ -1,8 +1,7 @@
-import { shouldTile } from "../export/limits.mjs";
+import { shouldTile } from "../export/limits.mjs?v=20260825-2";
+import { resolveOutputResolutionScale } from "../core/output_scale.mjs?v=20260825-2";
 
-export function getOutputResolutionScale(outputResolution) {
-  return outputResolution === "200%" ? 2 : 1;
-}
+export { resolveOutputResolutionScale as getOutputResolutionScale };
 
 export function evaluateWebpAvailability({
   format,

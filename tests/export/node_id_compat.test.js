@@ -64,7 +64,6 @@ test("live graph sync joins serialized numeric ids to frontend string ids", () =
     widgets: [exportWidget],
     widgets_values: ["serialized"],
   };
-  const liveImage = {};
   const liveNode = {
     id: "63",
     pos: [25, 35],
@@ -72,7 +71,7 @@ test("live graph sync joins serialized numeric ids to frontend string ids", () =
     widgets: [liveWidget],
     widgets_values: ["live"],
     properties: { current: true },
-    imgs: [liveImage],
+    imgs: [{ unsafeLiveMedia: true }],
   };
 
   syncLiveGraphState(
@@ -86,5 +85,5 @@ test("live graph sync joins serialized numeric ids to frontend string ids", () =
   assert.deepEqual(exportNode.widgets_values, ["live"]);
   assert.deepEqual(exportNode.properties, { current: true });
   assert.equal(exportNode.widgets[0].value, "live");
-  assert.equal(exportNode.imgs[0], liveImage);
+  assert.equal(exportNode.imgs, undefined);
 });

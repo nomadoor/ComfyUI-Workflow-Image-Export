@@ -36,6 +36,7 @@ Install via **ComfyUI Manager**:
 > [!NOTE]
 > Node 2.0 mode disables or simplifies options that cannot be reproduced by browser compositor capture.
 > Padding, link visibility, selection scope, and node opacity are not available in Node 2.0 mode.
+> Node 2.0 always uses tiled capture; its disabled **If exceeded** control therefore displays **Tile**.
 
 - **Format**: PNG / WebP  
   - Workflow embedding is **PNG only**.
@@ -49,6 +50,13 @@ Install via **ComfyUI Manager**:
   - **Opacity**: dim unselected nodes (0–100).
 - **Advanced**:
   - Output resolution, max long edge, exceed behavior.
+  - `200%` produces a true 2× output scale in both Classic and Node 2.0.
+
+The dialog starts from the extension's built-in defaults, overlaid with the
+last successfully used values. **Reset to defaults** restores the built-in
+defaults. This extension does not register a separate ComfyUI Settings section.
+Obsolete `WorkflowImageExport.*` values left by older releases are ignored;
+current defaults and Last used values are managed only by the export dialog.
 
 ## Notes
 - Classic export uses the legacy LiteGraph renderer.

@@ -13,6 +13,7 @@ const MARKDOWN_SELECTORS = ".comfy-markdown-content, .tiptap";
 const TEXT_ELEMENT_SELECTORS = "textarea, [contenteditable='true'], .ProseMirror, .cm-content";
 const MEDIA_SELECTORS = "canvas, img, video";
 const MULTILINE_TYPES = new Set(["textarea", "customtext", "markdown"]);
+const MEDIA_TYPES = new Set(["canvas", "image", "preview", "video"]);
 
 function isInstance(value, ctorName) {
   const ctor = globalThis[ctorName];
@@ -176,16 +177,21 @@ function classifyWidget(widget, ownedElement) {
     };
   }
 
-  const mediaElement = findElement(ownedElement, MEDIA_SELECTORS);
-  if (
-    mediaElement ||
+  const directMediaElement =
     isInstance(ownedElement, "HTMLCanvasElement") ||
     isInstance(ownedElement, "HTMLImageElement") ||
     isInstance(ownedElement, "HTMLVideoElement")
+      ? ownedElement
+      : null;
+  const mediaElement = findElement(ownedElement, MEDIA_SELECTORS) || directMediaElement;
+  if (
+    MEDIA_TYPES.has(type) ||
+    mediaElement
   ) {
     return {
       kind: "media",
       renderElement: mediaElement || ownedElement,
+      mediaDelegationEligible: Boolean(mediaElement),
     };
   }
   return null;
@@ -243,8 +249,11 @@ export function buildWidgetRenderPlan({
       let styleSource = classification.renderElement ? "dom" : "default";
       let renderElement = classification.renderElement;
 
-      if (!allowDom) {
+      if (!allowDom && source !== "media") {
         source = "text";
+        styleSource = "default";
+        renderElement = null;
+      } else if (!allowDom) {
         styleSource = "default";
         renderElement = null;
       } else if (source === "capture" && options.skipWidgetCapture === true) {
@@ -261,6 +270,8 @@ export function buildWidgetRenderPlan({
         nodeGraphRect,
         source,
         styleSource,
+        mediaDelegationEligible:
+          source === "media" && classification.mediaDelegationEligible === true,
         ownedElement,
         element: renderElement,
         text,
@@ -314,12 +325,15 @@ export function collectPlannedWidgetIndexes(plan) {
     if (
       !entry?.key ||
       claimedKeys.has(entry.key) ||
-      entry.source === "media" ||
       !Number.isInteger(entry.widgetIndex)
     ) {
       continue;
     }
-    if (entry.source !== "capture" && !String(entry.text || "").trim()) continue;
+    if (
+      entry.source !== "capture" &&
+      entry.source !== "media" &&
+      !String(entry.text || "").trim()
+    ) continue;
 
     const nodeId = toNodeIdKey(entry.nodeId);
     if (nodeId === null) continue;

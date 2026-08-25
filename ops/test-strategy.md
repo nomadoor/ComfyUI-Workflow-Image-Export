@@ -1,5 +1,9 @@
 # ComfyUI-Workflow-Image-Export テスト戦略
 
+> Historical test-planning document. Some filenames and proposed test cases
+> predate the `.mjs` module split. The executable source of truth is
+> `package.json` and the current `tests/` tree.
+
 ## 結論（エグゼクティブサマリー）
 
 このリポジトリは **Python が 0.1%、JavaScript が 94%** という極端な構成で、Python 側は `__init__.py` に `WEB_DIRECTORY` と空の `NODE_CLASS_MAPPINGS` を定義するだけのシェルである。

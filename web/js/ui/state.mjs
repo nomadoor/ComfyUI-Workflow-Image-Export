@@ -1,4 +1,4 @@
-import { normalizeState } from "../core/settings_state.mjs";
+import { DEFAULTS, normalizeState } from "../core/settings_state.mjs?v=20260825-2";
 
 export function normalizeScopeOpacity(value) {
   const num = Number.parseInt(value, 10);
@@ -15,9 +15,9 @@ export function normalizeDialogState(raw = {}, options = {}) {
   };
 }
 
-export function buildInitialState({ defaults = {}, lastUsed = null, debugEnabled = false } = {}) {
+export function buildInitialState({ lastUsed = null, debugEnabled = false } = {}) {
   const mergedDefaults = {
-    ...defaults,
+    ...DEFAULTS,
     scopeSelected: false,
     scopeOpacity: 40,
   };
@@ -27,10 +27,17 @@ export function buildInitialState({ defaults = {}, lastUsed = null, debugEnabled
   );
 }
 
-export function toLastUsedState(state) {
-  return {
+export function toLastUsedState(state, options = {}) {
+  const lastUsed = {
     ...normalizeState(state),
     scopeSelected: Boolean(state?.scopeSelected),
     scopeOpacity: normalizeScopeOpacity(state?.scopeOpacity),
   };
+  if (options.preserveExceedMode !== undefined) {
+    lastUsed.exceedMode = normalizeState({
+      ...lastUsed,
+      exceedMode: options.preserveExceedMode,
+    }).exceedMode;
+  }
+  return lastUsed;
 }

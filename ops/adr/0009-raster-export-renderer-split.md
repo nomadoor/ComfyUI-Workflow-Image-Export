@@ -2,7 +2,9 @@
 
 ### Status
 
-Accepted
+Superseded in part by [ADR 0014](./0014-export-policy-and-local-defaults.md).
+The safe preview path remains, but final raster export no longer saves the
+preview snapshot and tile selection now follows the configured limit.
 
 ### Context
 
