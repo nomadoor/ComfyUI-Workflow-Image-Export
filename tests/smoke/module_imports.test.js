@@ -149,6 +149,44 @@ test("main.js cache-busts the mjs dialog entry", async () => {
   assert.match(mainSource, /import\("\.\/ui\/dialog\.mjs\?v=[^"?]+"\)/);
 });
 
+test("local browser modules do not mix versioned and unversioned identities", async () => {
+  const webJsRoot = path.join(REPO_ROOT, "web", "js");
+  const sourceFiles = [];
+
+  async function walk(dir) {
+    const entries = await fs.readdir(dir, { withFileTypes: true });
+    for (const entry of entries) {
+      const fullPath = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        await walk(fullPath);
+      } else if (entry.isFile() && /\.(?:m?js)$/.test(entry.name)) {
+        sourceFiles.push(fullPath);
+      }
+    }
+  }
+
+  await walk(webJsRoot);
+  const formsByTarget = new Map();
+  for (const sourcePath of sourceFiles) {
+    const source = await fs.readFile(sourcePath, "utf8");
+    for (const match of source.matchAll(IMPORT_SPECIFIER_RE)) {
+      const specifier = match[1] || match[2];
+      if (!specifier?.startsWith(".")) continue;
+      const bareSpecifier = specifier.split(/[?#]/, 1)[0];
+      const targetPath = path.resolve(path.dirname(sourcePath), bareSpecifier);
+      const forms = formsByTarget.get(targetPath) || new Set();
+      forms.add(specifier.includes("?") ? "versioned" : "plain");
+      formsByTarget.set(targetPath, forms);
+    }
+  }
+
+  const mixedTargets = [...formsByTarget.entries()]
+    .filter(([, forms]) => forms.size > 1)
+    .map(([targetPath]) => toPosix(path.relative(REPO_ROOT, targetPath)))
+    .sort();
+  assert.deepEqual(mixedTargets, []);
+});
+
 test("fallback media overlays never draw unverified media into the export canvas", async () => {
   const source = await fs.readFile(
     path.join(REPO_ROOT, "web/js/export/fallback_media_overlays.mjs"),

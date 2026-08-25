@@ -1,5 +1,5 @@
 import { app } from "/scripts/app.js";
-import { installLegacyCanvasMenuItem } from "./core/menu.mjs";
+import { installLegacyCanvasMenuItem } from "./core/menu.mjs?v=20260825-2";
 
 const DEBUG_STORAGE_KEY = "cwie.debug";
 const DEBUG_SESSION_KEY = "cwie.debug.session";

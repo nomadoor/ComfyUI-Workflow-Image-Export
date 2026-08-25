@@ -1,4 +1,4 @@
-import { getLegacyCanvasMenuHook } from "./detect.mjs";
+import { getLegacyCanvasMenuHook } from "./detect.mjs?v=20260825-2";
 
 const MENU_ID = "cwie-export-menu";
 let legacyInstalled = false;
