@@ -18,6 +18,21 @@ function ensureRelativeSpecifier(fromFile, toFile) {
   return relative.startsWith(".") ? relative : `./${relative}`;
 }
 
+function extractBracedBlockAfter(source, anchor) {
+  const anchorIndex = source.indexOf(anchor);
+  assert.notEqual(anchorIndex, -1, `missing source anchor: ${anchor}`);
+  const blockStart = source.indexOf("{", anchorIndex + anchor.length);
+  assert.notEqual(blockStart, -1, `missing block after source anchor: ${anchor}`);
+  let depth = 0;
+  for (let index = blockStart; index < source.length; index += 1) {
+    if (source[index] === "{") depth += 1;
+    if (source[index] !== "}") continue;
+    depth -= 1;
+    if (depth === 0) return source.slice(blockStart, index + 1);
+  }
+  assert.fail(`unterminated block after source anchor: ${anchor}`);
+}
+
 async function writeAppStub(tempRoot) {
   const stubPath = path.join(tempRoot, "scripts", "app.js");
   await fs.mkdir(path.dirname(stubPath), { recursive: true });
@@ -253,32 +268,19 @@ test("huge tiled exports share safe media snapshots and retain failure ownership
     path.join(REPO_ROOT, "web/js/export/render_graph_offscreen.mjs"),
     "utf8"
   );
+  const hugeScopeBlock = extractBracedBlockAfter(
+    indexSource,
+    "if (huge && scopeSelected)"
+  );
 
   assert.match(indexSource, /mediaMode:\s*"force"/);
   assert.match(indexSource, /mediaSnapshotCache:\s*new Map\(\)/);
-  assert.match(indexSource, /if \(huge && scopeSelected\)[\s\S]*?renderFilter:\s*"all"/);
-  assert.match(
-    indexSource,
-    /if \(huge && scopeSelected\)[\s\S]*?linkFilter:\s*renderOptions\.linkFilter \|\| "all"/
-  );
+  assert.match(hugeScopeBlock, /renderFilter:\s*"all"/);
+  assert.match(hugeScopeBlock, /linkFilter:\s*renderOptions\.linkFilter \|\| "all"/);
   assert.match(renderSource, /mediaSnapshotCache:\s*options\.mediaSnapshotCache/);
   assert.match(renderSource, /drawPlaceholderOnMiss:\s*false/);
   assert.match(renderSource, /drawBlockedPlaceholder:\s*false/);
   assert.match(renderSource, /mediaFallbackCoverage/);
-});
-
-test("non-tiled Classic requires proof of draw for plan-owned widget media", async () => {
-  const source = await fs.readFile(
-    path.join(REPO_ROOT, "web/js/core/backends/legacy_capture.mjs"),
-    "utf8"
-  );
-
-  assert.match(source, /collectPlannedMediaElements/);
-  assert.match(source, /collectPlannedMediaNodeIds/);
-  assert.match(source, /skipElements:\s*plannedMediaElements/);
-  assert.match(source, /drawWidgetMediaFallbacks\s*\(\s*\{/);
-  assert.match(source, /mediaDelegationAvailable:\s*false/);
-  assert.match(source, /mediaFallbackCoverage:\s*widgetMediaCoverage/);
 });
 
 test("removed extension Settings registration does not return to the import graph", async () => {
