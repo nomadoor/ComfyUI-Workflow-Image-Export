@@ -2,6 +2,12 @@
 
 This file defines working rules for coding agents in this repository.
 
+## Agent skills
+
+- Follow the engineering workflow in `docs/agents/workflow.md`.
+- Read `docs/agents/issue-tracker.md`, `docs/agents/labels.md`, and
+  `docs/agents/domain.md` before publishing work or changing domain guidance.
+
 ## Project Shape
 
 - This is a ComfyUI frontend extension for exporting workflow images.
@@ -38,6 +44,9 @@ This file defines working rules for coding agents in this repository.
 - Do not duplicate constants such as tile thresholds, max canvas edge, or default settings across modules unless there is a clear reason.
 - Do not add new supporting `.js` files under `web/`; use `.mjs` unless the file is intentionally a ComfyUI extension entry.
 - Do not introduce Vue or a build step just for the current legacy repair. The existing extension is loaded directly as browser ES modules.
+- Treat LiteGraph coordinate pairs by indexed numeric capability, not
+  `Array.isArray()`. Current frontend node positions and sizes use typed-array
+  views and proxies.
 
 ## Testing
 
