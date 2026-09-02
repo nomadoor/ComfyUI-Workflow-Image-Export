@@ -2,7 +2,10 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  buildOffscreenWidgetRenderPlan,
   buildWidgetRenderPlan,
+  collectPlannedMediaElements,
+  collectPlannedMediaNodeIds,
   collectPlannedWidgetIndexes,
   installPlannedWidgetDrawSuppression,
   joinWidgetRenderPlanToGraph,
@@ -21,10 +24,20 @@ class MockElement {
   }
 
   querySelector(selectors) {
-    for (const selector of selectors.split(",").map((value) => value.trim())) {
-      if (this.children.has(selector)) return this.children.get(selector);
+    const requested = new Set(selectors.split(",").map((value) => value.trim()));
+    for (const [selector, element] of this.children) {
+      if (requested.has(selector)) return element;
     }
     return null;
+  }
+
+  querySelectorAll(selectors) {
+    const requested = new Set(selectors.split(",").map((value) => value.trim()));
+    const found = [];
+    for (const [selector, element] of this.children) {
+      if (requested.has(selector) && !found.includes(element)) found.push(element);
+    }
+    return found;
   }
 }
 
@@ -335,6 +348,555 @@ test("media entries retain ownedElement only as a delegation hint", () => {
   assert.equal(plan[0].element, media);
 });
 
+test("DOM-free tiled planning retains live widget media by identity", () => {
+  const media = new MockElement();
+  const container = new MockElement({ children: new Map([["canvas", media]]) });
+  const liveGraph = {
+    nodes: [{
+      id: "41",
+      pos: [10, 20],
+      size: [240, 180],
+      widgets: [{
+        type: "preview:pano-7",
+        y: 40,
+        computedHeight: 120,
+        margin: 10,
+        element: container,
+      }],
+    }],
+  };
+  const exportGraph = {
+    nodes: [{
+      id: 41,
+      pos: [10, 20],
+      size: [240, 180],
+      widgets: [{
+        type: "preview:pano-7",
+        y: 40,
+        computedHeight: 120,
+        margin: 10,
+      }],
+    }],
+  };
+
+  const plan = buildOffscreenWidgetRenderPlan({
+    liveGraph,
+    exportGraph,
+    includeDomOverlays: false,
+  });
+
+  assert.equal(plan.length, 1);
+  assert.equal(plan[0].key, "41:0");
+  assert.equal(plan[0].source, "media");
+  assert.equal(plan[0].element, media);
+  assert.deepEqual(plan[0].graphRect, { x: 20, y: 70, w: 220, h: 100 });
+});
+
+test("offscreen planning retains transient live media absent from the clone", () => {
+  const media = new MockElement();
+  media.width = 320;
+  media.height = 180;
+  const container = new MockElement({ children: new Map([["canvas", media]]) });
+  const liveGraph = {
+    nodes: [{
+      id: 45,
+      pos: [10, 20],
+      size: [240, 180],
+      widgets: [{
+        type: "preview:pano-9",
+        y: 40,
+        computedHeight: 120,
+        margin: 10,
+        element: container,
+      }],
+    }],
+  };
+  const exportNode = {
+    id: "45",
+    pos: [100, 200],
+    size: [240, 180],
+    widgets: [],
+  };
+
+  const plans = [true, false].map((includeDomOverlays) =>
+    buildOffscreenWidgetRenderPlan({
+      liveGraph,
+      exportGraph: { nodes: [exportNode] },
+      includeDomOverlays,
+    })
+  );
+
+  for (const plan of plans) {
+    assert.equal(plan.length, 1);
+    assert.equal(plan[0].key, "45:live-media:0");
+    assert.equal(plan[0].widgetIndex, null);
+    assert.equal(plan[0].liveWidgetIndex, 0);
+    assert.equal(plan[0].element, media);
+    assert.deepEqual(plan[0].graphRect, { x: 110, y: 250, w: 220, h: 100 });
+    assert.deepEqual(plan[0].nodeGraphRect, { x: 100, y: 200, w: 240, h: 180 });
+  }
+
+  exportNode.pos = [120, 230];
+  const refreshed = joinWidgetRenderPlanToGraph(plans[0], { nodes: [exportNode] });
+  assert.deepEqual(refreshed[0].graphRect, { x: 130, y: 280, w: 220, h: 100 });
+});
+
+test("transient live media never claims a shifted ordinary clone widget", () => {
+  const media = new MockElement();
+  media.width = 320;
+  media.height = 180;
+  const container = new MockElement({ children: new Map([["canvas", media]]) });
+  const liveGraph = {
+    nodes: [{
+      id: 46,
+      pos: [10, 20],
+      size: [240, 180],
+      widgets: [
+        {
+          name: "transient_preview",
+          type: "preview:pano-10",
+          y: 40,
+          computedHeight: 120,
+          margin: 10,
+          element: container,
+        },
+        {
+          name: "filename_prefix",
+          type: "text",
+          value: "output",
+          y: 165,
+          computedHeight: 20,
+          margin: 4,
+        },
+      ],
+    }],
+  };
+  const ordinaryCloneWidget = {
+    name: "filename_prefix",
+    type: "text",
+    value: "output",
+    y: 30,
+    computedHeight: 20,
+    margin: 4,
+  };
+  const exportNode = {
+    id: "46",
+    pos: [100, 200],
+    size: [240, 180],
+    widgets: [ordinaryCloneWidget],
+  };
+
+  const plan = buildOffscreenWidgetRenderPlan({
+    liveGraph,
+    exportGraph: { nodes: [exportNode] },
+    includeDomOverlays: false,
+  });
+
+  assert.equal(plan.length, 1);
+  assert.equal(plan[0].key, "46:live-media:0");
+  assert.equal(plan[0].widgetIndex, null);
+  assert.equal(plan[0].liveWidgetIndex, 0);
+  assert.deepEqual(plan[0].graphRect, { x: 110, y: 250, w: 220, h: 100 });
+  assert.equal(collectPlannedWidgetIndexes(plan).has("46"), false);
+
+  const seenWidgets = [];
+  const canvas = {
+    drawNodeWidgets(node) {
+      seenWidgets.push([...node.widgets]);
+    },
+  };
+  const suppression = installPlannedWidgetDrawSuppression(canvas, plan);
+  canvas.drawNodeWidgets(exportNode);
+  suppression.restore();
+  assert.deepEqual(seenWidgets, [[ordinaryCloneWidget]]);
+});
+
+test("arbitrary dynamic media subtypes stay live-relative and suppress clone media once", () => {
+  const makeMediaWidget = (element, y) => ({
+    name: "preview",
+    type: "preview:runtime-alpha",
+    y,
+    computedHeight: 70,
+    margin: 10,
+    element: new MockElement({ children: new Map([["canvas", element]]) }),
+  });
+  const firstMedia = new MockElement();
+  firstMedia.width = 100;
+  firstMedia.height = 60;
+  const secondMedia = new MockElement();
+  secondMedia.width = 100;
+  secondMedia.height = 60;
+  const liveGraph = {
+    nodes: [{
+      id: 47,
+      pos: [10, 20],
+      size: [240, 200],
+      widgets: [
+        makeMediaWidget(firstMedia, 40),
+        makeMediaWidget(secondMedia, 120),
+      ],
+    }],
+  };
+  const cloneMediaWidget = {
+    name: "preview",
+    type: "preview:runtime-beta",
+    y: 40,
+    computedHeight: 70,
+    margin: 10,
+  };
+  const exportNode = {
+    id: "47",
+    pos: [100, 200],
+    size: [240, 200],
+    widgets: [cloneMediaWidget],
+  };
+  const cloneOnlyPlan = buildWidgetRenderPlan({
+    graph: { nodes: [exportNode] },
+    allowDom: false,
+  });
+  assert.equal(cloneOnlyPlan[0].source, "media");
+  assert.equal(cloneOnlyPlan[0].widgetIndex, 0);
+
+  const plan = buildOffscreenWidgetRenderPlan({
+    liveGraph,
+    exportGraph: { nodes: [exportNode] },
+    includeDomOverlays: false,
+  });
+
+  assert.deepEqual(plan.map((entry) => entry.key), [
+    "47:live-media:0",
+    "47:live-media:1",
+  ]);
+  assert.deepEqual(plan.map((entry) => entry.widgetIndex), [null, null]);
+  assert.deepEqual(plan.map((entry) => entry.element), [firstMedia, secondMedia]);
+  assert.deepEqual(plan.map((entry) => entry.suppressedCloneWidgetIndexes), [[0], []]);
+  assert.deepEqual([...collectPlannedWidgetIndexes(plan).get("47")], [0]);
+
+  const seenWidgets = [];
+  const canvas = {
+    drawNodeWidgets(node) {
+      seenWidgets.push([...node.widgets]);
+    },
+  };
+  const suppression = installPlannedWidgetDrawSuppression(canvas, plan);
+  canvas.drawNodeWidgets(exportNode);
+  suppression.restore();
+  assert.deepEqual(seenWidgets, [[]]);
+});
+
+test("type-only live media wrappers cannot displace clone placeholder ownership", () => {
+  const wrapper = new MockElement();
+  const liveGraph = {
+    nodes: [{
+      id: 48,
+      pos: [10, 20],
+      size: [240, 180],
+      widgets: [
+        {
+          name: "preview",
+          type: "preview",
+          y: 40,
+          computedHeight: 100,
+          margin: 10,
+          element: wrapper,
+        },
+        {
+          name: "runtime_only",
+          type: "button",
+          y: 145,
+          computedHeight: 20,
+        },
+      ],
+    }],
+  };
+  const exportGraph = {
+    nodes: [{
+      id: "48",
+      pos: [100, 200],
+      size: [240, 180],
+      widgets: [{
+        name: "preview",
+        type: "preview",
+        y: 40,
+        computedHeight: 100,
+        margin: 10,
+      }],
+    }],
+  };
+
+  const plan = buildOffscreenWidgetRenderPlan({
+    liveGraph,
+    exportGraph,
+    includeDomOverlays: false,
+  });
+
+  assert.equal(plan.length, 1);
+  assert.equal(plan[0].key, "48:0");
+  assert.equal(plan[0].source, "media");
+  assert.equal(plan[0].element, null);
+  assert.equal(plan[0].mediaDelegationEligible, false);
+  assert.deepEqual([...collectPlannedWidgetIndexes(plan).get("48")], [0]);
+});
+
+test("transient live media cannot displace unrelated clone media", () => {
+  const media = new MockElement();
+  media.width = 320;
+  media.height = 180;
+  const liveGraph = {
+    nodes: [{
+      id: 49,
+      pos: [10, 20],
+      size: [240, 180],
+      widgets: [{
+        name: "panorama",
+        type: "preview:pano-14",
+        y: 40,
+        computedHeight: 100,
+        margin: 10,
+        element: new MockElement({ children: new Map([["canvas", media]]) }),
+      }],
+    }],
+  };
+  const exportGraph = {
+    nodes: [{
+      id: "49",
+      pos: [100, 200],
+      size: [240, 180],
+      widgets: [{
+        name: "video_preview",
+        type: "video",
+        y: 40,
+        computedHeight: 100,
+        margin: 10,
+      }],
+    }],
+  };
+
+  const plan = buildOffscreenWidgetRenderPlan({
+    liveGraph,
+    exportGraph,
+    includeDomOverlays: false,
+  });
+
+  assert.deepEqual(plan.map((entry) => entry.key), [
+    "49:0",
+    "49:live-media:0",
+  ]);
+  assert.equal(plan[0].element, null);
+  assert.equal(plan[1].element, media);
+  assert.deepEqual(plan[1].suppressedCloneWidgetIndexes, []);
+  assert.deepEqual([...collectPlannedWidgetIndexes(plan).get("49")], [0]);
+});
+
+test("one concrete duplicate media suppresses only one clone duplicate", () => {
+  const media = new MockElement();
+  media.width = 320;
+  media.height = 180;
+  const sharedWidget = {
+    name: "preview",
+    type: "preview",
+    computedHeight: 70,
+    margin: 10,
+  };
+  const liveGraph = {
+    nodes: [{
+      id: 50,
+      pos: [10, 20],
+      size: [240, 200],
+      widgets: [
+        {
+          ...sharedWidget,
+          y: 40,
+          element: new MockElement({ children: new Map([["canvas", media]]) }),
+        },
+        {
+          ...sharedWidget,
+          y: 120,
+          element: new MockElement(),
+        },
+      ],
+    }],
+  };
+  const exportGraph = {
+    nodes: [{
+      id: "50",
+      pos: [100, 200],
+      size: [240, 200],
+      widgets: [
+        { ...sharedWidget, y: 40 },
+        { ...sharedWidget, y: 120 },
+      ],
+    }],
+  };
+
+  for (const includeDomOverlays of [false, true]) {
+    const plan = buildOffscreenWidgetRenderPlan({
+      liveGraph,
+      exportGraph,
+      includeDomOverlays,
+    });
+    const byKey = new Map(plan.map((entry) => [entry.key, entry]));
+
+    assert.deepEqual([...byKey.keys()].sort(), [
+      "50:1",
+      "50:live-media:0",
+    ]);
+    assert.equal(byKey.get("50:1").mediaDelegationEligible, false);
+    assert.equal(byKey.get("50:live-media:0").element, media);
+    assert.deepEqual(
+      byKey.get("50:live-media:0").suppressedCloneWidgetIndexes,
+      [0]
+    );
+    assert.deepEqual(
+      [...collectPlannedWidgetIndexes(plan).get("50")].sort(),
+      [0, 1]
+    );
+  }
+});
+
+test("planned widget media owns every media element in its DOM subtree", () => {
+  const video = new MockElement();
+  const image = new MockElement();
+  const wrapper = new MockElement({
+    children: new Map([
+      ["video", video],
+      ["img", image],
+    ]),
+  });
+  const unrelated = new MockElement();
+
+  const owned = collectPlannedMediaElements([
+    {
+      key: "41:0",
+      nodeId: 41,
+      widgetIndex: 0,
+      source: "media",
+      ownedElement: wrapper,
+      element: video,
+    },
+    {
+      key: "42:0",
+      nodeId: 42,
+      widgetIndex: 0,
+      source: "text",
+      ownedElement: unrelated,
+      element: unrelated,
+    },
+  ]);
+
+  assert.deepEqual([...owned], [video, image]);
+  assert.equal(owned.has(wrapper), false);
+  assert.equal(owned.has(unrelated), false);
+  assert.deepEqual([...collectPlannedMediaNodeIds([
+    { source: "media", nodeId: 41 },
+    { source: "media", nodeId: "41" },
+    { source: "text", nodeId: 42 },
+  ])], ["41"]);
+});
+
+test("VHS-style nested video and image remain under one planned widget owner", () => {
+  const video = new MockElement();
+  const image = new MockElement();
+  video.hidden = true;
+  image.hidden = false;
+  const wrapper = new MockElement({
+    children: new Map([
+      ["video", video],
+      ["img", image],
+    ]),
+  });
+  const graph = {
+    nodes: [{
+      id: 51,
+      type: "VHS_LoadVideo",
+      pos: [0, 0],
+      size: [240, 180],
+      widgets: [{
+        name: "videopreview",
+        type: "preview",
+        y: 40,
+        computedHeight: 120,
+        margin: 10,
+        element: wrapper,
+      }],
+    }],
+  };
+
+  const plan = buildWidgetRenderPlan({ graph, allowDom: true });
+  const owned = collectPlannedMediaElements(plan);
+
+  assert.equal(plan.length, 1);
+  assert.equal(plan[0].source, "media");
+  assert.equal(plan[0].element, image);
+  assert.equal(owned.has(video), true);
+  assert.equal(owned.has(image), true);
+  assert.equal(owned.size, 2);
+});
+
+test("VHS active media and clone geometry match in non-huge and huge plans", () => {
+  const video = new MockElement();
+  const image = new MockElement();
+  video.hidden = true;
+  image.hidden = false;
+  image.naturalWidth = 320;
+  image.naturalHeight = 180;
+  const wrapper = new MockElement({
+    children: new Map([
+      ["video", video],
+      ["img", image],
+    ]),
+  });
+  const liveGraph = {
+    nodes: [{
+      id: "61",
+      type: "VHS_LoadVideo",
+      pos: [5, 10],
+      size: [260, 190],
+      widgets: [{
+        name: "videopreview",
+        type: "preview",
+        y: 45,
+        computedHeight: 130,
+        margin: 10,
+        element: wrapper,
+      }],
+    }],
+  };
+  const exportGraph = {
+    nodes: [{
+      id: 61,
+      type: "VHS_LoadVideo",
+      pos: [100, 200],
+      size: [300, 220],
+      widgets: [{
+        name: "videopreview",
+        type: "preview",
+        y: 50,
+        computedHeight: 150,
+        margin: 10,
+      }],
+    }],
+  };
+
+  const nonHuge = buildOffscreenWidgetRenderPlan({
+    liveGraph,
+    exportGraph,
+    includeDomOverlays: true,
+  });
+  const huge = buildOffscreenWidgetRenderPlan({
+    liveGraph,
+    exportGraph,
+    includeDomOverlays: false,
+  });
+
+  for (const plan of [nonHuge, huge]) {
+    assert.equal(plan.length, 1);
+    assert.equal(plan[0].key, "61:0");
+    assert.equal(plan[0].element, image);
+    assert.deepEqual(plan[0].graphRect, { x: 110, y: 260, w: 280, h: 130 });
+  }
+});
+
 test("type-only media wrappers are not eligible for DOM media delegation", () => {
   const wrapper = new MockElement();
   const graph = {
@@ -383,6 +945,32 @@ test("DOM-free media plans suppress native media without inventing a text fallba
   assert.equal(plan[0].element, null);
   assert.equal(plan[0].mediaDelegationEligible, false);
   assert.deepEqual([...collectPlannedWidgetIndexes(plan).get("14")], [0]);
+});
+
+test("colon-delimited canvas and image runtime types use their media family", () => {
+  for (const [index, type] of ["canvas:runtime-42", "image:session-7"].entries()) {
+    const plan = buildWidgetRenderPlan({
+      graph: {
+        nodes: [{
+          id: 140 + index,
+          pos: [0, 0],
+          size: [220, 120],
+          widgets: [{
+            name: "media",
+            type,
+            y: 30,
+            computedHeight: 80,
+            margin: 4,
+          }],
+        }],
+      },
+      allowDom: false,
+    });
+
+    assert.equal(plan.length, 1);
+    assert.equal(plan[0].source, "media");
+    assert.equal(plan[0].mediaDelegationEligible, false);
+  }
 });
 
 test("selection filtering happens while the plan is built", () => {

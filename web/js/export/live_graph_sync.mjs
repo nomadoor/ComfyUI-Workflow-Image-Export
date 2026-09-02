@@ -1,11 +1,3 @@
-import { collectNodeRects } from "../core/backends/legacy_bounds.mjs";
-import {
-  collectDomWidgetContainers,
-  collectVideoElementsFromDom,
-  getDomElementGraphRect,
-  getNodeIdFromElement,
-  resolveNodeIdForGraphRect,
-} from "../core/overlays/dom_utils.mjs";
 import { toNodeIdKey } from "../core/node_ids.mjs";
 
 function buildNodeIdMap(graph) {
@@ -16,6 +8,48 @@ function buildNodeIdMap(graph) {
     if (id !== null) byId.set(id, node);
   }
   return byId;
+}
+
+function toFinitePair(value) {
+  if (
+    !value ||
+    typeof value !== "object" ||
+    !Number.isFinite(Number(value[0])) ||
+    !Number.isFinite(Number(value[1]))
+  ) {
+    return null;
+  }
+  return [Number(value[0]), Number(value[1])];
+}
+
+function writeGeometryPair(node, publicKey, privateKey, pair) {
+  const target = node?.[privateKey];
+  if (target && typeof target.set === "function") {
+    target.set(pair);
+    return;
+  }
+  if (target && typeof target === "object") {
+    target[0] = pair[0];
+    target[1] = pair[1];
+    return;
+  }
+  node[publicKey] = [...pair];
+}
+
+function cloneExportState(value) {
+  if (value === undefined || value === null || typeof value !== "object") {
+    return value;
+  }
+  try {
+    if (typeof structuredClone === "function") {
+      return structuredClone(value);
+    }
+  } catch (_) {}
+  try {
+    return JSON.parse(JSON.stringify(value));
+  } catch (_) {
+    return undefined;
+  }
 }
 
 function syncLiveNodeText(exportGraph, liveGraph) {
@@ -38,17 +72,19 @@ function syncLiveNodeText(exportGraph, liveGraph) {
     if (!liveNode) continue;
 
     if (liveNode.widgets_values !== undefined) {
-      node.widgets_values = liveNode.widgets_values;
+      const snapshot = cloneExportState(liveNode.widgets_values);
+      if (snapshot !== undefined) node.widgets_values = snapshot;
     }
     if (liveNode.properties !== undefined) {
-      node.properties = liveNode.properties;
+      const snapshot = cloneExportState(liveNode.properties);
+      if (snapshot !== undefined) node.properties = snapshot;
     }
     if (Number.isFinite(liveNode.widgets_start_y)) {
       node.widgets_start_y = liveNode.widgets_start_y;
     }
     if (Array.isArray(node.widgets) && Array.isArray(liveNode.widgets)) {
       const count = Math.min(node.widgets.length, liveNode.widgets.length);
-      const widgetsValues = liveNode.widgets_values;
+      const widgetsValues = node.widgets_values;
       const widgetsValuesKeys =
         widgetsValues && typeof widgetsValues === "object" && !Array.isArray(widgetsValues)
           ? Object.keys(widgetsValues)
@@ -86,9 +122,9 @@ function syncLiveNodeText(exportGraph, liveGraph) {
         ) {
           value = widgetsValues[widgetsValueKey];
         }
-        if (value === undefined && liveNode.properties && typeof liveNode.properties === "object") {
-          if (widgetName && liveNode.properties[widgetName] !== undefined) {
-            value = liveNode.properties[widgetName];
+        if (value === undefined && node.properties && typeof node.properties === "object") {
+          if (widgetName && node.properties[widgetName] !== undefined) {
+            value = node.properties[widgetName];
           }
         }
 
@@ -159,18 +195,6 @@ function syncLiveNodeText(exportGraph, liveGraph) {
         }
       }
     }
-    if (typeof node.computeSize === "function") {
-      try {
-        const nextSize = node.computeSize([node.size?.[0], node.size?.[1]]);
-        if (Array.isArray(nextSize) && nextSize.length >= 2) {
-          if (typeof node.setSize === "function") {
-            node.setSize([Number(nextSize[0]), Number(nextSize[1])]);
-          } else {
-            node.size = [Number(nextSize[0]), Number(nextSize[1])];
-          }
-        }
-      } catch (_) {}
-    }
   }
 }
 
@@ -179,80 +203,28 @@ function syncLiveNodeGeometry(exportGraph, liveGraph) {
   const liveById = buildNodeIdMap(liveGraph);
   if (!liveById.size || !exportNodes.length) return;
 
-  const isValidPair = (pair) => Array.isArray(pair) && pair.length >= 2
-    && Number.isFinite(Number(pair[0]))
-    && Number.isFinite(Number(pair[1]));
-
   for (const node of exportNodes) {
     const id = toNodeIdKey(node?.id);
     if (id === null) continue;
     const liveNode = liveById.get(id);
     if (!liveNode) continue;
 
-    const livePos = liveNode.pos || liveNode._pos;
-    if (isValidPair(livePos)) {
-      node.pos = [Number(livePos[0]), Number(livePos[1])];
+    const livePos = toFinitePair(liveNode.pos || liveNode._pos);
+    if (livePos) {
+      writeGeometryPair(node, "pos", "_pos", livePos);
     }
 
-    const liveSize = liveNode.size || liveNode._size;
-    if (isValidPair(liveSize)) {
-      node.size = [Number(liveSize[0]), Number(liveSize[1])];
+    const liveSize = toFinitePair(liveNode.size || liveNode._size);
+    if (liveSize) {
+      writeGeometryPair(node, "size", "_size", liveSize);
     }
-  }
-}
 
-function resizeNodeForDomRect(exportNode, rect) {
-  const nodePos = exportNode.pos || exportNode._pos;
-  const nodeSize = exportNode.size || exportNode._size;
-  if (!Array.isArray(nodePos) || !Array.isArray(nodeSize) || nodePos.length < 2 || nodeSize.length < 2) {
-    return;
-  }
-
-  const requiredHeight = Math.ceil(rect.y + rect.h - Number(nodePos[1]));
-  if (Number.isFinite(requiredHeight) && requiredHeight > Number(nodeSize[1])) {
-    exportNode.size = [Number(nodeSize[0]), requiredHeight];
-  }
-}
-
-function syncLiveDomWidgetHeights(exportGraph, uiCanvas) {
-  const exportById = buildNodeIdMap(exportGraph);
-  if (!exportById.size || !uiCanvas) return;
-
-  const nodeRects = collectNodeRects(exportGraph, null);
-  const widgets = collectDomWidgetContainers(uiCanvas);
-  for (const widget of widgets) {
-    if (!(widget instanceof HTMLElement)) continue;
-    if (!widget.querySelector?.("video, img, canvas")) continue;
-
-    const rect = getDomElementGraphRect(widget, uiCanvas);
-    if (!rect || rect.h <= 0) continue;
-
-    const nodeId = resolveNodeIdForGraphRect(
-      nodeRects,
-      rect,
-      getNodeIdFromElement(widget)
-    );
-    if (nodeId === null) continue;
-
-    const exportNode = exportById.get(nodeId);
-    if (exportNode) resizeNodeForDomRect(exportNode, rect);
-  }
-
-  const videos = collectVideoElementsFromDom(uiCanvas);
-  for (const video of videos) {
-    if (!(video instanceof HTMLVideoElement)) continue;
-    const rect = getDomElementGraphRect(video, uiCanvas);
-    if (!rect || rect.h <= 0) continue;
-
-    const nodeId = resolveNodeIdForGraphRect(
-      nodeRects,
-      rect,
-      getNodeIdFromElement(video)
-    );
-    if (nodeId === null) continue;
-
-    const exportNode = exportById.get(nodeId);
-    if (exportNode) resizeNodeForDomRect(exportNode, rect);
+    // LiteGraph caches the measured title width while a node is collapsed.
+    // measure() has no drawing context in the bbox pass, so preserve the live
+    // cache to avoid cropping long collapsed titles to the default width.
+    if (Number.isFinite(Number(liveNode._collapsed_width))) {
+      node._collapsed_width = Number(liveNode._collapsed_width);
+    }
   }
 }
 
@@ -261,14 +233,6 @@ function syncLiveGroups(exportGraph, liveGraph) {
   const liveGroups = liveGraph?._groups || liveGraph?.groups || [];
   if (!exportGroups.length || !liveGroups.length) return;
 
-  const normalizePos = (pos) => {
-    if (Array.isArray(pos) && pos.length >= 2) return [pos[0], pos[1]];
-    return null;
-  };
-  const normalizeSize = (size) => {
-    if (Array.isArray(size) && size.length >= 2) return [size[0], size[1]];
-    return null;
-  };
   const distanceSq = (a, b) => {
     if (!a || !b) return Number.POSITIVE_INFINITY;
     const dx = a[0] - b[0];
@@ -297,11 +261,11 @@ function syncLiveGroups(exportGraph, liveGraph) {
       if (sameTitle.length === 1) {
         liveGroup = sameTitle[0];
       } else if (sameTitle.length > 1) {
-        const exportPos = normalizePos(exportGroup.pos || exportGroup._pos);
+        const exportPos = toFinitePair(exportGroup.pos || exportGroup._pos);
         let best = null;
         let bestDist = Number.POSITIVE_INFINITY;
         for (const candidate of sameTitle) {
-          const candPos = normalizePos(candidate.pos || candidate._pos);
+          const candPos = toFinitePair(candidate.pos || candidate._pos);
           const dist = distanceSq(exportPos, candPos);
           if (dist < bestDist) {
             bestDist = dist;
@@ -319,20 +283,22 @@ function syncLiveGroups(exportGraph, liveGraph) {
 
     if (!liveGroup) continue;
 
-    const livePos = normalizePos(liveGroup.pos || liveGroup._pos);
-    const liveSize = normalizeSize(liveGroup.size || liveGroup._size);
+    const livePos = toFinitePair(liveGroup.pos || liveGroup._pos);
+    const liveSize = toFinitePair(liveGroup.size || liveGroup._size);
     if (livePos) {
-      exportGroup.pos = [...livePos];
+      writeGeometryPair(exportGroup, "pos", "_pos", livePos);
     }
     if (liveSize) {
-      exportGroup.size = [...liveSize];
+      writeGeometryPair(exportGroup, "size", "_size", liveSize);
     }
   }
 }
 
 export function syncLiveGraphState(exportGraph, liveGraph, uiCanvas) {
-  syncLiveNodeGeometry(exportGraph, liveGraph);
+  void uiCanvas;
   syncLiveNodeText(exportGraph, liveGraph);
-  syncLiveDomWidgetHeights(exportGraph, uiCanvas);
+  // The live graph is the visual source of truth; clone sizing hooks must not
+  // replace the position or size the user is viewing.
+  syncLiveNodeGeometry(exportGraph, liveGraph);
   syncLiveGroups(exportGraph, liveGraph);
 }

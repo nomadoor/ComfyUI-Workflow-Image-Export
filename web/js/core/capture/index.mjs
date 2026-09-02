@@ -1,13 +1,16 @@
 import { app } from "/scripts/app.js";
 import { detectBackend } from "../detect.mjs?v=20260825-2";
-import { captureLegacy } from "../backends/legacy_capture.mjs?v=20260825-2";
-import { captureNode2 } from "../backends/node2_compositor_capture.mjs?v=20260825-2";
+import { captureLegacy } from "../backends/legacy_capture.mjs?v=20260903-16";
+import { captureNode2 } from "../backends/node2_compositor_capture.mjs?v=20260903-16";
 import { applyBackground, downscaleIfNeeded } from "../postprocess/raster.mjs";
-import { exportWorkflowPng } from "../../export/index.mjs?v=20260825-2";
-import { computeGraphBBox } from "../../export/bbox.mjs";
+import { exportWorkflowPng } from "../../export/index.mjs?v=20260903-16";
+import { computeGraphBBox } from "../../export/bbox.mjs?v=20260903-16";
 import { resolveRasterExceedPlan } from "../../export/limits.mjs?v=20260825-2";
 import { embedWorkflowInPngBlob } from "../../export/png_embed_workflow.mjs";
-import { attachCaptureWarnings } from "./warnings.mjs";
+import {
+  attachCaptureWarnings,
+  partitionCaptureNotices,
+} from "./warnings.mjs?v=20260903-16";
 import { resolveOutputResolutionScale } from "../output_scale.mjs?v=20260825-2";
 import {
   getSelectedNodeIdsFromApp,
@@ -145,13 +148,17 @@ export async function capture(options = {}) {
 
 
   if (normalized.format === "png" || normalized.format === "webp") {
-    const warnings = result?.cwieWarnings || result?.blob?.cwieWarnings;
+    const notices = result?.cwieWarnings || result?.blob?.cwieWarnings;
+    const { diagnostics, warnings } = partitionCaptureNotices(notices);
     if (warnings?.length) {
       console.warn("[workflow-image-export] export warnings", warnings);
     }
+    if (normalized.debug && diagnostics.length) {
+      console.debug("[workflow-image-export] export diagnostics", diagnostics);
+    }
     const forceTile =
       normalized.exceedMode === "tile" ||
-      warnings?.includes?.("render:tiled-png");
+      diagnostics.includes("render:tiled-png");
     const scaled = forceTile ? result : await downscaleIfNeeded(result, normalized);
     if (normalized.format === "png" && normalized.embedWorkflow) {
       const workflowJson = getWorkflowJson();
@@ -165,13 +172,17 @@ export async function capture(options = {}) {
   }
 
   const withBg = await applyBackground(result, normalized);
-  const warnings = result?.cwieWarnings || result?.blob?.cwieWarnings;
+  const notices = result?.cwieWarnings || result?.blob?.cwieWarnings;
+  const { diagnostics, warnings } = partitionCaptureNotices(notices);
   if (warnings?.length && withBg && !withBg.cwieWarnings) {
     withBg.cwieWarnings = warnings;
   }
+  if (normalized.debug && diagnostics.length) {
+    console.debug("[workflow-image-export] export diagnostics", diagnostics);
+  }
   const forceTile =
     normalized.exceedMode === "tile" ||
-    warnings?.includes?.("render:tiled-png");
+    diagnostics.includes("render:tiled-png");
   const scaled = forceTile ? withBg : await downscaleIfNeeded(withBg, normalized);
   return attachCaptureWarnings(scaled.blob, warnings);
 }

@@ -34,11 +34,13 @@ import {
 } from "./legacy_dom_text_overlays.mjs";
 import {
   buildWidgetRenderPlan,
+  collectPlannedMediaElements,
+  collectPlannedMediaNodeIds,
   installPlannedWidgetDrawSuppression,
-} from "./widget_render_plan.mjs?v=20260825-2";
+} from "./widget_render_plan.mjs?v=20260903-16";
 import {
   drawPlannedWidgetOverlays,
-} from "./widget_overlay_renderer.mjs?v=20260825-2";
+} from "./widget_overlay_renderer.mjs?v=20260903-16";
 import {
   createWidgetTextTrace,
 } from "./legacy_widget_text_trace.mjs";
@@ -47,9 +49,12 @@ import {
   drawVideoOverlays,
   drawVhsVideoOverlays,
   logDomMedia,
-} from "./legacy_media_overlays.mjs";
-import { drawVideoThumbnails } from "../../export/fallback_media_overlays.mjs?v=20260825-2";
+} from "./legacy_media_overlays.mjs?v=20260903-16";
+import { drawVideoThumbnails } from "../../export/fallback_media_overlays.mjs?v=20260903-16";
 import { resolveOutputResolutionScale } from "../output_scale.mjs?v=20260825-2";
+import { createLiveRenderGuard } from "./live_render_guard.mjs?v=20260903-16";
+import { createLiteGraphMeasureTextGuard } from "./litegraph_measure_text_guard.mjs?v=20260903-16";
+import { drawWidgetMediaFallbacks } from "../../export/widget_media_fallback.mjs?v=20260903-16";
 
 function computeExportScale(srcW, srcH, options, debugLog) {
   const resolutionScale = resolveOutputResolutionScale(options?.outputResolution);
@@ -162,16 +167,41 @@ export async function captureLegacy(options = {}) {
   }
 
   const restoreDpr = overrideDevicePixelRatio(1, debugLog);
-  const offscreen = new LGraphCanvasRef(exportCanvas, graph);
-  // LGraphCanvas may start its own requestAnimationFrame loop in the
-  // constructor. Export rendering is explicitly driven below.
+  let dprRestored = false;
+  const releaseDpr = () => {
+    if (dprRestored) return;
+    dprRestored = true;
+    restoreDpr?.();
+  };
+  let liveRenderGuard = null;
+  const measureTextGuard = createLiteGraphMeasureTextGuard(LGraphCanvasRef);
+  let offscreen;
+  let offscreenReleased = false;
+  const releaseOffscreen = () => {
+    if (offscreenReleased) return;
+    offscreenReleased = true;
+    try { if (typeof offscreen?.stopRendering === "function") offscreen.stopRendering(); } catch (_) {}
+    try { if (typeof offscreen?.setCanvas === "function") offscreen.setCanvas(null); } catch (_) {}
+    try { if (typeof offscreen?.unbind_events === "function") offscreen.unbind_events(); } catch (_) {}
+    liveRenderGuard?.restore();
+    measureTextGuard.restore();
+  };
   try {
+    liveRenderGuard = createLiveRenderGuard(graph, uiCanvas);
+    offscreen = new LGraphCanvasRef(exportCanvas, graph);
+    liveRenderGuard.trackGraphCanvas(offscreen);
+    // LGraphCanvas may start its own requestAnimationFrame loop in the
+    // constructor. Export rendering is explicitly driven below.
     if (typeof offscreen.stopRendering === "function") {
       offscreen.stopRendering();
     }
-  } catch (_) {}
-  offscreen.canvas = exportCanvas;
-  offscreen.ctx = exportCtx;
+    offscreen.canvas = exportCanvas;
+    offscreen.ctx = exportCtx;
+  } catch (error) {
+    releaseOffscreen();
+    releaseDpr();
+    throw error;
+  }
   let widgetTextTrace = null;
 
   try {
@@ -209,6 +239,8 @@ export async function captureLegacy(options = {}) {
         },
       })
     );
+    const plannedMediaElements = collectPlannedMediaElements(widgetPlan);
+    const plannedMediaNodeIds = collectPlannedMediaNodeIds(widgetPlan);
     if (debug) {
       widgetTextTrace = createWidgetTextTrace({
         ctx: exportCtx,
@@ -295,11 +327,23 @@ export async function captureLegacy(options = {}) {
     } finally {
       nativeWidgetSuppression?.restore();
     }
+    // The temporary LGraphCanvas has finished touching the live graph. Restore
+    // immediately so later async media/toBlob work cannot overwrite legitimate
+    // UI updates that happen while the export is still running.
+    releaseOffscreen();
+    releaseDpr();
     widgetTextTrace?.setStage("dom.image.overlays");
     measurePerf(
       perfLog,
       "dom.image.overlays",
-      () => drawImageOverlays({ exportCtx, uiCanvas, bounds, scale, debugLog })
+      () => drawImageOverlays({
+        exportCtx,
+        uiCanvas,
+        bounds,
+        scale,
+        debugLog,
+        skipElements: plannedMediaElements,
+      })
     );
     widgetTextTrace?.setStage("dom.video.overlays");
     await measurePerfAsync(
@@ -314,7 +358,12 @@ export async function captureLegacy(options = {}) {
           scale,
           nodeRects,
           debugLog,
+          skipElements: plannedMediaElements,
         });
+        const videoThumbnailSkipNodeIds = new Set([
+          ...plannedMediaNodeIds,
+          ...drawnVideoNodeIds,
+        ]);
         await drawVideoThumbnails({
           exportCtx,
           graph,
@@ -322,7 +371,7 @@ export async function captureLegacy(options = {}) {
           bounds,
           scale,
           debugLog,
-          skipNodeIds: drawnVideoNodeIds,
+          skipNodeIds: videoThumbnailSkipNodeIds,
           drawPlaceholderOnMiss: false,
           selectedNodeIds: options.selectedNodeIds,
           renderFilter: options.renderFilter || "all",
@@ -333,7 +382,26 @@ export async function captureLegacy(options = {}) {
     measurePerf(
       perfLog,
       "dom.vhs.overlays",
-      () => drawVhsVideoOverlays({ exportCtx, uiCanvas, bounds, scale, debugLog })
+      () => drawVhsVideoOverlays({
+        exportCtx,
+        uiCanvas,
+        bounds,
+        scale,
+        debugLog,
+        skipElements: plannedMediaElements,
+      })
+    );
+    const widgetMediaCoverage = await measurePerfAsync(
+      perfLog,
+      "dom.widget-media.overlays",
+      () => drawWidgetMediaFallbacks({
+        exportCtx,
+        plan: widgetPlan,
+        bounds,
+        scale,
+        mediaSnapshotCache: new Map(),
+        debugLog,
+      })
     );
     widgetTextTrace?.setStage("widget.plan.draw");
     await measurePerfAsync(
@@ -345,7 +413,8 @@ export async function captureLegacy(options = {}) {
         bounds,
         scale,
         options: {
-          mediaDelegationAvailable: true,
+          mediaDelegationAvailable: false,
+          mediaFallbackCoverage: widgetMediaCoverage,
           skipWidgetCapture:
             options?.skipWidgetCapture === true ||
             options?.skipDomWidgetOverlays === true,
@@ -424,9 +493,7 @@ export async function captureLegacy(options = {}) {
     };
   } finally {
     widgetTextTrace?.restore();
-    try { if (typeof offscreen.stopRendering === "function") offscreen.stopRendering(); } catch (_) {}
-    try { if (typeof offscreen.setCanvas === "function") offscreen.setCanvas(null); } catch (_) {}
-    try { if (typeof offscreen.unbind_events === "function") offscreen.unbind_events(); } catch (_) {}
-    restoreDpr?.();
+    releaseOffscreen();
+    releaseDpr();
   }
 }
