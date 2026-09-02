@@ -7,12 +7,12 @@ import {
   EXTRACT_BG_1,
   EXTRACT_BG_2,
 } from "./background_modes.mjs";
-import { computeOffscreenBBox, renderGraphOffscreen } from "./render_graph_offscreen.mjs?v=20260825-2";
+import { computeOffscreenBBox, renderGraphOffscreen } from "./render_graph_offscreen.mjs?v=20260903-16";
 import { embedWorkflowInPngBlob } from "./png_embed_workflow.mjs";
 import { shouldTile } from "./limits.mjs?v=20260825-2";
 import { clampPngCompression } from "./tiled_png_encoder.mjs";
 import { isCanvasTransparent, recoverTransparentCanvas } from "./transparent_recovery.mjs";
-import { renderTiled, renderTiledPng } from "./tiled_render.mjs?v=20260825-2";
+import { renderTiled, renderTiledPng } from "./tiled_render.mjs?v=20260903-16";
 
 function getNowMs() {
   if (typeof performance !== "undefined" && typeof performance.now === "function") {
@@ -220,6 +220,8 @@ export async function exportWorkflowPng(workflowJson, options = {}) {
     renderOptions = {
       ...renderOptions,
       renderScaleFactor: scale,
+      // Freeze widget-owned canvas/img/video once for every tile and scope pass.
+      mediaSnapshotCache: new Map(),
     };
   }
   if (tileEnabled) {
@@ -248,17 +250,21 @@ export async function exportWorkflowPng(workflowJson, options = {}) {
       ...renderOptions,
       renderScaleFactor: scale,
       includeDomOverlays: false,
-      mediaMode: "off",
+      mediaMode: "force",
+      mediaSnapshotCache: renderOptions.mediaSnapshotCache || new Map(),
     };
   }
 
   if (huge && scopeSelected) {
-    warnings.push("scope:disabled_for_huge");
+    warnings.push("scope:opacity_disabled_for_huge");
     renderOptions = {
       ...renderOptions,
-      renderFilter: "none",
-      linkFilter: "none",
-      cropToSelection: false,
+      // The huge encoder cannot afford the multi-pass dimming composite, but
+      // selection cropping must still produce a real graph instead of deleting
+      // every node. Preserve the caller's link policy as well.
+      renderFilter: "all",
+      linkFilter: renderOptions.linkFilter || "all",
+      cropToSelection: true,
       includeDomOverlays: false,
       ...(previewFast
         ? {

@@ -1,7 +1,7 @@
 import { app } from "/scripts/app.js";
 import { getSettingsAccess } from "../detect.mjs?v=20260825-2";
 import { toNodeIdKey } from "../node_ids.mjs";
-import { computeGraphBBox } from "../../export/bbox.mjs";
+import { computeGraphBBox } from "../../export/bbox.mjs?v=20260903-16";
 import {
   NODE2_MATTE_BG_A,
   NODE2_MATTE_BG_B,

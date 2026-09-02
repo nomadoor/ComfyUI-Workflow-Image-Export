@@ -4,11 +4,11 @@ import {
   detectBackendType,
   isNode2UnsupportedError,
   isWebpHugeUnsupportedError,
-} from "../core/capture/index.mjs?v=20260825-2";
-import { getNode2WarningMessage } from "../core/capture/warnings.mjs";
-import { captureLegacy } from "../core/backends/legacy_capture.mjs?v=20260825-2";
+} from "../core/capture/index.mjs?v=20260903-16";
+import { getExportWarningMessage } from "../core/capture/warnings.mjs?v=20260903-16";
+import { captureLegacy } from "../core/backends/legacy_capture.mjs?v=20260903-16";
 import { triggerDownload } from "../core/download.mjs";
-import { computeGraphBBox } from "../export/bbox.mjs";
+import { computeGraphBBox } from "../export/bbox.mjs?v=20260903-16";
 import { loadLastUsed, saveLastUsed } from "../core/storage.mjs";
 import {
   getSelectedNodeIdsFromApp,
@@ -41,6 +41,7 @@ import {
   createSelect,
   createToggle,
 } from "./elements.mjs?v=20260825-2";
+import { runSingleFlight } from "./single_flight.mjs?v=20260903-16";
 
 let activeDialog = null;
 let activeMessageDialog = null;
@@ -915,7 +916,7 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
   exportProgressText.textContent = "0%";
   exportButton.append(exportSpinner, exportLabel, exportProgressText);
 
-  exportButton.addEventListener("click", async () => {
+  const performExport = async () => {
     if (webpBlocked) {
       openMessageDialog({
         title: "WebP not supported for huge exports",
@@ -968,13 +969,6 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
           isNode2Backend: true,
           onProgress: updateExportProgress,
         }));
-        const warningMessage = getNode2WarningMessage(blob?.cwieWarnings);
-        if (warningMessage) {
-          messageDialogPayload = {
-            title: "Node 2.0 export warning",
-            message: warningMessage,
-          };
-        }
         logExportPhase("capture.node2.done");
       } else {
         logExportPhase("capture.start");
@@ -982,6 +976,13 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
           onProgress: updateExportProgress,
         }));
         logExportPhase("capture.done");
+      }
+      const warningMessage = getExportWarningMessage(blob?.cwieWarnings);
+      if (warningMessage) {
+        messageDialogPayload = {
+          title: isNode2Backend ? "Node 2.0 export warning" : "Export warning",
+          message: warningMessage,
+        };
       }
       if (!dialogClosed) {
         closeDialog();
@@ -1045,6 +1046,13 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
         openMessageDialog(messageDialogPayload);
       }
     }
+  };
+  exportButton.addEventListener("click", () => {
+    void runSingleFlight(
+      window.__cwie__ || (window.__cwie__ = {}),
+      "exportAttemptPromise",
+      performExport
+    );
   });
 
   footerRight.appendChild(cancelButton);

@@ -7,6 +7,44 @@ import {
   drawBlockedMediaPlaceholder,
   drawMediaSafely,
 } from "./safe_media_draw.mjs";
+import {
+  toNodeIdKey,
+} from "../node_ids.mjs";
+
+function graphRectContains(container, candidate) {
+  if (!container || !candidate) return false;
+  const left = Number(container.x ?? container.left);
+  const top = Number(container.y ?? container.top);
+  const right = Number(container.right ?? (left + Number(container.w ?? container.width)));
+  const bottom = Number(container.bottom ?? (top + Number(container.h ?? container.height)));
+  const candidateLeft = Number(candidate.x ?? candidate.left);
+  const candidateTop = Number(candidate.y ?? candidate.top);
+  const candidateRight = Number(
+    candidate.right ?? (candidateLeft + Number(candidate.w ?? candidate.width))
+  );
+  const candidateBottom = Number(
+    candidate.bottom ?? (candidateTop + Number(candidate.h ?? candidate.height))
+  );
+  if (![left, top, right, bottom, candidateLeft, candidateTop, candidateRight, candidateBottom]
+    .every(Number.isFinite)) return false;
+  const epsilon = 0.01;
+  return (
+    left <= candidateLeft + epsilon &&
+    top <= candidateTop + epsilon &&
+    right + epsilon >= candidateRight &&
+    bottom + epsilon >= candidateBottom
+  );
+}
+
+function isCoveredByMediaFallback(entry, coverageByNodeId) {
+  if (!(coverageByNodeId instanceof Map)) return false;
+  const nodeId = toNodeIdKey(entry?.nodeId);
+  if (nodeId === null) return false;
+  const coverage = coverageByNodeId.get(nodeId);
+  return Array.isArray(coverage) && coverage.some((rect) =>
+    graphRectContains(rect, entry.graphRect)
+  );
+}
 
 function intersectGraphRects(a, b) {
   if (!a || !b) return null;
@@ -132,6 +170,7 @@ export async function drawPlannedWidgetOverlays({
   let mediaPlaceholder = 0;
   let skippedDuplicate = 0;
   let skippedOutside = 0;
+  const mediaFallbackCoverage = options.mediaFallbackCoverage;
 
   // Offscreen tiled rendering rebuilds the plan for each tile. A widget may
   // therefore be drawn once in every tile it intersects; uniqueness is per tile.
@@ -148,6 +187,10 @@ export async function drawPlannedWidgetOverlays({
     }
 
     if (entry.source === "media") {
+      if (isCoveredByMediaFallback(entry, mediaFallbackCoverage)) {
+        delegated += 1;
+        continue;
+      }
       // Delegation is valid only when the caller actually ran the media overlay
       // suite and this entry retained a DOM-owned media element. Native widget
       // drawing was already suppressed, so every other media entry must claim

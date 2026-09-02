@@ -15,6 +15,12 @@ const MEDIA_SELECTORS = "canvas, img, video";
 const MULTILINE_TYPES = new Set(["textarea", "customtext", "markdown"]);
 const MEDIA_TYPES = new Set(["canvas", "image", "preview", "video"]);
 
+function normalizeWidgetType(value) {
+  const type = String(value || "").toLowerCase();
+  const subtypeAt = type.indexOf(":");
+  return subtypeAt < 0 ? type : type.slice(0, subtypeAt);
+}
+
 function isInstance(value, ctorName) {
   const ctor = globalThis[ctorName];
   return typeof ctor === "function" && value instanceof ctor;
@@ -28,6 +34,40 @@ function findElement(root, selectors) {
   if (!root) return null;
   if (typeof root.matches === "function" && root.matches(selectors)) return root;
   return root.querySelector?.(selectors) || null;
+}
+
+function getMediaIntrinsicArea(element) {
+  const width = Number(
+    element?.videoWidth || element?.naturalWidth || element?.width
+  );
+  const height = Number(
+    element?.videoHeight || element?.naturalHeight || element?.height
+  );
+  return width > 0 && height > 0 ? width * height : 0;
+}
+
+function findActiveMediaElement(root) {
+  if (!root) return null;
+  const candidates = [];
+  if (
+    isInstance(root, "HTMLCanvasElement") ||
+    isInstance(root, "HTMLImageElement") ||
+    isInstance(root, "HTMLVideoElement")
+  ) {
+    candidates.push(root);
+  }
+  if (typeof root.querySelectorAll === "function") {
+    candidates.push(...root.querySelectorAll(MEDIA_SELECTORS));
+  } else {
+    const first = findElement(root, MEDIA_SELECTORS);
+    if (first) candidates.push(first);
+  }
+  const unique = [...new Set(candidates)];
+  return unique.find((element) => element?.hidden !== true && getMediaIntrinsicArea(element) > 0)
+    || unique.find((element) => element?.hidden !== true)
+    || unique.find((element) => getMediaIntrinsicArea(element) > 0)
+    || unique[0]
+    || null;
 }
 
 function getWidgetText(node, widget, widgetIndex) {
@@ -155,6 +195,7 @@ function getDomStyle(element) {
 
 function classifyWidget(widget, ownedElement) {
   const type = String(widget?.type || "").toLowerCase();
+  const typeFamily = normalizeWidgetType(type);
   const markdownElement = findElement(ownedElement, MARKDOWN_SELECTORS);
   if (type === "markdown" || markdownElement) {
     return {
@@ -177,15 +218,9 @@ function classifyWidget(widget, ownedElement) {
     };
   }
 
-  const directMediaElement =
-    isInstance(ownedElement, "HTMLCanvasElement") ||
-    isInstance(ownedElement, "HTMLImageElement") ||
-    isInstance(ownedElement, "HTMLVideoElement")
-      ? ownedElement
-      : null;
-  const mediaElement = findElement(ownedElement, MEDIA_SELECTORS) || directMediaElement;
+  const mediaElement = findActiveMediaElement(ownedElement);
   if (
-    MEDIA_TYPES.has(type) ||
+    MEDIA_TYPES.has(typeFamily) ||
     mediaElement
   ) {
     return {
@@ -266,6 +301,10 @@ export function buildWidgetRenderPlan({
         key,
         nodeId: node.id,
         widgetIndex,
+        ...(source === "media" ? {
+          widgetName: String(widget?.name || widget?.options?.name || ""),
+          widgetType: String(widget?.type || ""),
+        } : {}),
         graphRect,
         nodeGraphRect,
         source,
@@ -301,9 +340,26 @@ export function joinWidgetRenderPlanToGraph(plan, graph, debugLog = null) {
     const widget = Number.isInteger(entry?.widgetIndex)
       ? widgets[entry.widgetIndex]
       : null;
-    const graphRect = widget ? getWidgetGraphRect(node, widget) : null;
+    let graphRect = widget ? getWidgetGraphRect(node, widget) : null;
     const nodeGraphRect = getNodeGraphRect(node);
-    if (!widget || !graphRect || !nodeGraphRect) continue;
+    if (
+      !graphRect &&
+      nodeGraphRect &&
+      entry?.geometrySource === "live-node-relative" &&
+      entry?.relativeGraphRect
+    ) {
+      const relative = entry.relativeGraphRect;
+      const values = [relative.x, relative.y, relative.w, relative.h].map(Number);
+      if (values.every(Number.isFinite) && values[2] > 0 && values[3] > 0) {
+        graphRect = {
+          x: nodeGraphRect.x + values[0],
+          y: nodeGraphRect.y + values[1],
+          w: values[2],
+          h: values[3],
+        };
+      }
+    }
+    if (!graphRect || !nodeGraphRect) continue;
     joined.push({
       ...entry,
       graphRect,
@@ -318,30 +374,266 @@ export function joinWidgetRenderPlanToGraph(plan, graph, debugLog = null) {
   return joined;
 }
 
+export function buildOffscreenWidgetRenderPlan({
+  liveGraph,
+  exportGraph,
+  includeDomOverlays = true,
+  selectedNodeIds = null,
+  renderFilter = "all",
+  debugLog = null,
+} = {}) {
+  const rawLivePlan = buildWidgetRenderPlan({
+    graph: liveGraph,
+    allowDom: true,
+    options: { selectedNodeIds, renderFilter },
+  });
+  const clonePlan = buildWidgetRenderPlan({
+    graph: exportGraph,
+    allowDom: false,
+    options: { selectedNodeIds, renderFilter },
+  });
+  const liveNodes = liveGraph?._nodes || liveGraph?.nodes || [];
+  const liveNodesById = new Map();
+  for (const node of liveNodes) {
+    const nodeId = toNodeIdKey(node?.id);
+    if (nodeId !== null) liveNodesById.set(nodeId, node);
+  }
+  const exportNodes = exportGraph?._nodes || exportGraph?.nodes || [];
+  const exportNodesById = new Map();
+  for (const node of exportNodes) {
+    const nodeId = toNodeIdKey(node?.id);
+    if (nodeId !== null) exportNodesById.set(nodeId, node);
+  }
+  const mediaIdentity = (name, type) => {
+    const normalizedName = String(name || "");
+    const normalizedType = normalizeWidgetType(type);
+    return normalizedName ? `name:${normalizedName}|type:${normalizedType}` : `type:${normalizedType}`;
+  };
+  const matchesCloneWidget = (entry, widget) => {
+    if (!widget) return false;
+    const liveName = String(entry.widgetName || "");
+    const cloneName = String(widget?.name || widget?.options?.name || "");
+    if (liveName || cloneName) {
+      if (!(liveName && cloneName && liveName === cloneName)) return false;
+      const liveType = normalizeWidgetType(entry.widgetType);
+      const cloneType = normalizeWidgetType(widget?.type);
+      return !liveType || !cloneType || liveType === cloneType;
+    }
+    const liveType = normalizeWidgetType(entry.widgetType);
+    const cloneType = normalizeWidgetType(widget?.type);
+    return Boolean(liveType && cloneType && liveType === cloneType);
+  };
+  const concreteLiveMediaByNode = new Map();
+  for (const entry of rawLivePlan) {
+    if (
+      entry.source !== "media" ||
+      entry.mediaDelegationEligible !== true ||
+      !entry.element
+    ) {
+      continue;
+    }
+    const nodeId = toNodeIdKey(entry.nodeId);
+    if (nodeId === null) continue;
+    const entries = concreteLiveMediaByNode.get(nodeId) || [];
+    entries.push(entry);
+    concreteLiveMediaByNode.set(nodeId, entries);
+  }
+  const cloneMediaByNode = new Map();
+  for (const entry of clonePlan) {
+    if (entry.source !== "media") continue;
+    const nodeId = toNodeIdKey(entry.nodeId);
+    if (nodeId === null) continue;
+    const entries = cloneMediaByNode.get(nodeId) || [];
+    entries.push(entry);
+    cloneMediaByNode.set(nodeId, entries);
+  }
+  const transientMediaNodeIds = new Set();
+  for (const [nodeId, entries] of concreteLiveMediaByNode) {
+    const liveNode = liveNodesById.get(nodeId);
+    const exportNode = exportNodesById.get(nodeId);
+    const liveWidgets = Array.isArray(liveNode?.widgets) ? liveNode.widgets : [];
+    const exportWidgets = Array.isArray(exportNode?.widgets) ? exportNode.widgets : [];
+    const liveIdentities = entries.map((entry) => mediaIdentity(entry.widgetName, entry.widgetType));
+    const cloneEntries = cloneMediaByNode.get(nodeId) || [];
+    const cloneIdentities = cloneEntries.map((entry) => mediaIdentity(entry.widgetName, entry.widgetType));
+    const hasDuplicateIdentity = (identities) => new Set(identities).size !== identities.length;
+    const indexMismatch = entries.some((entry) =>
+      !Number.isInteger(entry.widgetIndex) ||
+      !matchesCloneWidget(entry, exportWidgets[entry.widgetIndex])
+    );
+    if (
+      liveWidgets.length !== exportWidgets.length ||
+      indexMismatch ||
+      hasDuplicateIdentity(liveIdentities) ||
+      hasDuplicateIdentity(cloneIdentities)
+    ) {
+      transientMediaNodeIds.add(nodeId);
+    }
+  }
+  const suppressedCloneMediaByNode = new Map();
+  const cloneMediaMatchByLiveWidget = new Map();
+  for (const nodeId of transientMediaNodeIds) {
+    const liveEntries = concreteLiveMediaByNode.get(nodeId) || [];
+    const unmatchedCloneEntries = [...(cloneMediaByNode.get(nodeId) || [])];
+    const matches = new Map();
+    const claimMatch = (liveEntry, predicate) => {
+      const identity = mediaIdentity(liveEntry.widgetName, liveEntry.widgetType);
+      const cloneIndex = unmatchedCloneEntries.findIndex((cloneEntry) =>
+        mediaIdentity(cloneEntry.widgetName, cloneEntry.widgetType) === identity &&
+        predicate(cloneEntry)
+      );
+      if (cloneIndex < 0) return false;
+      const [cloneEntry] = unmatchedCloneEntries.splice(cloneIndex, 1);
+      matches.set(liveEntry.widgetIndex, cloneEntry.widgetIndex);
+      return true;
+    };
+    const unmatchedLiveEntries = liveEntries.filter((liveEntry) =>
+      !claimMatch(liveEntry, (cloneEntry) => cloneEntry.widgetIndex === liveEntry.widgetIndex)
+    );
+    for (const liveEntry of unmatchedLiveEntries) {
+      claimMatch(liveEntry, () => true);
+    }
+    cloneMediaMatchByLiveWidget.set(nodeId, matches);
+    suppressedCloneMediaByNode.set(
+      nodeId,
+      new Set([...matches.values()].filter(Number.isInteger))
+    );
+  }
+  const livePlan = rawLivePlan.map((entry) => {
+    if (
+      entry.source !== "media" ||
+      !entry.element ||
+      !entry.graphRect ||
+      !entry.nodeGraphRect
+    ) {
+      return entry;
+    }
+    // Some extensions add transient DOM widgets only through the live app's
+    // extension-level nodeCreated hook. LGraph.configure() does not recreate
+    // those widgets in the export clone, so retain their node-relative media
+    // geometry without relaxing identity for ordinary serialized widgets.
+    const relativeEntry = {
+      ...entry,
+      geometrySource: "live-node-relative",
+      relativeGraphRect: {
+        x: entry.graphRect.x - entry.nodeGraphRect.x,
+        y: entry.graphRect.y - entry.nodeGraphRect.y,
+        w: entry.graphRect.w,
+        h: entry.graphRect.h,
+      },
+    };
+    const nodeId = toNodeIdKey(entry.nodeId);
+    if (
+      entry.mediaDelegationEligible === true &&
+      nodeId !== null &&
+      transientMediaNodeIds.has(nodeId)
+    ) {
+      return {
+        ...relativeEntry,
+        key: `${nodeId}:live-media:${entry.widgetIndex}`,
+        liveWidgetIndex: entry.widgetIndex,
+        widgetIndex: null,
+        suppressedCloneWidgetIndexes: [
+          cloneMediaMatchByLiveWidget.get(nodeId)?.get(entry.widgetIndex),
+        ].filter(Number.isInteger),
+      };
+    }
+    const exportNode = nodeId === null ? null : exportNodesById.get(nodeId);
+    const exportWidgets = Array.isArray(exportNode?.widgets) ? exportNode.widgets : [];
+    const cloneWidget = Number.isInteger(entry.widgetIndex)
+      ? exportWidgets[entry.widgetIndex]
+      : null;
+    if (matchesCloneWidget(entry, cloneWidget)) return relativeEntry;
+
+    // A live-only widget must not reuse its shifted index in the clone. Give it
+    // a separate ownership key and remove clone-widget suppression authority.
+    return {
+      ...relativeEntry,
+      key: `${nodeId}:live-media:${entry.widgetIndex}`,
+      liveWidgetIndex: entry.widgetIndex,
+      widgetIndex: null,
+    };
+  });
+  if (includeDomOverlays !== false) {
+    return joinWidgetRenderPlanToGraph(livePlan, exportGraph, debugLog);
+  }
+
+  // Keep deterministic clone-side text fallback, then replace/add only media
+  // entries whose live widget owns a concrete canvas/img/video. This retains
+  // static and runtime-generated media widgets without enabling foreignObject
+  // DOM capture or making live DOM availability a prerequisite for text export.
+  const byKey = new Map(
+    clonePlan
+      .filter((entry) => {
+        const nodeId = toNodeIdKey(entry.nodeId);
+        return entry.source !== "media" ||
+          nodeId === null ||
+          !suppressedCloneMediaByNode.get(nodeId)?.has(entry.widgetIndex);
+      })
+      .map((entry) => [entry.key, entry])
+  );
+  for (const entry of livePlan) {
+    if (
+      entry.source === "media" &&
+      entry.mediaDelegationEligible === true &&
+      entry.element
+    ) {
+      byKey.set(entry.key, entry);
+    }
+  }
+  return joinWidgetRenderPlanToGraph(Array.from(byKey.values()), exportGraph, debugLog);
+}
+
 export function collectPlannedWidgetIndexes(plan) {
   const byNodeId = new Map();
   const claimedKeys = new Set();
   for (const entry of Array.isArray(plan) ? plan : []) {
-    if (
-      !entry?.key ||
-      claimedKeys.has(entry.key) ||
-      !Number.isInteger(entry.widgetIndex)
-    ) {
-      continue;
-    }
-    if (
-      entry.source !== "capture" &&
-      entry.source !== "media" &&
-      !String(entry.text || "").trim()
-    ) continue;
-
+    if (!entry?.key || claimedKeys.has(entry.key)) continue;
     const nodeId = toNodeIdKey(entry.nodeId);
     if (nodeId === null) continue;
-    if (!byNodeId.has(nodeId)) byNodeId.set(nodeId, new Set());
-    byNodeId.get(nodeId).add(entry.widgetIndex);
+    const indexes = new Set(
+      (Array.isArray(entry.suppressedCloneWidgetIndexes)
+        ? entry.suppressedCloneWidgetIndexes
+        : []
+      ).filter(Number.isInteger)
+    );
+    const ownsCloneWidget = Number.isInteger(entry.widgetIndex) && (
+      entry.source === "capture" ||
+      entry.source === "media" ||
+      Boolean(String(entry.text || "").trim())
+    );
+    if (ownsCloneWidget) indexes.add(entry.widgetIndex);
+    if (indexes.size) {
+      if (!byNodeId.has(nodeId)) byNodeId.set(nodeId, new Set());
+      for (const index of indexes) byNodeId.get(nodeId).add(index);
+    }
     claimedKeys.add(entry.key);
   }
   return byNodeId;
+}
+
+export function collectPlannedMediaElements(plan) {
+  const elements = new Set();
+  for (const entry of Array.isArray(plan) ? plan : []) {
+    if (entry?.source !== "media") continue;
+    if (entry.element) elements.add(entry.element);
+    const ownedElement = entry.ownedElement;
+    if (!ownedElement || typeof ownedElement.querySelectorAll !== "function") continue;
+    for (const element of ownedElement.querySelectorAll(MEDIA_SELECTORS)) {
+      elements.add(element);
+    }
+  }
+  return elements;
+}
+
+export function collectPlannedMediaNodeIds(plan) {
+  const nodeIds = new Set();
+  for (const entry of Array.isArray(plan) ? plan : []) {
+    if (entry?.source !== "media") continue;
+    const nodeId = toNodeIdKey(entry.nodeId);
+    if (nodeId !== null) nodeIds.add(nodeId);
+  }
+  return nodeIds;
 }
 
 /**

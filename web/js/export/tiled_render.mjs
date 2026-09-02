@@ -1,23 +1,13 @@
 import { toBlobAsync } from "../core/utils.mjs";
 import { TILE_SIZE } from "./limits.mjs?v=20260825-2";
 import { encodePngFromTiles } from "./tiled_png_encoder.mjs";
-
-function normalizeRenderScale(value) {
-  const scale = Number(value);
-  return Number.isFinite(scale) && scale > 0 ? scale : 1;
-}
+import {
+  resolveTileGeometry,
+  resolveTiledOutputSize,
+} from "./tile_plan.mjs?v=20260903-16";
 
 export function resolveTiledPngOutputSize(bboxOverride, renderScaleFactor = 1) {
-  const scale = normalizeRenderScale(renderScaleFactor);
-  const baseWidth = Math.max(1, Math.ceil(Number(bboxOverride?.width) || 0));
-  const baseHeight = Math.max(1, Math.ceil(Number(bboxOverride?.height) || 0));
-  return {
-    baseWidth,
-    baseHeight,
-    scale,
-    width: Math.max(1, Math.ceil(baseWidth * scale)),
-    height: Math.max(1, Math.ceil(baseHeight * scale)),
-  };
+  return resolveTiledOutputSize(bboxOverride, renderScaleFactor);
 }
 
 export function resolveScaledTileGeometry({
@@ -30,30 +20,19 @@ export function resolveScaledTileGeometry({
   renderScaleFactor = 1,
   bleed = 64,
 } = {}) {
-  const scale = normalizeRenderScale(renderScaleFactor);
-  const scaledBleed = Math.max(0, Number(bleed) || 0) * scale;
-  // Keep every source crop on output-pixel boundaries. Fractional bleed at
-  // scales such as 0.4096 would otherwise make drawImage resample each tile
-  // from a different fractional origin and can expose seams at tile edges.
-  const expandedX = Math.floor(Math.max(0, x - scaledBleed));
-  const expandedY = Math.floor(Math.max(0, y - scaledBleed));
-  const expandedRight = Math.ceil(Math.min(outputWidth, x + width + scaledBleed));
-  const expandedBottom = Math.ceil(Math.min(outputHeight, y + height + scaledBleed));
-  const expandedWidth = Math.max(1, expandedRight - expandedX);
-  const expandedHeight = Math.max(1, expandedBottom - expandedY);
+  const plan = resolveTileGeometry({
+    tileOutputX: x,
+    tileOutputY: y,
+    tileOutputWidth: width,
+    tileOutputHeight: height,
+    outputWidth,
+    outputHeight,
+    renderScale: renderScaleFactor,
+    bleedGraph: bleed,
+  });
   return {
-    tileRect: {
-      x: expandedX / scale,
-      y: expandedY / scale,
-      width: expandedWidth / scale,
-      height: expandedHeight / scale,
-    },
-    crop: {
-      x: x - expandedX,
-      y: y - expandedY,
-      width,
-      height,
-    },
+    tileRect: plan.tileGraphRect,
+    crop: plan.cropOutputRect,
   };
 }
 

@@ -124,6 +124,53 @@ test("dialog.mjs import graph resolves successfully", async (t) => {
   assert.equal(typeof module.openExportDialog, "function");
 });
 
+test("scaled tile geometry reaches the real offscreen transform in graph units", async (t) => {
+  const { tempRoot, module: graphSetup } = await importMirroredModule(
+    "web/js/export/offscreen_graph_setup.mjs"
+  );
+  t.after(async () => {
+    await fs.rm(tempRoot, { recursive: true, force: true });
+  });
+  const tiledRender = await import(pathToFileURL(
+    path.join(REPO_ROOT, "web/js/export/tiled_render.mjs")
+  ).href);
+  const geometry = tiledRender.resolveScaledTileGeometry({
+    x: 2048,
+    y: 2048,
+    width: 2048,
+    height: 1024,
+    outputWidth: 10000,
+    outputHeight: 6000,
+    renderScaleFactor: 2,
+    bleed: 64,
+  });
+  const bbox = {
+    minX: 100,
+    minY: 50,
+    paddedMinX: 90,
+    paddedMinY: 40,
+  };
+  const offscreen = {
+    ds: { offset: [0, 0] },
+    _cwieScaleFactor: 2,
+    _cwieTileOffsetX: geometry.tileRect.x,
+    _cwieTileOffsetY: geometry.tileRect.y,
+  };
+
+  graphSetup.configureTransform(offscreen, bbox, 10);
+
+  const tileGraphOrigin = [
+    bbox.paddedMinX + geometry.tileRect.x,
+    bbox.paddedMinY + geometry.tileRect.y,
+  ];
+  assert.deepEqual(
+    tileGraphOrigin.map((value, axis) =>
+      (value + offscreen.ds.offset[axis]) * offscreen.ds.scale
+    ),
+    [0, 0]
+  );
+});
+
 test("main.js is the only ComfyUI auto-loaded JS entry under web/js", async () => {
   const webJsRoot = path.join(REPO_ROOT, "web", "js");
   const jsFiles = [];
@@ -149,7 +196,7 @@ test("main.js cache-busts the mjs dialog entry", async () => {
   assert.match(mainSource, /import\("\.\/ui\/dialog\.mjs\?v=[^"?]+"\)/);
 });
 
-test("local browser modules do not mix versioned and unversioned identities", async () => {
+test("local browser modules use one complete identity per target", async () => {
   const webJsRoot = path.join(REPO_ROOT, "web", "js");
   const sourceFiles = [];
 
@@ -174,9 +221,9 @@ test("local browser modules do not mix versioned and unversioned identities", as
       if (!specifier?.startsWith(".")) continue;
       const bareSpecifier = specifier.split(/[?#]/, 1)[0];
       const targetPath = path.resolve(path.dirname(sourcePath), bareSpecifier);
-      const forms = formsByTarget.get(targetPath) || new Set();
-      forms.add(specifier.includes("?") ? "versioned" : "plain");
-      formsByTarget.set(targetPath, forms);
+      const identities = formsByTarget.get(targetPath) || new Set();
+      identities.add(specifier.match(/[?#].*$/)?.[0] || "plain");
+      formsByTarget.set(targetPath, identities);
     }
   }
 
@@ -195,6 +242,43 @@ test("fallback media overlays never draw unverified media into the export canvas
 
   assert.equal(source.includes("exportCtx.drawImage"), false);
   assert.equal(source.includes("drawMediaSafely"), true);
+});
+
+test("huge tiled exports share safe media snapshots and retain failure ownership", async () => {
+  const indexSource = await fs.readFile(
+    path.join(REPO_ROOT, "web/js/export/index.mjs"),
+    "utf8"
+  );
+  const renderSource = await fs.readFile(
+    path.join(REPO_ROOT, "web/js/export/render_graph_offscreen.mjs"),
+    "utf8"
+  );
+
+  assert.match(indexSource, /mediaMode:\s*"force"/);
+  assert.match(indexSource, /mediaSnapshotCache:\s*new Map\(\)/);
+  assert.match(indexSource, /if \(huge && scopeSelected\)[\s\S]*?renderFilter:\s*"all"/);
+  assert.match(
+    indexSource,
+    /if \(huge && scopeSelected\)[\s\S]*?linkFilter:\s*renderOptions\.linkFilter \|\| "all"/
+  );
+  assert.match(renderSource, /mediaSnapshotCache:\s*options\.mediaSnapshotCache/);
+  assert.match(renderSource, /drawPlaceholderOnMiss:\s*false/);
+  assert.match(renderSource, /drawBlockedPlaceholder:\s*false/);
+  assert.match(renderSource, /mediaFallbackCoverage/);
+});
+
+test("non-tiled Classic requires proof of draw for plan-owned widget media", async () => {
+  const source = await fs.readFile(
+    path.join(REPO_ROOT, "web/js/core/backends/legacy_capture.mjs"),
+    "utf8"
+  );
+
+  assert.match(source, /collectPlannedMediaElements/);
+  assert.match(source, /collectPlannedMediaNodeIds/);
+  assert.match(source, /skipElements:\s*plannedMediaElements/);
+  assert.match(source, /drawWidgetMediaFallbacks\s*\(\s*\{/);
+  assert.match(source, /mediaDelegationAvailable:\s*false/);
+  assert.match(source, /mediaFallbackCoverage:\s*widgetMediaCoverage/);
 });
 
 test("removed extension Settings registration does not return to the import graph", async () => {

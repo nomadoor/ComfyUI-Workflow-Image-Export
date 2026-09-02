@@ -1,11 +1,11 @@
 import { app } from "/scripts/app.js";
-import { computeGraphBBox } from "./bbox.mjs";
+import { computeGraphBBox } from "./bbox.mjs?v=20260903-16";
 import { applyBackgroundMode, getExportBackgroundFillColor } from "./background_modes.mjs";
 import {
   drawBackgroundImageOverlays,
   drawImageThumbnails,
   drawVideoThumbnails,
-} from "./fallback_media_overlays.mjs?v=20260825-2";
+} from "./fallback_media_overlays.mjs?v=20260903-16";
 import {
   applyLinkFilter,
   applyRenderFilter,
@@ -20,26 +20,32 @@ import {
   disableCanvasInfoOverlay,
   prepareGraph,
   safeCleanup,
-} from "./offscreen_graph_setup.mjs?v=20260825-2";
+} from "./offscreen_graph_setup.mjs?v=20260903-16";
 import { collectNodeRects } from "../core/backends/legacy_bounds.mjs";
 import {
   drawExternalTextOverlays,
   isExternalTextOverlayEnabled,
 } from "../core/backends/legacy_dom_text_overlays.mjs";
 import {
-  buildWidgetRenderPlan,
+  buildOffscreenWidgetRenderPlan,
+  collectPlannedMediaElements,
+  collectPlannedMediaNodeIds,
   installPlannedWidgetDrawSuppression,
   joinWidgetRenderPlanToGraph,
-} from "../core/backends/widget_render_plan.mjs?v=20260825-2";
+} from "../core/backends/widget_render_plan.mjs?v=20260903-16";
 import {
   drawPlannedWidgetOverlays,
-} from "../core/backends/widget_overlay_renderer.mjs?v=20260825-2";
+} from "../core/backends/widget_overlay_renderer.mjs?v=20260903-16";
 import {
   drawImageOverlays,
   drawVideoOverlays,
   drawVhsVideoOverlays,
-} from "../core/backends/legacy_media_overlays.mjs";
+} from "../core/backends/legacy_media_overlays.mjs?v=20260903-16";
 import { PREVIEW_MAX_PIXELS } from "./limits.mjs?v=20260825-2";
+import { buildMediaFallbackTargets } from "./media_fallback_plan.mjs?v=20260903-16";
+import { createLiveRenderGuard } from "../core/backends/live_render_guard.mjs?v=20260903-16";
+import { createLiteGraphMeasureTextGuard } from "../core/backends/litegraph_measure_text_guard.mjs?v=20260903-16";
+import { drawWidgetMediaFallbacks } from "./widget_media_fallback.mjs?v=20260903-16";
 
 function getNowMs() {
   if (typeof performance !== "undefined" && typeof performance.now === "function") {
@@ -262,15 +268,21 @@ export async function renderGraphOffscreen(workflowJson, options = {}) {
   // if it detects High-DPI canvas. Since we provide a large backing store + GBCR match,
   // LiteGraph should render at high resolution automatically.
 
-  const offscreen = new LGraphCanvasRef(canvas, graph);
+  const measureTextGuard = createLiteGraphMeasureTextGuard(LGraphCanvasRef);
+  let offscreen;
   try {
+    offscreen = new LGraphCanvasRef(canvas, graph);
     if (typeof offscreen.stopRendering === "function") {
       offscreen.stopRendering();
     }
-  } catch (_) {}
-  offscreen.canvas = canvas;
-  offscreen.ctx = ctx;
-  disableCanvasInfoOverlay(offscreen);
+    offscreen.canvas = canvas;
+    offscreen.ctx = ctx;
+    disableCanvasInfoOverlay(offscreen);
+  } catch (error) {
+    measureTextGuard.restore();
+    safeCleanup(offscreen, graph);
+    throw error;
+  }
   offscreen._cwieScaleFactor = scaleFactor;
   offscreen._cwieTileOffsetX = tileRect?.x || 0;
   offscreen._cwieTileOffsetY = tileRect?.y || 0;
@@ -328,33 +340,25 @@ export async function renderGraphOffscreen(workflowJson, options = {}) {
   }
 
   let widgetPlan = null;
-  if (options.includeDomOverlays !== false) {
-    const liveWidgetPlan = await timeSpan(perfLog, "widget.plan.build", () => buildWidgetRenderPlan({
-      graph: app?.graph,
-      uiCanvas: uiCanvasDom,
-      allowDom: true,
-      options: {
+  if (!options.skipTextFallback) {
+    widgetPlan = await timeSpan(perfLog, "widget.plan.build", () =>
+      buildOffscreenWidgetRenderPlan({
+        liveGraph: app?.graph,
+        exportGraph: graph,
+        includeDomOverlays: options.includeDomOverlays !== false,
         selectedNodeIds: options.selectedNodeIds,
         renderFilter: options.renderFilter || "all",
-      },
-    }));
-    widgetPlan = joinWidgetRenderPlanToGraph(liveWidgetPlan, graph, debugLog);
-  } else if (!options.skipTextFallback) {
-    widgetPlan = await timeSpan(perfLog, "widget.plan.build", () => buildWidgetRenderPlan({
-      graph,
-      uiCanvas: null,
-      allowDom: false,
-      options: {
-        selectedNodeIds: options.selectedNodeIds,
-        renderFilter: options.renderFilter || "all",
-      },
-    }));
+        debugLog,
+      })
+    );
   }
 
   // Override devicePixelRatio during draw to keep LiteGraph canvas math stable.
   const restoreDpr = overrideDevicePixelRatio(uiPxRatio, debug ? console.log : null);
+  let liveRenderGuard = null;
   let nativeWidgetSuppression = null;
   try {
+    liveRenderGuard = createLiveRenderGuard(app?.graph, app?.canvas);
     nativeWidgetSuppression = installPlannedWidgetDrawSuppression(offscreen, widgetPlan);
     debugLog?.("widget.native-draw.suppressed", {
       count: nativeWidgetSuppression.suppressed,
@@ -363,6 +367,8 @@ export async function renderGraphOffscreen(workflowJson, options = {}) {
   } finally {
     nativeWidgetSuppression?.restore();
     restoreDpr?.();
+    liveRenderGuard?.restore();
+    measureTextGuard.restore();
   }
 
   // The base pass arranges cloned widgets. Refresh geometry now so tiled/huge
@@ -411,6 +417,12 @@ export async function renderGraphOffscreen(workflowJson, options = {}) {
       height: tileBounds.height,
     };
     const nodeRects = collectNodeRects(graph);
+    // Widget-owned media has one owner: the export-local snapshot path below.
+    // Keep the legacy DOM scanners available only for media outside a widget
+    // plan, otherwise DOM-owned media widgets can be painted twice at different
+    // rectangles.
+    const plannedMediaElements = collectPlannedMediaElements(widgetPlan);
+    const plannedMediaNodeIds = collectPlannedMediaNodeIds(widgetPlan);
     await timeSpan(perfLog, "dom.bg.overlays", () => drawBackgroundImageOverlays({
       exportCtx: outputCtx,
       uiCanvas: uiCanvasDom,
@@ -426,6 +438,7 @@ export async function renderGraphOffscreen(workflowJson, options = {}) {
       debugLog,
       selectedNodeIds: options.selectedNodeIds,
       renderFilter: options.renderFilter || "all",
+      skipElements: plannedMediaElements,
     }));
     await timeSpan(perfLog, "dom.video.overlays", async () => {
       const drawnVideoNodeIds = drawVideoOverlays({
@@ -438,7 +451,12 @@ export async function renderGraphOffscreen(workflowJson, options = {}) {
         debugLog,
         selectedNodeIds: options.selectedNodeIds,
         renderFilter: options.renderFilter || "all",
+        skipElements: plannedMediaElements,
       });
+      const videoThumbnailSkipNodeIds = new Set([
+        ...plannedMediaNodeIds,
+        ...drawnVideoNodeIds,
+      ]);
       await drawVideoThumbnails({
         exportCtx: outputCtx,
         graph,
@@ -446,7 +464,7 @@ export async function renderGraphOffscreen(workflowJson, options = {}) {
         bounds,
         scale: scaleFactor,
         debugLog,
-        skipNodeIds: drawnVideoNodeIds,
+        skipNodeIds: videoThumbnailSkipNodeIds,
         drawPlaceholderOnMiss: false,
         selectedNodeIds: options.selectedNodeIds,
         renderFilter: options.renderFilter || "all",
@@ -461,13 +479,32 @@ export async function renderGraphOffscreen(workflowJson, options = {}) {
       nodeRects,
       selectedNodeIds: options.selectedNodeIds,
       renderFilter: options.renderFilter || "all",
+      skipElements: plannedMediaElements,
     }));
+    const widgetMediaCoverage = await timeSpan(
+      perfLog,
+      "dom.widget-media.overlays",
+      () => drawWidgetMediaFallbacks({
+        exportCtx: outputCtx,
+        plan: widgetPlan,
+        bounds,
+        scale: scaleFactor,
+        mediaSnapshotCache: options.mediaSnapshotCache,
+        debugLog,
+      })
+    );
     await timeSpan(perfLog, "widget.plan.draw", () => drawPlannedWidgetOverlays({
       exportCtx: outputCtx,
       plan: widgetPlan,
       bounds,
       scale: scaleFactor,
-      options: { mediaDelegationAvailable: true },
+      options: {
+        // A concrete element is not proof that pixels were drawn. Only exact
+        // coverage returned by the safe snapshot path may delegate ownership;
+        // missing/tainted media must retain a visible placeholder.
+        mediaDelegationAvailable: false,
+        mediaFallbackCoverage: widgetMediaCoverage,
+      },
       debugLog,
     }));
     if (isExternalTextOverlayEnabled(options)) {
@@ -515,27 +552,45 @@ export async function renderGraphOffscreen(workflowJson, options = {}) {
       outputCtx.shadowBlur = 0;
     }
 
-    if (outputCtx && !options.skipTextFallback) {
-      await timeSpan(perfLog, "widget.plan.draw", () => drawPlannedWidgetOverlays({
-        exportCtx: outputCtx,
-        plan: widgetPlan,
-        bounds,
-        scale: scaleFactor,
-        options: { mediaDelegationAvailable: false },
-        debugLog,
-      }));
-    }
+    const mediaFallbackCoverage = new Map();
+    const mediaFallbackTargets = buildMediaFallbackTargets(widgetPlan);
+    const mergeFallbackCoverage = (coverage) => {
+      if (!(coverage instanceof Map)) return;
+      for (const [nodeId, rects] of coverage) {
+        const current = mediaFallbackCoverage.get(nodeId) || [];
+        current.push(...rects);
+        mediaFallbackCoverage.set(nodeId, current);
+      }
+    };
     if (mediaMode === "force") {
-      await timeSpan(perfLog, "fallback.image.thumbs", () => drawImageThumbnails({
+      const widgetCoverage = await timeSpan(perfLog, "fallback.widget.media", () =>
+        drawWidgetMediaFallbacks({
+          exportCtx: outputCtx,
+          plan: widgetPlan,
+          bounds,
+          scale: scaleFactor,
+          mediaSnapshotCache: options.mediaSnapshotCache,
+          debugLog,
+        })
+      );
+      mergeFallbackCoverage(widgetCoverage);
+      const widgetMediaNodeIds = new Set(widgetCoverage.keys());
+
+      const imageCoverage = await timeSpan(perfLog, "fallback.image.thumbs", () => drawImageThumbnails({
         exportCtx: outputCtx,
         graph,
         nodeRects,
         bounds,
         scale: scaleFactor,
         debugLog,
+        mediaSnapshotCache: options.mediaSnapshotCache,
+        drawBlockedPlaceholder: false,
+        mediaFallbackTargets,
+        skipNodeIds: widgetMediaNodeIds,
       }));
+      mergeFallbackCoverage(imageCoverage);
 
-      await timeSpan(perfLog, "fallback.video.thumbs", () => drawVideoThumbnails({
+      const videoCoverage = await timeSpan(perfLog, "fallback.video.thumbs", () => drawVideoThumbnails({
         exportCtx: outputCtx,
         graph,
         nodeRects,
@@ -543,6 +598,25 @@ export async function renderGraphOffscreen(workflowJson, options = {}) {
         scale: scaleFactor,
         debugLog,
         isPreview: !!options.previewFast,
+        mediaSnapshotCache: options.mediaSnapshotCache,
+        drawPlaceholderOnMiss: false,
+        drawBlockedPlaceholder: false,
+        mediaFallbackTargets,
+        skipNodeIds: widgetMediaNodeIds,
+      }));
+      mergeFallbackCoverage(videoCoverage);
+    }
+    if (outputCtx && !options.skipTextFallback) {
+      await timeSpan(perfLog, "widget.plan.draw", () => drawPlannedWidgetOverlays({
+        exportCtx: outputCtx,
+        plan: widgetPlan,
+        bounds,
+        scale: scaleFactor,
+        options: {
+          mediaDelegationAvailable: false,
+          mediaFallbackCoverage,
+        },
+        debugLog,
       }));
     }
   }
@@ -563,6 +637,7 @@ export async function renderGraphOffscreen(workflowJson, options = {}) {
     },
   };
   } finally {
+    measureTextGuard.restore();
     if (!_exportOk) {
       safeCleanup(offscreen, graph);
     }

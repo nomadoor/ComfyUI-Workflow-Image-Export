@@ -1,5 +1,6 @@
 import { app } from "/scripts/app.js";
-import { syncLiveGraphState } from "./live_graph_sync.mjs?v=20260825-2";
+import { syncLiveGraphState } from "./live_graph_sync.mjs?v=20260903-16";
+import { resolveTileTransform } from "./tile_plan.mjs?v=20260903-16";
 
 function resolveGraphConstructor() {
   if (app?.graph?.constructor) {
@@ -155,12 +156,20 @@ export function configureTransform(offscreen, bbox, padding) {
   if (!Array.isArray(ds.offset)) {
     ds.offset = [0, 0];
   }
-  const scaleFactor = Number(offscreen._cwieScaleFactor) || 1;
-  const tileOffsetX = Number(offscreen._cwieTileOffsetX) || 0;
-  const tileOffsetY = Number(offscreen._cwieTileOffsetY) || 0;
-  ds.scale = scaleFactor;
-  ds.offset[0] = -bbox.minX + padding - (tileOffsetX / scaleFactor);
-  ds.offset[1] = -bbox.minY + padding - (tileOffsetY / scaleFactor);
+  const transform = resolveTileTransform({
+    bbox,
+    padding,
+    renderScale: offscreen._cwieScaleFactor,
+    // Tiled renderers store these offsets in graph units. Output-pixel tile
+    // coordinates are converted before the offscreen renderer is called.
+    tileGraphRect: {
+      x: offscreen._cwieTileOffsetX,
+      y: offscreen._cwieTileOffsetY,
+    },
+  });
+  ds.scale = transform.scale;
+  ds.offset[0] = transform.offset[0];
+  ds.offset[1] = transform.offset[1];
 }
 
 export function configureVisibleArea(offscreen, bbox, visibleBounds = null) {

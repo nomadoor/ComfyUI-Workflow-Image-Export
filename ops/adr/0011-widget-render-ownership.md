@@ -41,10 +41,22 @@ Widget overlay ownership is decided before rendering.
    capture falls back within the same entry rather than creating another entry.
 7. DOM-free offscreen and tiled rendering uses the same planner with
    `allowDom: false`; relevant entries become default-styled text.
-8. A live plan is joined to an offscreen graph only by node ID and widget
-   index. Failed joins are skipped and counted in debug output. Geometry
-   matching is prohibited; geometry is read from the joined widget after its
-   identity has been established.
+8. A live plan is normally joined to an offscreen graph only by node ID and
+   widget index. Failed text/capture joins are skipped and counted in debug
+   output. Geometry matching is prohibited; geometry is read from the joined
+   widget after its identity has been established. A narrow exception exists
+   for a concrete live-owned media element whose transient widget was never
+   created in the clone: it receives a non-colliding
+   `nodeId:live-media:liveWidgetIndex` key and carries only its node-relative
+   rectangle onto the matching clone node. It has no clone `widgetIndex`, so it
+   cannot claim an unrelated serialized clone widget by position. When media
+   identity is ambiguous because widgets were inserted or duplicated, only
+   clone media with the same normalized name/type identity is suppressed;
+   unrelated clone media and non-delegable live wrappers retain their own
+   placeholder ownership. A colon-delimited runtime subtype is treated as an
+   instance detail (`preview:runtime-id` belongs to the `preview` family);
+   classification and identity matching share this family normalization and do
+   not recognize extension or node names.
 9. During the base LiteGraph pass, an offscreen-canvas-local
    `drawNodeWidgets` wrapper removes plan-owned text/capture widgets from that
    synchronous call. It never mutates live widget objects across an animation
@@ -79,6 +91,8 @@ region with an opaque `media unavailable` placeholder. A suppressed media
 widget therefore always has exactly one responsible output path and cannot
 silently disappear. The tiled renderer no longer needs the legacy
 `"media-only"` capture-suppression sentinel described in ADR 0009.
+Classic single-canvas and tiled/offscreen rendering use the same proof-of-draw
+coverage contract; element presence alone never delegates media ownership.
 
 ### DOM Scanner Boundary
 

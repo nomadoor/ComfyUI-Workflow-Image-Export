@@ -32,6 +32,34 @@ import {
   toNodeIdKey,
 } from "../core/node_ids.mjs";
 import { drawMediaSafely } from "../core/backends/safe_media_draw.mjs";
+import {
+  createOriginCleanMediaSnapshot,
+  hasMediaSnapshot,
+  readMediaSnapshot,
+  resolveMediaSnapshot,
+} from "./media_snapshot_cache.mjs?v=20260903-16";
+import { resolveMediaFallbackRect } from "./media_fallback_plan.mjs?v=20260903-16";
+
+function addFallbackCoverage(
+  coverageByNodeId,
+  nodeId,
+  previewRect,
+  bounds,
+  scale,
+  coverageGraphRect = null
+) {
+  const safeScale = Number(scale);
+  if (!(safeScale > 0) || !previewRect) return;
+  const graphRect = coverageGraphRect || {
+      x: bounds.left + previewRect.x / safeScale,
+      y: bounds.top + previewRect.y / safeScale,
+      w: previewRect.w / safeScale,
+      h: previewRect.h / safeScale,
+    };
+  const entries = coverageByNodeId.get(nodeId) || [];
+  entries.push(graphRect);
+  coverageByNodeId.set(nodeId, entries);
+}
 
 export async function drawVideoThumbnails({
   exportCtx,
@@ -44,13 +72,17 @@ export async function drawVideoThumbnails({
   drawPlaceholderOnMiss = true,
   selectedNodeIds = null,
   renderFilter = "all",
+  mediaSnapshotCache = null,
+  drawBlockedPlaceholder = true,
+  mediaFallbackTargets = null,
 }) {
+  const fallbackCoverage = new Map();
   const selectedIdSet = normalizeSelectedNodeIds(selectedNodeIds);
   const skippedIdSet = normalizeNodeIdSet(skipNodeIds);
   const nodes = graph?._nodes || graph?.nodes || [];
-  if (!nodes.length) return;
+  if (!nodes.length) return fallbackCoverage;
   const videoNodes = nodes.filter((node) => node && isVideoNode(node));
-  if (!videoNodes.length) return;
+  if (!videoNodes.length) return fallbackCoverage;
   const rectById = new Map();
   for (const rect of nodeRects || []) {
     const id = toNodeIdKey(rect?.id);
@@ -89,14 +121,19 @@ export async function drawVideoThumbnails({
       continue;
     }
 
-    let drawable = resolveVideoDrawable(node);
-    if (!drawable) {
+    const hasCachedSnapshot = hasMediaSnapshot(mediaSnapshotCache, "video", nodeId);
+    let drawable = hasCachedSnapshot
+      ? await readMediaSnapshot(mediaSnapshotCache, "video", nodeId)
+      : null;
+    if (!hasCachedSnapshot) {
+      drawable = resolveVideoDrawable(node);
+      if (!drawable) {
       const liveNode = findLiveNodeById(node.id);
       if (liveNode) {
         drawable = resolveVideoDrawable(liveNode);
         if (drawable && debugLog && logged < 5) debugLog(`video.thumbnail.steal`, { id: node.id, type: "direct" });
       }
-    }
+      }
 
     let directUrl = null;
     if (drawable instanceof HTMLVideoElement) {
@@ -176,8 +213,16 @@ export async function drawVideoThumbnails({
         }
       }
     }
-    if (typeof drawable === "string") {
-      drawable = null;
+      if (typeof drawable === "string") {
+        drawable = null;
+      }
+      drawable = await resolveMediaSnapshot(
+        mediaSnapshotCache,
+        "video",
+        nodeId,
+        async () => drawable,
+        createOriginCleanMediaSnapshot
+      );
     }
     if (!drawable && debugLog && logged < 5) {
       debugLog("video.thumbnail.miss_detail", {
@@ -188,7 +233,13 @@ export async function drawVideoThumbnails({
       logged += 1;
     }
 
-    const previewRect = computePreviewRect({ rect, node, bounds, scale });
+    const plannedTarget = resolveMediaFallbackRect({
+      target: mediaFallbackTargets?.get?.(nodeId),
+      bounds,
+      scale,
+    });
+    const previewRect = plannedTarget?.previewRect ||
+      computePreviewRect({ rect, node, bounds, scale });
     if (!previewRect) {
       skippedEmptyRect += 1;
       continue;
@@ -205,12 +256,24 @@ export async function drawVideoThumbnails({
         const fitH = dh * scaleFit;
         const fitX = x + (w - fitW) / 2;
         const fitY = y + (h - fitH) / 2;
-        result = drawMediaSafely(exportCtx, drawable, fitX, fitY, fitW, fitH);
+        result = drawMediaSafely(exportCtx, drawable, fitX, fitY, fitW, fitH, {
+          drawPlaceholder: drawBlockedPlaceholder,
+        });
       } else {
-        result = drawMediaSafely(exportCtx, drawable, x, y, w, h);
+        result = drawMediaSafely(exportCtx, drawable, x, y, w, h, {
+          drawPlaceholder: drawBlockedPlaceholder,
+        });
       }
       if (result.ok) {
         drawn += 1;
+        addFallbackCoverage(
+          fallbackCoverage,
+          nodeId,
+          previewRect,
+          bounds,
+          scale,
+          plannedTarget?.coverageGraphRect
+        );
       } else {
         blockedMedia += 1;
       }
@@ -234,13 +297,27 @@ export async function drawVideoThumbnails({
     skippedNoRect,
     skippedEmptyRect,
   });
+  return fallbackCoverage;
 }
 
-export async function drawImageThumbnails({ exportCtx, graph, nodeRects, bounds, scale, debugLog }) {
+export async function drawImageThumbnails({
+  exportCtx,
+  graph,
+  nodeRects,
+  bounds,
+  scale,
+  debugLog,
+  mediaSnapshotCache = null,
+  drawBlockedPlaceholder = true,
+  mediaFallbackTargets = null,
+  skipNodeIds = null,
+}) {
+  const fallbackCoverage = new Map();
+  const skippedIdSet = normalizeNodeIdSet(skipNodeIds);
   const nodes = graph?._nodes || graph?.nodes || [];
-  if (!nodes.length) return;
+  if (!nodes.length) return fallbackCoverage;
   const imageNodes = nodes.filter((node) => node && isImageNode(node) && !isVideoNode(node));
-  if (!imageNodes.length) return;
+  if (!imageNodes.length) return fallbackCoverage;
   const rectById = new Map();
   for (const rect of nodeRects || []) {
     const id = toNodeIdKey(rect?.id);
@@ -255,29 +332,46 @@ export async function drawImageThumbnails({ exportCtx, graph, nodeRects, bounds,
   let logged = 0;
 
   for (const node of imageNodes) {
+    if (nodeIdSetHas(skippedIdSet, node.id)) {
+      continue;
+    }
     const rect = rectById.get(toNodeIdKey(node.id));
     if (!rect) {
       skippedNoRect += 1;
       continue;
     }
 
-    let drawable = resolveImageDrawable(node);
-    if (!drawable) {
-      const liveNode = findLiveNodeById(node.id);
-      if (liveNode) {
-        drawable = resolveImageDrawable(liveNode);
+    const nodeId = toNodeIdKey(node.id);
+    const hasCachedSnapshot = hasMediaSnapshot(mediaSnapshotCache, "image", nodeId);
+    let drawable = hasCachedSnapshot
+      ? await readMediaSnapshot(mediaSnapshotCache, "image", nodeId)
+      : null;
+    if (!hasCachedSnapshot) {
+      drawable = resolveImageDrawable(node);
+      if (!drawable) {
+        const liveNode = findLiveNodeById(node.id);
+        if (liveNode) {
+          drawable = resolveImageDrawable(liveNode);
+        }
       }
-    }
-    if (typeof drawable === "string") {
-      drawable = await loadImageCached(drawable);
-    }
-    if (!drawable) {
-      const liveNode = findLiveNodeById(node.id);
-      const ref = extractFileRefFromNode(liveNode || node);
-      const url = buildViewUrl(ref, liveNode || node);
-      if (url) {
-        drawable = await loadImageCached(url);
+      if (typeof drawable === "string") {
+        drawable = await loadImageCached(drawable);
       }
+      if (!drawable) {
+        const liveNode = findLiveNodeById(node.id);
+        const ref = extractFileRefFromNode(liveNode || node);
+        const url = buildViewUrl(ref, liveNode || node);
+        if (url) {
+          drawable = await loadImageCached(url);
+        }
+      }
+      drawable = await resolveMediaSnapshot(
+        mediaSnapshotCache,
+        "image",
+        nodeId,
+        async () => drawable,
+        createOriginCleanMediaSnapshot
+      );
     }
     if (!drawable) {
       skippedNoDrawable += 1;
@@ -293,7 +387,13 @@ export async function drawImageThumbnails({ exportCtx, graph, nodeRects, bounds,
       continue;
     }
 
-    const previewRect = computePreviewRect({ rect, node, bounds, scale });
+    const plannedTarget = resolveMediaFallbackRect({
+      target: mediaFallbackTargets?.get?.(nodeId),
+      bounds,
+      scale,
+    });
+    const previewRect = plannedTarget?.previewRect ||
+      computePreviewRect({ rect, node, bounds, scale });
     if (!previewRect) {
       skippedEmptyRect += 1;
       continue;
@@ -319,12 +419,24 @@ export async function drawImageThumbnails({ exportCtx, graph, nodeRects, bounds,
       const fitH = dh * scaleFit;
       const fitX = x + (w - fitW) / 2;
       const fitY = y + (h - fitH) / 2;
-      result = drawMediaSafely(exportCtx, drawable, fitX, fitY, fitW, fitH);
+      result = drawMediaSafely(exportCtx, drawable, fitX, fitY, fitW, fitH, {
+        drawPlaceholder: drawBlockedPlaceholder,
+      });
     } else {
-      result = drawMediaSafely(exportCtx, drawable, x, y, w, h);
+      result = drawMediaSafely(exportCtx, drawable, x, y, w, h, {
+        drawPlaceholder: drawBlockedPlaceholder,
+      });
     }
     if (result.ok) {
       drawn += 1;
+      addFallbackCoverage(
+        fallbackCoverage,
+        nodeId,
+        previewRect,
+        bounds,
+        scale,
+        plannedTarget?.coverageGraphRect
+      );
     } else {
       blockedMedia += 1;
     }
@@ -337,6 +449,7 @@ export async function drawImageThumbnails({ exportCtx, graph, nodeRects, bounds,
     skippedNoRect,
     skippedEmptyRect,
   });
+  return fallbackCoverage;
 }
 
 export async function drawBackgroundImageOverlays({ exportCtx, uiCanvas, bounds, scale }) {

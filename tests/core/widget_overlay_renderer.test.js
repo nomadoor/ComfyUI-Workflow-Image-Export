@@ -185,6 +185,78 @@ test("media entries without a delegation path paint a safe owned placeholder", a
   ));
 });
 
+test("media entries defer to the DOM-free safe fallback without painting a placeholder", async () => {
+  const ctx = createMockContext();
+  const entry = textEntry("11:1", 10);
+  entry.source = "media";
+  entry.ownedElement = null;
+  entry.element = null;
+
+  const result = await drawPlannedWidgetOverlays({
+    exportCtx: ctx,
+    plan: [entry],
+    bounds: { left: 0, top: 0, right: 300, bottom: 100 },
+    scale: 1,
+    options: {
+      mediaDelegationAvailable: false,
+      mediaFallbackCoverage: new Map([
+        ["11", [{ x: 10, y: 10, w: 80, h: 40 }]],
+      ]),
+    },
+  });
+
+  assert.equal(result.drawn, 0);
+  assert.equal(result.delegated, 1);
+  assert.equal(result.mediaPlaceholder, 0);
+  assert.equal(ctx.calls.filter((call) => call[0] === "fillRect").length, 0);
+  assert.equal(ctx.calls.filter((call) => call[0] === "fillText").length, 0);
+});
+
+test("media entries retain placeholder ownership when the safe fallback misses", async () => {
+  const ctx = createMockContext();
+  const entry = textEntry("14:0", 10);
+  entry.source = "media";
+
+  const result = await drawPlannedWidgetOverlays({
+    exportCtx: ctx,
+    plan: [entry],
+    bounds: { left: 0, top: 0, right: 300, bottom: 100 },
+    scale: 1,
+    options: { mediaFallbackCoverage: new Map() },
+  });
+
+  assert.equal(result.drawn, 1);
+  assert.equal(result.delegated, 0);
+  assert.equal(result.mediaPlaceholder, 1);
+  assert.ok(ctx.calls.some((call) =>
+    call[0] === "fillText" && call[1] === "media unavailable"
+  ));
+});
+
+test("media fallback delegates only the covered widget on a multi-media node", async () => {
+  const ctx = createMockContext();
+  const covered = textEntry("15:0", 10);
+  covered.source = "media";
+  const missed = textEntry("15:1", 100);
+  missed.source = "media";
+
+  const result = await drawPlannedWidgetOverlays({
+    exportCtx: ctx,
+    plan: [covered, missed],
+    bounds: { left: 0, top: 0, right: 300, bottom: 100 },
+    scale: 1,
+    options: {
+      mediaFallbackCoverage: new Map([
+        ["15", [{ x: 10, y: 10, w: 80, h: 40 }]],
+      ]),
+    },
+  });
+
+  assert.equal(result.delegated, 1);
+  assert.equal(result.mediaPlaceholder, 1);
+  assert.equal(result.drawn, 1);
+});
+
 test("media entries without an owned DOM element cannot be delegated", async () => {
   const ctx = createMockContext();
   const entry = textEntry("12:0", 10);

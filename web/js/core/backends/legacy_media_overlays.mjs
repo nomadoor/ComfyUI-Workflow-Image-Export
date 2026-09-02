@@ -111,6 +111,7 @@ export function drawVideoOverlays({
   graph = null,
   selectedNodeIds = null,
   renderFilter = "all",
+  skipElements = null,
 }) {
   const drawnNodeIds = new Set();
   const selectedIdSet = normalizeSelectedNodeIds(selectedNodeIds);
@@ -128,6 +129,7 @@ export function drawVideoOverlays({
   const standardVideos = videos.filter((video) => !isVhsVideoElement(video));
 
   for (const video of standardVideos) {
+    if (skipElements?.has(video)) continue;
     if (video.readyState < 1) {
       debugLog?.("diag.draw.video", diagnoseDomElement(video, uiCanvas, {
         stage: "draw",
@@ -264,6 +266,7 @@ export function drawVhsVideoOverlays({
   nodeRects = null,
   selectedNodeIds = null,
   renderFilter = "all",
+  skipElements = null,
 }) {
   const selectedIdSet = normalizeSelectedNodeIds(selectedNodeIds);
   const canvasEl = uiCanvas?.canvas;
@@ -281,6 +284,7 @@ export function drawVhsVideoOverlays({
   const invScale = 1 / ds.scale;
 
   for (const video of videos) {
+    if (skipElements?.has(video)) continue;
     if (video.readyState < 1) {
       debugLog?.("diag.draw.vhs", diagnoseDomElement(video, uiCanvas, {
         stage: "draw",
@@ -358,6 +362,7 @@ export function drawImageOverlays({
   nodeRects = null,
   selectedNodeIds = null,
   renderFilter = "all",
+  skipElements = null,
 }) {
   const selectedIdSet = normalizeSelectedNodeIds(selectedNodeIds);
   const elements = collectImageElementsFromDom(uiCanvas, { debugLog });
@@ -366,6 +371,7 @@ export function drawImageOverlays({
   debugLog?.("dom.image.count", { count: elements.length });
 
   for (const el of elements) {
+    if (skipElements?.has(el)) continue;
     const rect = getDomElementGraphRect(el, uiCanvas, {
       debugLog,
       stage: "transform",
