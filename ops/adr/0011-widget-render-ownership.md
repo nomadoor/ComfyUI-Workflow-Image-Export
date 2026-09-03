@@ -42,21 +42,27 @@ Widget overlay ownership is decided before rendering.
 7. DOM-free offscreen and tiled rendering uses the same planner with
    `allowDom: false`; relevant entries become default-styled text.
 8. A live plan is normally joined to an offscreen graph only by node ID and
-   widget index. Failed text/capture joins are skipped and counted in debug
-   output. Geometry matching is prohibited; geometry is read from the joined
-   widget after its identity has been established. A narrow exception exists
-   for a concrete live-owned media element whose transient widget was never
-   created in the clone: it receives a non-colliding
-   `nodeId:live-media:liveWidgetIndex` key and carries only its node-relative
-   rectangle onto the matching clone node. It has no clone `widgetIndex`, so it
-   cannot claim an unrelated serialized clone widget by position. When media
-   identity is ambiguous because widgets were inserted or duplicated, only
-   clone media with the same normalized name/type identity is suppressed;
-   unrelated clone media and non-delegable live wrappers retain their own
-   placeholder ownership. A colon-delimited runtime subtype is treated as an
-   instance detail (`preview:runtime-id` belongs to the `preview` family);
-   classification and identity matching share this family normalization and do
-   not recognize extension or node names.
+   widget index. Geometry matching is prohibited; geometry is read from the
+   joined widget after its identity has been established. Runtime-only overlay
+   widgets may not exist in the serialized clone when planning begins. A
+   classified multiline text widget that has no widget with the same non-empty
+   name and same non-empty type family at its clone index receives a non-colliding
+   `nodeId:live-text:liveWidgetIndex` key and carries only its node-relative
+   rectangle and normalized text onto the matching clone node. It has no clone
+   `widgetIndex`, so it cannot suppress or claim an unrelated or partially
+   configured clone widget. Capture joins that lack a clone widget are still
+   skipped and counted in debug output.
+
+   A concrete live-owned media element whose transient widget was never created
+   in the clone follows the same node-relative geometry principle. It receives
+   a non-colliding `nodeId:live-media:liveWidgetIndex` key and has no clone
+   `widgetIndex`. When media identity is ambiguous because widgets were inserted
+   or duplicated, only clone media with the same normalized name/type identity
+   is suppressed; unrelated clone media and non-delegable live wrappers retain
+   their own placeholder ownership. A colon-delimited runtime subtype is
+   treated as an instance detail (`preview:runtime-id` belongs to the `preview`
+   family); classification and identity matching share this family
+   normalization and do not recognize extension or node names.
 9. During the base LiteGraph pass, an offscreen-canvas-local
    `drawNodeWidgets` wrapper removes plan-owned text/capture widgets from that
    synchronous call. It never mutates live widget objects across an animation

@@ -21,7 +21,7 @@ import {
   overrideDevicePixelRatio,
   setCanvasPixelSize,
   syncOffscreenCanvasSize,
-} from "./legacy_support.mjs";
+} from "./legacy_support.mjs?v=20260903-17";
 import {
   applyPadding,
   boundsFromNodeRects,
@@ -37,7 +37,7 @@ import {
   collectPlannedMediaElements,
   collectPlannedMediaNodeIds,
   installPlannedWidgetDrawSuppression,
-} from "./widget_render_plan.mjs?v=20260903-16";
+} from "./widget_render_plan.mjs?v=20260903-19";
 import {
   drawPlannedWidgetOverlays,
 } from "./widget_overlay_renderer.mjs?v=20260903-16";

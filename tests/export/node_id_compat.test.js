@@ -272,6 +272,31 @@ test("live graph sync joins serialized numeric ids to frontend string ids", () =
   assert.equal(exportNode.imgs, undefined);
 });
 
+test("live graph sync preserves the runtime value of textPreview widgets", () => {
+  const exportWidget = { type: "textPreview", value: "serialized" };
+  const liveWidget = { type: "textPreview", value: "runtime output" };
+  const exportNode = {
+    id: 64,
+    pos: [0, 0],
+    size: [240, 120],
+    widgets: [exportWidget],
+  };
+  const liveNode = {
+    id: 64,
+    pos: [0, 0],
+    size: [240, 120],
+    widgets: [liveWidget],
+  };
+
+  syncLiveGraphState(
+    { _nodes: [exportNode], _groups: [] },
+    { _nodes: [liveNode], _groups: [] },
+    null
+  );
+
+  assert.equal(exportWidget.value, "runtime output");
+});
+
 test("live typed-array geometry remains authoritative without clone resize writes", () => {
   let cloneLayoutWrites = 0;
   const liveSizeTarget = new Float64Array([404, 178]);

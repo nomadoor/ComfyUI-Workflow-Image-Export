@@ -56,7 +56,7 @@ function syncLiveNodeText(exportGraph, liveGraph) {
   const exportNodes = exportGraph?._nodes || exportGraph?.nodes || [];
   const liveById = buildNodeIdMap(liveGraph);
   if (!liveById.size || !exportNodes.length) return;
-  const multilineWidgetTypes = new Set(["textarea", "markdown", "customtext"]);
+  const multilineWidgetTypes = new Set(["textarea", "markdown", "customtext", "textpreview"]);
   const shouldSyncWidgetValue = (exportWidget, liveWidget) => {
     const type = String(exportWidget?.type || liveWidget?.type || "").toLowerCase();
     if (exportWidget?.options?.multiline === true || liveWidget?.options?.multiline === true) {

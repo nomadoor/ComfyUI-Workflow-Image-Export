@@ -60,7 +60,7 @@ function buildMenuLabel() {
 async function openDialog(log) {
   try {
     // Bump this URL and the affected static import chain together. See AGENTS.md.
-    const mod = await import("./ui/dialog.mjs?v=20260903-16");
+    const mod = await import("./ui/dialog.mjs?v=20260903-19");
     const openExportDialog = mod?.openExportDialog;
     if (typeof openExportDialog !== "function") {
       throw new Error("workflow-image-export: openExportDialog not available");
