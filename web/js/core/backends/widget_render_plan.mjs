@@ -12,7 +12,7 @@ import { toNodeIdKey } from "../node_ids.mjs";
 const MARKDOWN_SELECTORS = ".comfy-markdown-content, .tiptap";
 const TEXT_ELEMENT_SELECTORS = "textarea, [contenteditable='true'], .ProseMirror, .cm-content";
 const MEDIA_SELECTORS = "canvas, img, video";
-const MULTILINE_TYPES = new Set(["textarea", "customtext", "markdown"]);
+const MULTILINE_TYPES = new Set(["textarea", "customtext", "markdown", "textpreview"]);
 const MEDIA_TYPES = new Set(["canvas", "image", "preview", "video"]);
 
 function normalizeWidgetType(value) {
@@ -70,20 +70,26 @@ function findActiveMediaElement(root) {
     || null;
 }
 
+function formatWidgetTextValue(value) {
+  if (typeof value === "string") return value;
+  if (typeof value === "boolean" || typeof value === "bigint") return String(value);
+  if (typeof value === "number" && Number.isFinite(value)) return String(value);
+  return null;
+}
+
 function getWidgetText(node, widget, widgetIndex) {
-  if (typeof widget?.value === "string") return widget.value;
+  const widgetText = formatWidgetTextValue(widget?.value);
+  if (widgetText !== null) return widgetText;
   const values = node?.widgets_values;
   const widgets = Array.isArray(node?.widgets) ? node.widgets : [];
-  if (
-    Array.isArray(values) &&
-    values.length === widgets.length &&
-    typeof values[widgetIndex] === "string"
-  ) {
-    return values[widgetIndex];
+  if (Array.isArray(values) && values.length === widgets.length) {
+    const serializedText = formatWidgetTextValue(values[widgetIndex]);
+    if (serializedText !== null) return serializedText;
   }
   if (values && !Array.isArray(values) && typeof values === "object") {
     const name = widget?.name || widget?.options?.name;
-    if (name && typeof values[name] === "string") return values[name];
+    const serializedText = name ? formatWidgetTextValue(values[name]) : null;
+    if (serializedText !== null) return serializedText;
   }
   return "";
 }
@@ -197,7 +203,7 @@ function classifyWidget(widget, ownedElement) {
   const type = String(widget?.type || "").toLowerCase();
   const typeFamily = normalizeWidgetType(type);
   const markdownElement = findElement(ownedElement, MARKDOWN_SELECTORS);
-  if (type === "markdown" || markdownElement) {
+  if (typeFamily === "markdown" || markdownElement) {
     return {
       kind: "markdown",
       renderElement: markdownElement || ownedElement,
@@ -209,7 +215,7 @@ function classifyWidget(widget, ownedElement) {
     || isInstance(textElement, "HTMLTextAreaElement");
   const isMultiline =
     widget?.options?.multiline === true ||
-    MULTILINE_TYPES.has(type) ||
+    MULTILINE_TYPES.has(typeFamily) ||
     isTextarea;
   if (isMultiline) {
     return {
@@ -301,10 +307,8 @@ export function buildWidgetRenderPlan({
         key,
         nodeId: node.id,
         widgetIndex,
-        ...(source === "media" ? {
-          widgetName: String(widget?.name || widget?.options?.name || ""),
-          widgetType: String(widget?.type || ""),
-        } : {}),
+        widgetName: String(widget?.name || widget?.options?.name || ""),
+        widgetType: String(widget?.type || ""),
         graphRect,
         nodeGraphRect,
         source,
@@ -423,6 +427,21 @@ export function buildOffscreenWidgetRenderPlan({
     const cloneType = normalizeWidgetType(widget?.type);
     return Boolean(liveType && cloneType && liveType === cloneType);
   };
+  const matchesTextCloneWidget = (entry, widget) => {
+    if (!widget) return false;
+    const liveName = String(entry.widgetName || "");
+    const cloneName = String(widget?.name || widget?.options?.name || "");
+    const liveType = normalizeWidgetType(entry.widgetType);
+    const cloneType = normalizeWidgetType(widget?.type);
+    return Boolean(
+      liveName &&
+      cloneName &&
+      liveName === cloneName &&
+      liveType &&
+      cloneType &&
+      liveType === cloneType
+    );
+  };
   const concreteLiveMediaByNode = new Map();
   for (const entry of rawLivePlan) {
     if (
@@ -500,18 +519,12 @@ export function buildOffscreenWidgetRenderPlan({
     );
   }
   const livePlan = rawLivePlan.map((entry) => {
-    if (
-      entry.source !== "media" ||
-      !entry.element ||
-      !entry.graphRect ||
-      !entry.nodeGraphRect
-    ) {
+    if (!entry.graphRect || !entry.nodeGraphRect) {
       return entry;
     }
-    // Some extensions add transient DOM widgets only through the live app's
-    // extension-level nodeCreated hook. LGraph.configure() does not recreate
-    // those widgets in the export clone, so retain their node-relative media
-    // geometry without relaxing identity for ordinary serialized widgets.
+    // Runtime widgets may exist only on the live graph. Preserve their
+    // node-relative geometry without using DOM hit testing or matching by
+    // coordinates; the synchronized clone node remains the positioning anchor.
     const relativeEntry = {
       ...entry,
       geometrySource: "live-node-relative",
@@ -523,6 +536,22 @@ export function buildOffscreenWidgetRenderPlan({
       },
     };
     const nodeId = toNodeIdKey(entry.nodeId);
+    const exportNode = nodeId === null ? null : exportNodesById.get(nodeId);
+    const exportWidgets = Array.isArray(exportNode?.widgets) ? exportNode.widgets : [];
+    const cloneWidget = Number.isInteger(entry.widgetIndex)
+      ? exportWidgets[entry.widgetIndex]
+      : null;
+    if (entry.source === "text" && !matchesTextCloneWidget(entry, cloneWidget)) {
+      return {
+        ...relativeEntry,
+        key: `${nodeId}:live-text:${entry.widgetIndex}`,
+        liveWidgetIndex: entry.widgetIndex,
+        widgetIndex: null,
+      };
+    }
+    if (entry.source !== "media" || !entry.element) {
+      return entry;
+    }
     if (
       entry.mediaDelegationEligible === true &&
       nodeId !== null &&
@@ -538,11 +567,6 @@ export function buildOffscreenWidgetRenderPlan({
         ].filter(Number.isInteger),
       };
     }
-    const exportNode = nodeId === null ? null : exportNodesById.get(nodeId);
-    const exportWidgets = Array.isArray(exportNode?.widgets) ? exportNode.widgets : [];
-    const cloneWidget = Number.isInteger(entry.widgetIndex)
-      ? exportWidgets[entry.widgetIndex]
-      : null;
     if (matchesCloneWidget(entry, cloneWidget)) return relativeEntry;
 
     // A live-only widget must not reuse its shifted index in the clone. Give it
@@ -573,12 +597,20 @@ export function buildOffscreenWidgetRenderPlan({
       .map((entry) => [entry.key, entry])
   );
   for (const entry of livePlan) {
-    if (
-      entry.source === "media" &&
-      entry.mediaDelegationEligible === true &&
-      entry.element
-    ) {
+    if (entry.source === "media" && entry.mediaDelegationEligible === true && entry.element) {
       byKey.set(entry.key, entry);
+    } else if (
+      entry.source === "text" &&
+      entry.geometrySource === "live-node-relative" &&
+      !Number.isInteger(entry.widgetIndex)
+    ) {
+      byKey.set(entry.key, {
+        ...entry,
+        styleSource: "default",
+        ownedElement: null,
+        element: null,
+        style: getDefaultStyle(),
+      });
     }
   }
   return joinWidgetRenderPlanToGraph(Array.from(byKey.values()), exportGraph, debugLog);

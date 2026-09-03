@@ -139,6 +139,20 @@ test("dialog.mjs import graph resolves successfully", async (t) => {
   assert.equal(typeof module.openExportDialog, "function");
 });
 
+test("offscreen setup preserves the current LiteGraph link render mode", async (t) => {
+  const { tempRoot, module: graphSetup } = await importMirroredModule(
+    "web/js/export/offscreen_graph_setup.mjs"
+  );
+  t.after(async () => {
+    await fs.rm(tempRoot, { recursive: true, force: true });
+  });
+  const exportCanvas = {};
+
+  graphSetup.copyRenderSettings({ links_render_mode: 2 }, exportCanvas);
+
+  assert.equal(exportCanvas.links_render_mode, 2);
+});
+
 test("scaled tile geometry reaches the real offscreen transform in graph units", async (t) => {
   const { tempRoot, module: graphSetup } = await importMirroredModule(
     "web/js/export/offscreen_graph_setup.mjs"

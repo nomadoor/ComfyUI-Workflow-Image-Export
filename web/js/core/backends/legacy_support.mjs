@@ -1,6 +1,7 @@
 import { resolveUiBackgroundColor } from "../../export/background_modes.mjs";
 import { hideGraphLinks } from "../../export/link_visibility.mjs";
 import { createExportDragAndScale } from "../graph_transform.mjs";
+export { copyRenderSettings } from "../render_settings.mjs?v=20260903-17";
 
 export function ensure2DContext(canvas) {
   return canvas.getContext("2d", { alpha: true });
@@ -102,60 +103,6 @@ export function applyBackgroundFill(mode, width, height, exportCtx, bgctx, solid
       bgctx.fillRect(0, 0, width, height);
     }
   }
-}
-
-export function copyRenderSettings(fromCanvas, toCanvas) {
-  const renderKeys = [
-    "render_background",
-    "clear_background",
-    "clear_background_color",
-    "background_image",
-    "show_grid",
-    "bgcolor",
-    "background_color",
-    "grid_size",
-    "link_color",
-    "link_shadow_color",
-    "link_brightness",
-    "default_link_color",
-    "link_type",
-    "render_connections_border",
-    "render_connections_shadows",
-    "render_curved_connections",
-    "always_render_background",
-    "use_slot_types_default_colors",
-    "use_slot_types_color",
-    "NODE_WIDGET_COLOR",
-    "NODE_TEXT_COLOR",
-    "NODE_DEFAULT_COLOR",
-    "NODE_SELECTED_COLOR",
-    "NODE_BOX_OUTLINE_COLOR",
-    "NODE_TITLE_COLOR",
-    "NODE_TEXT_SIZE",
-    "NODE_SLOT_RGB",
-  ];
-
-  for (const key in fromCanvas) {
-    if (
-      key.startsWith("NODE_") ||
-      key.startsWith("link_") ||
-      key.startsWith("render_") ||
-      key.startsWith("use_slot_") ||
-      key.startsWith("default_")
-    ) {
-      if (!renderKeys.includes(key)) {
-        renderKeys.push(key);
-      }
-    }
-  }
-
-  renderKeys.forEach((key) => {
-    if (fromCanvas[key] !== undefined) {
-      toCanvas[key] = fromCanvas[key];
-    } else if (fromCanvas.constructor && fromCanvas.constructor[key] !== undefined) {
-      toCanvas[key] = fromCanvas.constructor[key];
-    }
-  });
 }
 
 export function disableCanvasInfoOverlay(canvas) {

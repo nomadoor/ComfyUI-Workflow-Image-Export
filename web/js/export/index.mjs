@@ -7,7 +7,7 @@ import {
   EXTRACT_BG_1,
   EXTRACT_BG_2,
 } from "./background_modes.mjs";
-import { computeOffscreenBBox, renderGraphOffscreen } from "./render_graph_offscreen.mjs?v=20260903-16";
+import { computeOffscreenBBox, renderGraphOffscreen } from "./render_graph_offscreen.mjs?v=20260903-20";
 import { embedWorkflowInPngBlob } from "./png_embed_workflow.mjs";
 import { shouldTile } from "./limits.mjs?v=20260825-2";
 import { clampPngCompression } from "./tiled_png_encoder.mjs";

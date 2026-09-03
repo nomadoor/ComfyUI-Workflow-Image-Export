@@ -141,6 +141,297 @@ test("ordinary single-line widgets do not enter the overlay plan", () => {
   assert.deepEqual(buildWidgetRenderPlan({ graph, allowDom: false }), []);
 });
 
+test("ComfyUI textPreview widgets produce a multiline text entry", () => {
+  const graph = {
+    nodes: [{
+      id: 4,
+      type: "PreviewAny",
+      pos: [0, 0],
+      size: [240, 120],
+      widgets: [{
+        type: "textPreview",
+        name: "preview_text",
+        value: "Hallo",
+        y: 30,
+        computedHeight: 70,
+        margin: 4,
+        options: {},
+      }],
+    }],
+  };
+
+  const plan = buildWidgetRenderPlan({ graph, allowDom: false });
+
+  assert.equal(plan.length, 1);
+  assert.equal(plan[0].source, "text");
+  assert.equal(plan[0].text, "Hallo");
+});
+
+test("runtime-subtyped textPreview widgets remain multiline text", () => {
+  const graph = {
+    nodes: [{
+      id: 41,
+      type: "PreviewAny",
+      pos: [0, 0],
+      size: [240, 120],
+      widgets: [{
+        type: "textPreview:runtime-id",
+        name: "preview_text",
+        value: "runtime text",
+        y: 30,
+        computedHeight: 70,
+        margin: 4,
+        options: {},
+      }],
+    }],
+  };
+
+  const plan = buildWidgetRenderPlan({ graph, allowDom: false });
+
+  assert.equal(plan.length, 1);
+  assert.equal(plan[0].source, "text");
+  assert.equal(plan[0].text, "runtime text");
+});
+
+test("dynamic multiline widgets render primitive integer values as text", () => {
+  const node = multilineNode(5, "ShowText");
+  node.widgets = [
+    {
+      ...node.widgets[0],
+      name: "text_0",
+      value: 12,
+    },
+    {
+      ...node.widgets[0],
+      name: "text_1",
+      value: 34,
+      y: 80,
+    },
+  ];
+  node.widgets_values = [[12, 34]];
+
+  const plan = buildWidgetRenderPlan({
+    graph: { nodes: [node] },
+    allowDom: false,
+  });
+
+  assert.deepEqual(plan.map((entry) => entry.text), ["12", "34"]);
+});
+
+test("offscreen planning retains live-only dynamic multiline widgets", () => {
+  const makeWidget = (name, value, y) => ({
+    type: "customtext",
+    name,
+    value,
+    y,
+    computedHeight: 40,
+    margin: 4,
+    options: { multiline: true },
+    element: new MockTextAreaElement(),
+  });
+  const liveGraph = {
+    nodes: [{
+      id: 42,
+      pos: [10, 20],
+      size: [240, 140],
+      widgets: [
+        makeWidget("text_0", 12, 30),
+        makeWidget("text_1", 34, 75),
+      ],
+    }],
+  };
+  const exportGraph = {
+    nodes: [{
+      id: 42,
+      pos: [100, 200],
+      size: [240, 140],
+      widgets: [],
+    }],
+  };
+  const expected = [
+    { text: "12", graphRect: { x: 104, y: 234, w: 232, h: 32 } },
+    { text: "34", graphRect: { x: 104, y: 279, w: 232, h: 32 } },
+  ];
+
+  for (const includeDomOverlays of [true, false]) {
+    const plan = buildOffscreenWidgetRenderPlan({
+      liveGraph,
+      exportGraph,
+      includeDomOverlays,
+    });
+
+    assert.deepEqual(
+      plan.map(({ text, graphRect }) => ({ text, graphRect })),
+      expected
+    );
+    if (includeDomOverlays === false) {
+      assert.ok(plan.every((entry) => entry.styleSource === "default"));
+      assert.ok(plan.every((entry) => entry.element === null));
+      assert.ok(plan.every((entry) => entry.ownedElement === null));
+    }
+  }
+});
+
+test("offscreen planning retains a live-only ComfyUI textPreview widget", () => {
+  const liveGraph = {
+    nodes: [{
+      id: 142,
+      pos: [10, 20],
+      size: [240, 140],
+      widgets: [{
+        type: "textPreview",
+        name: "preview_text",
+        value: "runtime output",
+        y: 30,
+        computedHeight: 40,
+        margin: 4,
+        options: {},
+      }],
+    }],
+  };
+  const exportGraph = {
+    nodes: [{
+      id: 142,
+      pos: [100, 200],
+      size: [240, 140],
+      widgets: [],
+    }],
+  };
+
+  const plan = buildOffscreenWidgetRenderPlan({
+    liveGraph,
+    exportGraph,
+    includeDomOverlays: false,
+  });
+
+  assert.deepEqual(
+    plan.map(({ text, graphRect, widgetIndex }) => ({ text, graphRect, widgetIndex })),
+    [{
+      text: "runtime output",
+      graphRect: { x: 104, y: 234, w: 232, h: 32 },
+      widgetIndex: null,
+    }]
+  );
+});
+
+test("live-only text never claims an unrelated partial-clone widget", () => {
+  const makeTextWidget = (name, value, y) => ({
+    type: "customtext",
+    name,
+    value,
+    y,
+    computedHeight: 40,
+    margin: 4,
+    options: { multiline: true },
+  });
+  const liveGraph = {
+    nodes: [{
+      id: 43,
+      pos: [10, 20],
+      size: [240, 140],
+      widgets: [
+        makeTextWidget("text_0", 12, 30),
+        makeTextWidget("text_1", 34, 75),
+      ],
+    }],
+  };
+  const exportGraph = {
+    nodes: [{
+      id: 43,
+      pos: [100, 200],
+      size: [240, 140],
+      widgets: [{
+        type: "button",
+        name: "converted_input",
+        y: 5,
+        computedHeight: 20,
+        margin: 4,
+      }],
+    }],
+  };
+  const expected = [
+    { text: "12", graphRect: { x: 104, y: 234, w: 232, h: 32 } },
+    { text: "34", graphRect: { x: 104, y: 279, w: 232, h: 32 } },
+  ];
+
+  for (const includeDomOverlays of [true, false]) {
+    const plan = buildOffscreenWidgetRenderPlan({
+      liveGraph,
+      exportGraph,
+      includeDomOverlays,
+    });
+
+    assert.deepEqual(
+      plan.map(({ text, graphRect }) => ({ text, graphRect })),
+      expected
+    );
+    assert.equal(collectPlannedWidgetIndexes(plan).has("43"), false);
+  }
+});
+
+test("live text does not trust a same-name clone widget with no type", () => {
+  const liveGraph = {
+    nodes: [{
+      id: 44,
+      pos: [10, 20],
+      size: [240, 100],
+      widgets: [{
+        type: "customtext",
+        name: "text_0",
+        value: 12,
+        y: 30,
+        computedHeight: 40,
+        margin: 4,
+        options: { multiline: true },
+      }],
+    }],
+  };
+  const exportGraph = {
+    nodes: [{
+      id: 44,
+      pos: [100, 200],
+      size: [240, 100],
+      widgets: [{
+        name: "text_0",
+        y: 5,
+        computedHeight: 20,
+        margin: 4,
+      }],
+    }],
+  };
+  const expected = [{
+    text: "12",
+    graphRect: { x: 104, y: 234, w: 232, h: 32 },
+  }];
+
+  for (const includeDomOverlays of [true, false]) {
+    const plan = buildOffscreenWidgetRenderPlan({
+      liveGraph,
+      exportGraph,
+      includeDomOverlays,
+    });
+
+    assert.deepEqual(
+      plan.map(({ text, graphRect }) => ({ text, graphRect })),
+      expected
+    );
+    assert.equal(collectPlannedWidgetIndexes(plan).has("44"), false);
+  }
+});
+
+test("multiline widgets do not stringify arbitrary object values", () => {
+  const node = multilineNode(6, "ShowText");
+  node.widgets[0].value = { id: 12 };
+  node.widgets_values = [{ id: 12 }];
+
+  const [entry] = buildWidgetRenderPlan({
+    graph: { nodes: [node] },
+    allowDom: false,
+  });
+
+  assert.equal(entry.text, "");
+});
+
 test("missing widget.element still produces exactly one default-style text entry", () => {
   const plan = buildWidgetRenderPlan({
     graph: { nodes: [multilineNode(7, "CLIPTextEncode")] },

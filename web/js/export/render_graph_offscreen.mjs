@@ -20,7 +20,7 @@ import {
   disableCanvasInfoOverlay,
   prepareGraph,
   safeCleanup,
-} from "./offscreen_graph_setup.mjs?v=20260903-16";
+} from "./offscreen_graph_setup.mjs?v=20260903-20";
 import { collectNodeRects } from "../core/backends/legacy_bounds.mjs";
 import {
   drawExternalTextOverlays,
@@ -32,7 +32,7 @@ import {
   collectPlannedMediaNodeIds,
   installPlannedWidgetDrawSuppression,
   joinWidgetRenderPlanToGraph,
-} from "../core/backends/widget_render_plan.mjs?v=20260903-16";
+} from "../core/backends/widget_render_plan.mjs?v=20260903-19";
 import {
   drawPlannedWidgetOverlays,
 } from "../core/backends/widget_overlay_renderer.mjs?v=20260903-16";
