@@ -272,9 +272,9 @@ test("live graph sync joins serialized numeric ids to frontend string ids", () =
   assert.equal(exportNode.imgs, undefined);
 });
 
-test("live graph sync preserves the runtime value of textPreview widgets", () => {
-  const exportWidget = { type: "textPreview", value: "serialized" };
-  const liveWidget = { type: "textPreview", value: "runtime output" };
+test("live graph sync preserves runtime values for subtyped textPreview widgets", () => {
+  const exportWidget = { type: "textPreview:runtime-id", value: "serialized" };
+  const liveWidget = { type: "textPreview:runtime-id", value: "runtime output" };
   const exportNode = {
     id: 64,
     pos: [0, 0],

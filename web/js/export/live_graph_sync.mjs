@@ -58,7 +58,9 @@ function syncLiveNodeText(exportGraph, liveGraph) {
   if (!liveById.size || !exportNodes.length) return;
   const multilineWidgetTypes = new Set(["textarea", "markdown", "customtext", "textpreview"]);
   const shouldSyncWidgetValue = (exportWidget, liveWidget) => {
-    const type = String(exportWidget?.type || liveWidget?.type || "").toLowerCase();
+    const type = String(exportWidget?.type || liveWidget?.type || "")
+      .toLowerCase()
+      .split(":", 1)[0];
     if (exportWidget?.options?.multiline === true || liveWidget?.options?.multiline === true) {
       return true;
     }

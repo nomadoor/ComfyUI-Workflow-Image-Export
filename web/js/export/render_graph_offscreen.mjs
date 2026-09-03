@@ -20,7 +20,7 @@ import {
   disableCanvasInfoOverlay,
   prepareGraph,
   safeCleanup,
-} from "./offscreen_graph_setup.mjs?v=20260903-17";
+} from "./offscreen_graph_setup.mjs?v=20260903-20";
 import { collectNodeRects } from "../core/backends/legacy_bounds.mjs";
 import {
   drawExternalTextOverlays,

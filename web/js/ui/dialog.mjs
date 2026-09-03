@@ -4,7 +4,7 @@ import {
   detectBackendType,
   isNode2UnsupportedError,
   isWebpHugeUnsupportedError,
-} from "../core/capture/index.mjs?v=20260903-19";
+} from "../core/capture/index.mjs?v=20260903-20";
 import { getExportWarningMessage } from "../core/capture/warnings.mjs?v=20260903-16";
 import { captureLegacy } from "../core/backends/legacy_capture.mjs?v=20260903-19";
 import { triggerDownload } from "../core/download.mjs";

@@ -3,7 +3,7 @@ import { detectBackend } from "../detect.mjs?v=20260825-2";
 import { captureLegacy } from "../backends/legacy_capture.mjs?v=20260903-19";
 import { captureNode2 } from "../backends/node2_compositor_capture.mjs?v=20260903-16";
 import { applyBackground, downscaleIfNeeded } from "../postprocess/raster.mjs";
-import { exportWorkflowPng } from "../../export/index.mjs?v=20260903-19";
+import { exportWorkflowPng } from "../../export/index.mjs?v=20260903-20";
 import { computeGraphBBox } from "../../export/bbox.mjs?v=20260903-16";
 import { resolveRasterExceedPlan } from "../../export/limits.mjs?v=20260825-2";
 import { embedWorkflowInPngBlob } from "../../export/png_embed_workflow.mjs";
