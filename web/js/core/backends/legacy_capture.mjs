@@ -37,7 +37,7 @@ import {
   collectPlannedMediaElements,
   collectPlannedMediaNodeIds,
   installPlannedWidgetDrawSuppression,
-} from "./widget_render_plan.mjs?v=20260903-19";
+} from "./widget_render_plan.mjs?v=20260907-1";
 import {
   drawPlannedWidgetOverlays,
 } from "./widget_overlay_renderer.mjs?v=20260903-16";
@@ -54,7 +54,7 @@ import { drawVideoThumbnails } from "../../export/fallback_media_overlays.mjs?v=
 import { resolveOutputResolutionScale } from "../output_scale.mjs?v=20260825-2";
 import { createLiveRenderGuard } from "./live_render_guard.mjs?v=20260903-16";
 import { createLiteGraphMeasureTextGuard } from "./litegraph_measure_text_guard.mjs?v=20260903-16";
-import { drawWidgetMediaFallbacks } from "../../export/widget_media_fallback.mjs?v=20260903-16";
+import { drawWidgetMediaFallbacks } from "../../export/widget_media_fallback.mjs?v=20260907-2";
 
 function computeExportScale(srcW, srcH, options, debugLog) {
   const resolutionScale = resolveOutputResolutionScale(options?.outputResolution);

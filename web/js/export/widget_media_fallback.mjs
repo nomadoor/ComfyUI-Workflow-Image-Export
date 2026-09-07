@@ -27,6 +27,42 @@ function addCoverage(coverage, nodeId, graphRect) {
   coverage.set(nodeId, entries);
 }
 
+function positionOffset(value, freeSpace) {
+  // Computed length-percentage sums retain calc() until the available space is
+  // known. Resolve only numeric %/px terms, never execute a CSS expression.
+  const sum = /^calc\(\s*(.+?)\s+([+-])\s+(.+?)\s*\)$/.exec(value || "");
+  const terms = sum ? [sum[1], `${sum[2]}${sum[3]}`] : [value];
+  let offset = 0;
+  for (const term of terms) {
+    const match = /^([+-]?(?:\d+(?:\.\d*)?|\.\d+))(%|px)$/.exec(term || "");
+    if (!match) return freeSpace / 2;
+    const amount = Number(match[1]);
+    offset += match[2] === "%" ? freeSpace * amount / 100 : amount;
+  }
+  return Number.isFinite(offset) ? offset : freeSpace / 2;
+}
+
+function getVideoContentRect(entry, snapshot) {
+  const rect = entry.graphRect;
+  const isVideo = Number(entry.element?.videoWidth) > 0 &&
+    Number(entry.element?.videoHeight) > 0;
+  // A frame snapshot has no CSS. Restore the video's contained content inside
+  // its widget box, rather than stretching the frame over the letterbox space.
+  if (!isVideo || (entry.style?.objectFit || "contain") !== "contain") return rect;
+  const fit = Math.min(rect.w / snapshot.width, rect.h / snapshot.height);
+  const w = snapshot.width * fit;
+  const h = snapshot.height * fit;
+  // Spaces inside a computed calc() belong to that axis, not to the separator.
+  const position = String(entry.style?.objectPosition || "").trim()
+    .match(/^(calc\([^()]*\)|[^\s()]+)\s+(calc\([^()]*\)|[^\s()]+)$/)?.slice(1) || [];
+  return {
+    x: rect.x + positionOffset(position[0], rect.w - w),
+    y: rect.y + positionOffset(position[1], rect.h - h),
+    w,
+    h,
+  };
+}
+
 export async function drawWidgetMediaFallbacks({
   exportCtx,
   plan,
@@ -68,11 +104,12 @@ export async function drawWidgetMediaFallbacks({
       continue;
     }
 
+    const contentRect = getVideoContentRect(entry, snapshot);
     const exportRect = {
-      x: (entry.graphRect.x - Number(bounds.left)) * safeScale,
-      y: (entry.graphRect.y - Number(bounds.top)) * safeScale,
-      w: entry.graphRect.w * safeScale,
-      h: entry.graphRect.h * safeScale,
+      x: (contentRect.x - Number(bounds.left)) * safeScale,
+      y: (contentRect.y - Number(bounds.top)) * safeScale,
+      w: contentRect.w * safeScale,
+      h: contentRect.h * safeScale,
     };
     const clipRect = {
       x: (tileClipped.x - Number(bounds.left)) * safeScale,
