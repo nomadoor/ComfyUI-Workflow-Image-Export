@@ -193,6 +193,8 @@ function getDomStyle(element) {
         null,
       color: computed.color || "#ffffff",
       font: formatCanvasFont(computed, fontSize),
+      objectFit: computed.objectFit,
+      objectPosition: computed.objectPosition,
     };
   } catch (_) {
     return getDefaultStyle();

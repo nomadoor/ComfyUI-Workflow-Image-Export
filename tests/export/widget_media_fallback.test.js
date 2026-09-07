@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { drawPlannedWidgetOverlays } from "../../web/js/core/backends/widget_overlay_renderer.mjs";
-import { buildOffscreenWidgetRenderPlan } from "../../web/js/core/backends/widget_render_plan.mjs";
+import { buildOffscreenWidgetRenderPlan, buildWidgetRenderPlan } from "../../web/js/core/backends/widget_render_plan.mjs";
 import { drawWidgetMediaFallbacks } from "../../web/js/export/widget_media_fallback.mjs";
 
 function mediaEntry(key, element, x = 40) {
@@ -19,12 +19,14 @@ function mediaEntry(key, element, x = 40) {
 
 function createExportContext() {
   const calls = [];
+  const clips = [];
   return {
     calls,
+    clips,
     save() {},
     restore() {},
     beginPath() {},
-    rect() {},
+    rect(...rect) { clips.push(rect); },
     clip() {},
     drawImage(media, ...rect) {
       calls.push({ media, rect });
@@ -72,6 +74,148 @@ function connectedMediaGraphs(element) {
     },
   };
 }
+
+function installMediaDom(t, style = { objectFit: "contain", objectPosition: "50% 50%" }) {
+  const previousDocument = globalThis.document;
+  const previousWindow = globalThis.window;
+  globalThis.window = {
+    getComputedStyle() {
+      return style;
+    },
+  };
+  globalThis.document = {
+    createElement() {
+      const canvas = { width: 0, height: 0 };
+      canvas.getContext = () => ({
+        drawImage() {},
+        getImageData() { return { data: new Uint8ClampedArray([0, 0, 0, 255]) }; },
+      });
+      return canvas;
+    },
+  };
+  t.after(() => {
+    globalThis.document = previousDocument;
+    globalThis.window = previousWindow;
+  });
+}
+
+test("Classic video keeps its letterbox in normal and offscreen widget exports", async (t) => {
+  installMediaDom(t);
+  const video = { tagName: "VIDEO", videoWidth: 640, videoHeight: 360 };
+  const graphs = connectedMediaGraphs(video);
+  for (const graph of [graphs.liveGraph, graphs.exportGraph]) {
+    const node = graph.nodes[0];
+    node.pos = [0, 0];
+    node.size = [340, 300];
+    Object.assign(node.widgets[0], {
+      name: "video-preview", type: "video", y: 20, computedHeight: 260,
+    });
+  }
+  const plans = [
+    buildWidgetRenderPlan({ graph: graphs.liveGraph }),
+    buildOffscreenWidgetRenderPlan({ ...graphs, includeDomOverlays: true }),
+    buildOffscreenWidgetRenderPlan({ ...graphs, includeDomOverlays: false }),
+    // Core video-preview is runtime-only and may not exist in the clone.
+    buildOffscreenWidgetRenderPlan({
+      liveGraph: graphs.liveGraph,
+      exportGraph: { nodes: [{ ...graphs.exportGraph.nodes[0], widgets: [] }] },
+      includeDomOverlays: false,
+    }),
+  ];
+  for (const plan of plans) {
+    const ctx = createExportContext();
+    const bounds = { left: 0, top: 0, right: 340, bottom: 300 };
+    const coverage = await drawWidgetMediaFallbacks({
+      exportCtx: ctx, plan, bounds, scale: 1, mediaSnapshotCache: new Map(),
+    });
+    // The 320x240 widget starts at (10,30). Its 16:9 video is 320x180,
+    // centered with 30 graph units of empty space above and below.
+    assert.deepEqual(ctx.calls.filter((call) => call.media).map((call) => call.rect), [
+      [10, 60, 320, 180],
+    ]);
+    assert.deepEqual(coverage.get("71"), [{ x: 10, y: 30, w: 320, h: 240 }]);
+    const result = await drawPlannedWidgetOverlays({
+      exportCtx: ctx, plan, bounds, scale: 1,
+      options: { mediaFallbackCoverage: coverage },
+    });
+    assert.equal(result.mediaPlaceholder, 0, "letterbox space still belongs to the video");
+    assert.equal(result.delegated, 1);
+  }
+});
+
+test("contained video retains its CSS alignment inside the widget", async (t) => {
+  installMediaDom(t, { objectFit: "contain", objectPosition: "50% 100%" });
+  const graphs = connectedMediaGraphs({ tagName: "VIDEO", videoWidth: 400, videoHeight: 100 });
+  const plan = buildWidgetRenderPlan({ graph: graphs.liveGraph });
+  const ctx = createExportContext();
+  await drawWidgetMediaFallbacks({
+    exportCtx: ctx, plan,
+    bounds: { left: 0, top: 0, right: 220, bottom: 120 },
+    scale: 1, mediaSnapshotCache: new Map(),
+  });
+  // A 200x60 widget at (10,40), containing a bottom-aligned 200x50 video.
+  assert.deepEqual(ctx.calls.filter((call) => call.media).map((call) => call.rect), [
+    [10, 50, 200, 50],
+  ]);
+});
+
+test("video fit stays anchored to the full widget across scaled tile clips", async (t) => {
+  installMediaDom(t);
+  const video = { videoWidth: 640, videoHeight: 360 };
+  const entry = {
+    ...mediaEntry("71:0", video),
+    graphRect: { x: 10, y: 30, w: 320, h: 240 },
+    nodeGraphRect: { x: 0, y: 0, w: 340, h: 300 },
+  };
+  const cache = new Map();
+  for (const [bounds, expectedDraw, expectedClip] of [
+    [{ left: 0, top: 0, right: 170, bottom: 150 },
+      [20, 120, 640, 360], [20, 60, 320, 240]],
+    [{ left: 170, top: 150, right: 340, bottom: 300 },
+      [-320, -180, 640, 360], [0, 0, 320, 240]],
+    // A tile containing only letterbox space must not get a placeholder.
+    [{ left: 0, top: 30, right: 340, bottom: 50 },
+      [20, 60, 640, 360], [20, 0, 640, 40]],
+  ]) {
+    const ctx = createExportContext();
+    const coverage = await drawWidgetMediaFallbacks({
+      exportCtx: ctx, plan: [entry], bounds, scale: 2, mediaSnapshotCache: cache,
+    });
+    assert.deepEqual(ctx.calls[0].rect, expectedDraw);
+    assert.deepEqual(ctx.clips, [expectedClip]);
+    assert.deepEqual(coverage.get("71"), [entry.graphRect]);
+  }
+});
+
+test("video portrait and equal-aspect frames fit while non-video media keeps its layout", async (t) => {
+  installMediaDom(t);
+  for (const [element, expectedDraw] of [
+    [{ videoWidth: 120, videoHeight: 240 }, [85, 10, 30, 60]],
+    [{ videoWidth: 240, videoHeight: 120 }, [40, 10, 120, 60]],
+    [{ naturalWidth: 120, naturalHeight: 240 }, [40, 10, 120, 60]],
+    [{ width: 120, height: 240 }, [40, 10, 120, 60]],
+  ]) {
+    const ctx = createExportContext();
+    await drawWidgetMediaFallbacks({
+      exportCtx: ctx, plan: [mediaEntry("71:0", element)],
+      bounds: { left: 0, top: 0, right: 220, bottom: 100 },
+      scale: 1, mediaSnapshotCache: new Map(),
+    });
+    assert.deepEqual(ctx.calls[0].rect, expectedDraw);
+  }
+});
+
+test("an explicitly stretched video keeps its CSS fill layout", async (t) => {
+  installMediaDom(t, { objectFit: "fill", objectPosition: "50% 50%" });
+  const graphs = connectedMediaGraphs({ videoWidth: 400, videoHeight: 100 });
+  const ctx = createExportContext();
+  await drawWidgetMediaFallbacks({
+    exportCtx: ctx, plan: buildWidgetRenderPlan({ graph: graphs.liveGraph }),
+    bounds: { left: 0, top: 0, right: 220, bottom: 120 },
+    scale: 1, mediaSnapshotCache: new Map(),
+  });
+  assert.deepEqual(ctx.calls[0].rect, [10, 40, 200, 60]);
+});
 
 test("widget-owned media uses one origin-clean snapshot across tiles", async () => {
   const previousDocument = globalThis.document;
