@@ -45,7 +45,7 @@ import { PREVIEW_MAX_PIXELS } from "./limits.mjs?v=20260825-2";
 import { buildMediaFallbackTargets } from "./media_fallback_plan.mjs?v=20260903-16";
 import { createLiveRenderGuard } from "../core/backends/live_render_guard.mjs?v=20260903-16";
 import { createLiteGraphMeasureTextGuard } from "../core/backends/litegraph_measure_text_guard.mjs?v=20260903-16";
-import { drawWidgetMediaFallbacks } from "./widget_media_fallback.mjs?v=20260907-1";
+import { drawWidgetMediaFallbacks } from "./widget_media_fallback.mjs?v=20260907-2";
 
 function getNowMs() {
   if (typeof performance !== "undefined" && typeof performance.now === "function") {

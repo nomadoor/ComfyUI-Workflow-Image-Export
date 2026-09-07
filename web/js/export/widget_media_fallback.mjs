@@ -28,12 +28,18 @@ function addCoverage(coverage, nodeId, graphRect) {
 }
 
 function positionOffset(value, freeSpace) {
-  // Computed object-position normally supplies a pair of percentages or px.
-  // Unresolved expressions fall back to the video's default centered position.
-  const match = /^(-?(?:\d+(?:\.\d*)?|\.\d+))(%|px)$/.exec(value || "");
-  if (!match) return freeSpace / 2;
-  const amount = Number(match[1]);
-  return match[2] === "%" ? freeSpace * amount / 100 : amount;
+  // Computed length-percentage sums retain calc() until the available space is
+  // known. Resolve only numeric %/px terms, never execute a CSS expression.
+  const sum = /^calc\(\s*(.+?)\s+([+-])\s+(.+?)\s*\)$/.exec(value || "");
+  const terms = sum ? [sum[1], `${sum[2]}${sum[3]}`] : [value];
+  let offset = 0;
+  for (const term of terms) {
+    const match = /^([+-]?(?:\d+(?:\.\d*)?|\.\d+))(%|px)$/.exec(term || "");
+    if (!match) return freeSpace / 2;
+    const amount = Number(match[1]);
+    offset += match[2] === "%" ? freeSpace * amount / 100 : amount;
+  }
+  return Number.isFinite(offset) ? offset : freeSpace / 2;
 }
 
 function getVideoContentRect(entry, snapshot) {
@@ -46,7 +52,9 @@ function getVideoContentRect(entry, snapshot) {
   const fit = Math.min(rect.w / snapshot.width, rect.h / snapshot.height);
   const w = snapshot.width * fit;
   const h = snapshot.height * fit;
-  const position = String(entry.style?.objectPosition || "").trim().split(/\s+/);
+  // Spaces inside a computed calc() belong to that axis, not to the separator.
+  const position = String(entry.style?.objectPosition || "").trim()
+    .match(/^(calc\([^()]*\)|[^\s()]+)\s+(calc\([^()]*\)|[^\s()]+)$/)?.slice(1) || [];
   return {
     x: rect.x + positionOffset(position[0], rect.w - w),
     y: rect.y + positionOffset(position[1], rect.h - h),

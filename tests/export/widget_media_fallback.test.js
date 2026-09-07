@@ -159,6 +159,51 @@ test("contained video retains its CSS alignment inside the widget", async (t) =>
   ]);
 });
 
+test("computed calc positions preserve both video axes in normal and offscreen plans", async (t) => {
+  installMediaDom(t, {
+    objectFit: "contain", objectPosition: "calc(50% + 5px) calc(100% - 2px)",
+  });
+  const graphs = connectedMediaGraphs({ videoWidth: 400, videoHeight: 100 });
+  for (const [plan, expected] of [
+    [buildWidgetRenderPlan({ graph: graphs.liveGraph }), [15, 48, 200, 50]],
+    [buildOffscreenWidgetRenderPlan({ ...graphs, includeDomOverlays: false }),
+      [35, 83, 220, 55]],
+  ]) {
+    const ctx = createExportContext();
+    await drawWidgetMediaFallbacks({
+      exportCtx: ctx, plan,
+      bounds: { left: 0, top: 0, right: 300, bottom: 200 },
+      scale: 1, mediaSnapshotCache: new Map(),
+    });
+    ctx.calls[0].rect.forEach((value, axis) => {
+      assert.ok(Math.abs(value - expected[axis]) < 1e-9, `coordinate ${axis}`);
+    });
+  }
+});
+
+test("computed position terms preserve px, percentages, signed offsets and safe fallback", async (t) => {
+  installMediaDom(t);
+  for (const [objectPosition, expected] of [
+    ["calc(100% - 10px) calc(50% + 4px)", [120, 14, 30, 60]],
+    ["calc(25% + 0.5px) -0.5px", [63, 9.5, 30, 60]],
+    ["calc(-25% + 10px) 0%", [27.5, 10, 30, 60]],
+    ["12px 100%", [52, 10, 30, 60]],
+    ["calc(100% - invalid) 0%", [85, 10, 30, 60]],
+  ]) {
+    const ctx = createExportContext();
+    await drawWidgetMediaFallbacks({
+      exportCtx: ctx,
+      plan: [{
+        ...mediaEntry("71:0", { videoWidth: 120, videoHeight: 240 }),
+        style: { objectFit: "contain", objectPosition },
+      }],
+      bounds: { left: 0, top: 0, right: 220, bottom: 100 },
+      scale: 1, mediaSnapshotCache: new Map(),
+    });
+    assert.deepEqual(ctx.calls[0].rect, expected);
+  }
+});
+
 test("video fit stays anchored to the full widget across scaled tile clips", async (t) => {
   installMediaDom(t);
   const video = { videoWidth: 640, videoHeight: 360 };
