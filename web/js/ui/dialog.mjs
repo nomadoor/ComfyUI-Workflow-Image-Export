@@ -4,7 +4,7 @@ import {
   detectBackendType,
   isNode2UnsupportedError,
   isWebpHugeUnsupportedError,
-} from "../core/capture/index.mjs?v=20260915-1";
+} from "../core/capture/index.mjs?v=20260915-2";
 import { getExportWarningMessage } from "../core/capture/warnings.mjs?v=20260903-16";
 import { captureLegacy } from "../core/backends/legacy_capture.mjs?v=20260915-1";
 import { triggerDownload } from "../core/download.mjs";
@@ -24,7 +24,7 @@ import {
   buildPreviewState as buildPreviewStateForDialog,
   getPreviewMime,
   getPreviewStateKey,
-} from "./preview_state.mjs";
+} from "./preview_state.mjs?v=20260915-2";
 import {
   resolveBlobExtension,
   resolveWorkflowName,
@@ -32,7 +32,7 @@ import {
 import {
   evaluateWebpAvailability,
   getOutputResolutionScale,
-} from "./webp_availability.mjs?v=20260825-2";
+} from "./webp_availability.mjs?v=20260915-2";
 import { resolveExportCaptureOptions } from "../core/node2_export_policy.mjs?v=20260825-2";
 import {
   createCaretIcon,

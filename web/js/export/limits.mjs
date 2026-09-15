@@ -25,7 +25,13 @@ export function isHugeRasterExport({ width, height, scale = 1 } = {}) {
   );
 }
 
-export function resolveRasterExceedPlan({
+/**
+ * Choose the Classic raster renderer from the final output size only.
+ * `exceedMode` controls scale: `downscale` fits the configured edge, while
+ * `tile` keeps the requested resolution. The tiled offscreen renderer is used
+ * only when one safe canvas cannot hold the output.
+ */
+export function resolveClassicRasterRoute({
   width,
   height,
   scale = 1,
@@ -37,29 +43,26 @@ export function resolveRasterExceedPlan({
     : 1;
   const outputWidth = normalizeCanvasDimension(width) * safeScale;
   const outputHeight = normalizeCanvasDimension(height) * safeScale;
-  const limit = Number(maxLongEdge);
-  if (exceedMode === "downscale") {
-    const longEdge = Math.max(outputWidth, outputHeight);
-    if (Number.isFinite(limit) && limit > 0 && longEdge > limit) {
-      const downscale = limit / longEdge;
-      return {
-        useTiledExport: shouldTile(outputWidth * downscale, outputHeight * downscale),
-        renderScale: safeScale * downscale,
-      };
-    }
+  if (exceedMode === "tile") {
     return {
-      useTiledExport: shouldTile(outputWidth, outputHeight),
+      renderer: shouldTile(outputWidth, outputHeight) ? "tiled-offscreen" : "live",
       renderScale: safeScale,
+      legacyMaxLongEdge: 0,
     };
   }
-  if (exceedMode !== "tile") {
-    return { useTiledExport: false, renderScale: safeScale };
+  if (exceedMode !== "downscale") {
+    return { renderer: "live", renderScale: safeScale, legacyMaxLongEdge: maxLongEdge };
   }
+  const limit = Number(maxLongEdge);
+  const longEdge = Math.max(outputWidth, outputHeight);
+  const downscale = Number.isFinite(limit) && limit > 0 && longEdge > limit
+    ? limit / longEdge
+    : 1;
   return {
-    useTiledExport:
-      shouldTile(outputWidth, outputHeight) ||
-      (Number.isFinite(limit) && limit > 0 &&
-        Math.max(outputWidth, outputHeight) > limit),
-    renderScale: safeScale,
+    renderer: shouldTile(outputWidth * downscale, outputHeight * downscale)
+      ? "tiled-offscreen"
+      : "live",
+    renderScale: safeScale * downscale,
+    legacyMaxLongEdge: maxLongEdge,
   };
 }

@@ -1,6 +1,6 @@
 import { toBlobAsync } from "../core/utils.mjs";
-import { TILE_SIZE } from "./limits.mjs?v=20260825-2";
-import { encodePngFromTiles } from "./tiled_png_encoder.mjs";
+import { TILE_SIZE } from "./limits.mjs?v=20260915-2";
+import { encodePngFromTiles } from "./tiled_png_encoder.mjs?v=20260915-2";
 import {
   resolveTileGeometry,
   resolveTiledOutputSize,

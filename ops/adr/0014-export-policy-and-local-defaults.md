@@ -25,12 +25,19 @@ hard-coded 1.25× camera scale without a documented rationale.
 
 1. Preview remains a fast, safe `captureLegacy()` render used only for display.
    Final PNG/WebP export always runs the normal `capture()` pipeline.
-2. Classic uses the tiled exporter only when the scaled bounds exceed the
-   configured maximum edge or a hard canvas safety threshold. Otherwise it uses
-   the normal Legacy capture. Forced tile rendering is passed explicitly to the
-   offscreen exporter once that decision is made. Tiled PNG encoder dimensions,
-   bleed, crop coordinates, and graph tile rectangles all account for the
-   selected output scale.
+2. Classic selects its renderer only from the final output size. The tiled
+   offscreen exporter is used only when one safe canvas cannot hold the output
+   (`shouldTile`: long edge above 6144 px, more than 24 MiB pixels, or above the
+   maximum canvas edge). `exceedMode` controls scale, not renderer choice:
+   `downscale` fits the configured maximum edge, while `tile` keeps the
+   requested resolution and passes no maximum edge to the live Legacy capture.
+   Amended 2026-09-15: Tile previously switched to the offscreen exporter as
+   soon as the configured maximum edge was exceeded, which dropped runtime-only
+   previews such as Load Image between that edge and the hard threshold.
+   Forced tile rendering is passed explicitly to the offscreen exporter once
+   that decision is made. Tiled PNG encoder dimensions, bleed, crop
+   coordinates, and graph tile rectangles all account for the selected output
+   scale.
 3. Every media source in fallback overlays passes through an origin-clean
    scratch canvas before it can reach the export canvas. Unsafe media degrades
    to a placeholder instead of tainting the complete export. Planned media
@@ -51,8 +58,9 @@ hard-coded 1.25× camera scale without a documented rationale.
 ## Consequences
 
 - Final export options now describe the file that is actually downloaded.
-- Small Classic workflows avoid the tiled/offscreen path even when Tile is the
-  selected exceed policy.
+- Classic Tile exports stay on the live renderer until the hard canvas
+  threshold, so runtime-only previews remain visible below it. Above the
+  threshold the offscreen exporter still depends on its media fallbacks.
 - Node 2.0 cannot silently reuse a Legacy downscale preference.
 - A forced Node 2.0 Tile policy is not written back over the shared Legacy Last
   used exceed preference.
