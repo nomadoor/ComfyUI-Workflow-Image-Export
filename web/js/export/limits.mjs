@@ -16,15 +16,6 @@ export function shouldTile(width, height) {
   return w * h > TILE_THRESHOLD_PIXELS || Math.max(w, h) > TILE_THRESHOLD_EDGE;
 }
 
-export function isHugeRasterExport({ width, height, scale = 1 } = {}) {
-  const s = Number(scale);
-  const safeScale = Number.isFinite(s) && s > 0 ? s : 1;
-  return shouldTile(
-    normalizeCanvasDimension(width) * safeScale,
-    normalizeCanvasDimension(height) * safeScale
-  );
-}
-
 /**
  * Choose the Classic raster renderer from the final output size only.
  * `exceedMode` controls scale: `downscale` fits the configured edge, while
@@ -34,24 +25,20 @@ export function isHugeRasterExport({ width, height, scale = 1 } = {}) {
 export function resolveClassicRasterRoute({
   width,
   height,
-  scale = 1,
   maxLongEdge = 0,
   exceedMode = "downscale",
 } = {}) {
-  const safeScale = Number.isFinite(Number(scale)) && Number(scale) > 0
-    ? Number(scale)
-    : 1;
-  const outputWidth = normalizeCanvasDimension(width) * safeScale;
-  const outputHeight = normalizeCanvasDimension(height) * safeScale;
+  const outputWidth = normalizeCanvasDimension(width);
+  const outputHeight = normalizeCanvasDimension(height);
   if (exceedMode === "tile") {
     return {
       renderer: shouldTile(outputWidth, outputHeight) ? "tiled-offscreen" : "live",
-      renderScale: safeScale,
+      renderScale: 1,
       legacyMaxLongEdge: 0,
     };
   }
   if (exceedMode !== "downscale") {
-    return { renderer: "live", renderScale: safeScale, legacyMaxLongEdge: maxLongEdge };
+    return { renderer: "live", renderScale: 1, legacyMaxLongEdge: maxLongEdge };
   }
   const limit = Number(maxLongEdge);
   const longEdge = Math.max(outputWidth, outputHeight);
@@ -62,7 +49,7 @@ export function resolveClassicRasterRoute({
     renderer: shouldTile(outputWidth * downscale, outputHeight * downscale)
       ? "tiled-offscreen"
       : "live",
-    renderScale: safeScale * downscale,
+    renderScale: downscale,
     legacyMaxLongEdge: maxLongEdge,
   };
 }

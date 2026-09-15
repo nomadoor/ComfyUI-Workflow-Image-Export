@@ -49,8 +49,7 @@ Install via **ComfyUI Manager**:
   - **Scope** toggle: crop to selection.
   - **Opacity**: dim unselected nodes (0–100).
 - **Advanced**:
-  - Output resolution, max long edge, exceed behavior.
-  - `200%` produces a true 2× output scale in both Classic and Node 2.0.
+  - Max long edge and exceed behavior.
 
 The dialog starts from the extension's built-in defaults, overlaid with the
 last successfully used values. **Reset to defaults** restores the built-in

@@ -44,6 +44,14 @@ test("buildInitialState falls back to fixed defaults for unsupported last used v
   assert.equal(state.scopeOpacity, 40);
 });
 
+test("buildInitialState discards an obsolete output resolution from Last used", () => {
+  const state = buildInitialState({
+    lastUsed: { outputResolution: "200%" },
+  });
+
+  assert.equal("outputResolution" in state, false);
+});
+
 test("buildInitialState uses fixed defaults when no last used state exists", () => {
   const state = buildInitialState();
 
@@ -75,6 +83,7 @@ test("toLastUsedState serializes only normalized export and scope values", () =>
   const state = toLastUsedState({
     format: "svg",
     background: "solid",
+    outputResolution: "200%",
     scopeSelected: "yes",
     scopeOpacity: -1,
     debug: true,
@@ -88,7 +97,6 @@ test("toLastUsedState serializes only normalized export and scope values", () =>
     nodeOpacity: 100,
     padding: 100,
     showLinks: true,
-    outputResolution: "auto",
     maxLongEdge: 4096,
     exceedMode: "tile",
     pngCompression: 7,
@@ -96,6 +104,7 @@ test("toLastUsedState serializes only normalized export and scope values", () =>
     scopeOpacity: 0,
   });
   assert.equal("debug" in state, false);
+  assert.equal("outputResolution" in state, false);
 });
 
 test("toLastUsedState can preserve the Legacy exceed policy after a Node 2.0 export", () => {

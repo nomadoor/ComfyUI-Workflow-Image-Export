@@ -6,7 +6,6 @@ export const DEFAULTS = {
   nodeOpacity: 100,
   padding: 100,
   showLinks: true,
-  outputResolution: "auto",
   maxLongEdge: 4096,
   exceedMode: "tile",
   pngCompression: 7,
@@ -26,14 +25,6 @@ function normalizeBackground(value) {
     return v;
   }
   return DEFAULTS.background;
-}
-
-function normalizeResolution(value) {
-  const v = String(value ?? "").toLowerCase();
-  if (v === "auto" || v === "100%" || v === "200%") {
-    return v;
-  }
-  return DEFAULTS.outputResolution;
 }
 
 function normalizeExceedMode(value) {
@@ -92,7 +83,6 @@ export function normalizeState(raw) {
     nodeOpacity: normalizeNumber(raw?.nodeOpacity, DEFAULTS.nodeOpacity),
     padding: normalizeNumber(raw?.padding, DEFAULTS.padding),
     showLinks: normalizeBoolean(raw, "showLinks", DEFAULTS.showLinks),
-    outputResolution: normalizeResolution(raw?.outputResolution),
     maxLongEdge: normalizeNumber(raw?.maxLongEdge, DEFAULTS.maxLongEdge),
     exceedMode: normalizeExceedMode(raw?.exceedMode),
     pngCompression: normalizePngCompression(raw?.pngCompression),

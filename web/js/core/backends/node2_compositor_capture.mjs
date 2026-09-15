@@ -15,8 +15,8 @@ import {
 } from "./node2_background_override_state.mjs";
 import {
   formatNode2TilePixelLimitMessage,
-  resolveNode2OutputScale,
-} from "../node2_export_policy.mjs?v=20260825-2";
+  resolveNode2TileScale,
+} from "../node2_export_policy.mjs?v=20260915-3";
 import {
   captureTwoFrameTransparentMatte,
   getNode2TransparentWarning,
@@ -2066,11 +2066,7 @@ function useRestrictedFrameAsTile(canvas, captureRect) {
 }
 
 function getNode2TileScale(options = {}) {
-  const requested = Number(options.node2TileScale);
-  if (Number.isFinite(requested) && requested > 0) {
-    return Math.max(0.25, Math.min(2, requested));
-  }
-  return resolveNode2OutputScale(options.outputResolution);
+  return resolveNode2TileScale(options.node2TileScale);
 }
 
 function shouldUseNode2TiledCapture(options, fitInfo, root) {
@@ -2220,7 +2216,6 @@ async function captureNode2TiledFromFit(fitInfo, options = {}) {
           message: formatNode2TilePixelLimitMessage({
             width: outputWidth,
             height: outputHeight,
-            outputResolution: options.outputResolution,
           }),
         },
       };

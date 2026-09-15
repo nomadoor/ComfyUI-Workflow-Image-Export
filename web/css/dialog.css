@@ -414,9 +414,6 @@
 
 .cwie-select[data-select="format"]:has(input[value="png"]:checked) .cwie-select-label[data-value="png"],
 .cwie-select[data-select="format"]:has(input[value="webp"]:checked) .cwie-select-label[data-value="webp"],
-.cwie-select[data-select="resolution"]:has(input[value="auto"]:checked) .cwie-select-label[data-value="auto"],
-.cwie-select[data-select="resolution"]:has(input[value="100%"]:checked) .cwie-select-label[data-value="100%"],
-.cwie-select[data-select="resolution"]:has(input[value="200%"]:checked) .cwie-select-label[data-value="200%"],
 .cwie-select[data-select="exceed"]:has(input[value="downscale"]:checked) .cwie-select-label[data-value="downscale"],
 .cwie-select[data-select="exceed"]:has(input[value="tile"]:checked) .cwie-select-label[data-value="tile"] {
   display: inline;

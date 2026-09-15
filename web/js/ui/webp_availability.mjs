@@ -1,12 +1,8 @@
-import { shouldTile } from "../export/limits.mjs?v=20260915-2";
-import { resolveOutputResolutionScale } from "../core/output_scale.mjs?v=20260825-2";
-
-export { resolveOutputResolutionScale as getOutputResolutionScale };
+import { shouldTile } from "../export/limits.mjs?v=20260915-3";
 
 export function evaluateWebpAvailability({
   format,
   bbox,
-  scale = 1,
   shouldTileFn = shouldTile,
 } = {}) {
   if (String(format || "png").toLowerCase() !== "webp") {
@@ -17,11 +13,8 @@ export function evaluateWebpAvailability({
     return { blocked: false, checking: false, message: "" };
   }
 
-  const safeScale = Number.isFinite(Number(scale)) && Number(scale) > 0
-    ? Number(scale)
-    : 1;
-  const width = Number(bbox.width) * safeScale;
-  const height = Number(bbox.height) * safeScale;
+  const width = Number(bbox.width);
+  const height = Number(bbox.height);
   const blocked = shouldTileFn(width, height);
 
   return {

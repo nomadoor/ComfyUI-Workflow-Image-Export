@@ -22,7 +22,7 @@
 - Basic section shows Format / Embed workflow / Background / Padding
 - Solid color picker only shows when Background = Solid
 - Advanced section is collapsed by default and can be expanded
-- Output resolution / Max long edge / If exceeded appear in Advanced
+- Max long edge / If exceeded appear in Advanced
 - Defaults are taken from ComfyUI Settings
 - Set as default is disabled until a change is made, then saves to Settings
 - Settings has "Reset to defaults" to restore extension defaults
