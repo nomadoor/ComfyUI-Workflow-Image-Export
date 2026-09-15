@@ -12,6 +12,7 @@ import {
   copyRenderSettings,
   createPerfLogger,
   disableCanvasInfoOverlay,
+  disableExportLevelOfDetail,
   drawOffscreen,
   ensure2DContext,
   ensureBgCanvas,
@@ -21,7 +22,7 @@ import {
   overrideDevicePixelRatio,
   setCanvasPixelSize,
   syncOffscreenCanvasSize,
-} from "./legacy_support.mjs?v=20260903-17";
+} from "./legacy_support.mjs?v=20260915-1";
 import {
   applyPadding,
   boundsFromNodeRects,
@@ -208,6 +209,7 @@ export async function captureLegacy(options = {}) {
     const mode = measurePerf(perfLog, "offscreen.setup", () => {
       copyRenderSettings(uiCanvas, offscreen);
       forceExportQuality(offscreen);
+      disableExportLevelOfDetail(offscreen);
       disableCanvasInfoOverlay(offscreen);
       if (typeof offscreen.resize === "function") {
         offscreen.resize(width, height);

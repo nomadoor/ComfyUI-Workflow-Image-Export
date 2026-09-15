@@ -1,7 +1,7 @@
 import { resolveUiBackgroundColor } from "../../export/background_modes.mjs";
 import { hideGraphLinks } from "../../export/link_visibility.mjs";
 import { createExportDragAndScale } from "../graph_transform.mjs";
-export { copyRenderSettings } from "../render_settings.mjs?v=20260903-17";
+export { copyRenderSettings, disableExportLevelOfDetail } from "../render_settings.mjs?v=20260915-1";
 
 export function ensure2DContext(canvas) {
   return canvas.getContext("2d", { alpha: true });

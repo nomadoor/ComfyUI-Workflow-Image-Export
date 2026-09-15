@@ -18,9 +18,10 @@ import {
   configureVisibleArea,
   copyRenderSettings,
   disableCanvasInfoOverlay,
+  disableExportLevelOfDetail,
   prepareGraph,
   safeCleanup,
-} from "./offscreen_graph_setup.mjs?v=20260903-20";
+} from "./offscreen_graph_setup.mjs?v=20260915-1";
 import { collectNodeRects } from "../core/backends/legacy_bounds.mjs";
 import {
   drawExternalTextOverlays,
@@ -295,6 +296,7 @@ export async function renderGraphOffscreen(workflowJson, options = {}) {
   }
 
   copyRenderSettings(app?.canvas, offscreen);
+  disableExportLevelOfDetail(offscreen);
   disableCanvasInfoOverlay(offscreen);
   if (Number.isFinite(options.nodeOpacity)) {
     applyNodeOpacity(offscreen, options.nodeOpacity / 100, debugLog);
