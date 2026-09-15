@@ -1,5 +1,5 @@
 import { app } from "/scripts/app.js";
-export { copyRenderSettings } from "../core/render_settings.mjs?v=20260903-17";
+export { copyRenderSettings, disableExportLevelOfDetail } from "../core/render_settings.mjs?v=20260915-1";
 import { syncLiveGraphState } from "./live_graph_sync.mjs?v=20260903-20";
 import { resolveTileTransform } from "./tile_plan.mjs?v=20260903-16";
 

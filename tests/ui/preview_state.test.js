@@ -13,7 +13,6 @@ test("buildPreviewState forces preview-safe export options", () => {
     state: {
       format: "png",
       embedWorkflow: true,
-      outputResolution: "200%",
       maxLongEdge: 4096,
       padding: 100,
     },
@@ -23,7 +22,7 @@ test("buildPreviewState forces preview-safe export options", () => {
 
   assert.equal(state.format, "png");
   assert.equal(state.embedWorkflow, false);
-  assert.equal(state.outputResolution, "100%");
+  assert.equal("outputResolution" in state, false);
   assert.equal(state.maxLongEdge, 0);
   assert.deepEqual(state.selectedNodeIds, [3, 9]);
   assert.equal(state.previewFast, true);

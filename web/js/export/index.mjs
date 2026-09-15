@@ -7,12 +7,12 @@ import {
   EXTRACT_BG_1,
   EXTRACT_BG_2,
 } from "./background_modes.mjs";
-import { computeOffscreenBBox, renderGraphOffscreen } from "./render_graph_offscreen.mjs?v=20260907-2";
+import { computeOffscreenBBox, renderGraphOffscreen } from "./render_graph_offscreen.mjs?v=20260915-3";
 import { embedWorkflowInPngBlob } from "./png_embed_workflow.mjs";
-import { shouldTile } from "./limits.mjs?v=20260825-2";
-import { clampPngCompression } from "./tiled_png_encoder.mjs";
+import { shouldTile } from "./limits.mjs?v=20260915-3";
+import { clampPngCompression } from "./tiled_png_encoder.mjs?v=20260915-3";
 import { isCanvasTransparent, recoverTransparentCanvas } from "./transparent_recovery.mjs";
-import { renderTiled, renderTiledPng } from "./tiled_render.mjs?v=20260903-16";
+import { renderTiled, renderTiledPng } from "./tiled_render.mjs?v=20260915-3";
 
 function getNowMs() {
   if (typeof performance !== "undefined" && typeof performance.now === "function") {
@@ -215,8 +215,8 @@ export async function exportWorkflowPng(workflowJson, options = {}) {
     !previewFast && bboxOverride &&
     (options.forceTile === true || shouldTile(bboxOverride.width, bboxOverride.height));
   if (tileEnabled) {
-    // Render tiled canvases at their final raster scale. Scaling the assembled
-    // 1x canvas would produce the requested dimensions but not 2x detail.
+    // Render each tile at its final raster scale instead of resizing the
+    // assembled canvas after capture.
     renderOptions = {
       ...renderOptions,
       renderScaleFactor: scale,

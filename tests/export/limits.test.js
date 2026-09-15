@@ -1,14 +1,14 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 
 import {
   MAX_CANVAS_EDGE,
   PREVIEW_MAX_PIXELS,
   TILE_THRESHOLD_EDGE,
   TILE_THRESHOLD_PIXELS,
-  isHugeRasterExport,
   normalizeCanvasDimension,
-  resolveRasterExceedPlan,
+  resolveClassicRasterRoute,
   shouldTile,
 } from "../../web/js/export/limits.mjs";
 
@@ -26,81 +26,122 @@ test("shouldTile detects edge, pixel, and hard canvas limits", () => {
   assert.equal(shouldTile(TILE_THRESHOLD_PIXELS + 1, 1), true);
 });
 
-test("isHugeRasterExport includes output scale", () => {
-  assert.equal(isHugeRasterExport({ width: 3000, height: 3000, scale: 1 }), false);
-  assert.equal(isHugeRasterExport({ width: 3000, height: 3000, scale: 2 }), true);
-});
-
 test("PREVIEW_MAX_PIXELS is shared preview budget", () => {
   assert.equal(PREVIEW_MAX_PIXELS, 1024 * 1024);
 });
 
-test("tiled exceed mode activates only after the configured output edge is exceeded", () => {
-  assert.equal(resolveRasterExceedPlan({
-    width: 2000,
-    height: 1000,
-    scale: 2,
-    maxLongEdge: 4096,
-    exceedMode: "tile",
-  }).useTiledExport, false);
-  assert.equal(resolveRasterExceedPlan({
-    width: 2050,
-    height: 1000,
-    scale: 2,
-    maxLongEdge: 4096,
-    exceedMode: "tile",
-  }).useTiledExport, true);
-  assert.equal(resolveRasterExceedPlan({
-    width: 8000,
-    height: 1000,
-    maxLongEdge: 0,
-    exceedMode: "tile",
-  }).useTiledExport, true);
-  assert.equal(resolveRasterExceedPlan({
-    width: 5000,
-    height: 1000,
-    maxLongEdge: 4096,
-    exceedMode: "downscale",
-  }).useTiledExport, false);
-  assert.equal(resolveRasterExceedPlan({
-    width: 17000,
-    height: 1000,
-    maxLongEdge: 20000,
-    exceedMode: "downscale",
-  }).useTiledExport, true);
-  assert.equal(resolveRasterExceedPlan({
-    width: 20000,
-    height: 10000,
-    maxLongEdge: 4096,
-    exceedMode: "downscale",
-  }).useTiledExport, false);
-  assert.equal(resolveRasterExceedPlan({
-    width: 50000,
-    height: 50000,
-    maxLongEdge: 20000,
-    exceedMode: "downscale",
-  }).useTiledExport, true);
+test("hard canvas thresholds use exact binary-megabyte pixel counts", () => {
+  assert.equal(TILE_THRESHOLD_EDGE, 6144);
+  assert.equal(TILE_THRESHOLD_PIXELS, 25_165_824);
 });
 
-test("raster exceed planning carries the downscaled render scale into safety tiling", () => {
-  assert.deepEqual(resolveRasterExceedPlan({
-    width: 50000,
-    height: 50000,
-    scale: 1,
-    maxLongEdge: 20000,
-    exceedMode: "downscale",
-  }), {
-    useTiledExport: true,
-    renderScale: 0.4,
-  });
-  assert.deepEqual(resolveRasterExceedPlan({
-    width: 10000,
-    height: 5000,
-    scale: 2,
-    maxLongEdge: 4096,
-    exceedMode: "downscale",
-  }), {
-    useTiledExport: false,
-    renderScale: 0.4096,
-  });
+test("Tile keeps the requested resolution on the live renderer below the hard canvas threshold", () => {
+  assert.deepEqual(
+    resolveClassicRasterRoute({
+      width: 5000,
+      height: 1000,
+      maxLongEdge: 4096,
+      exceedMode: "tile",
+    }),
+    { renderer: "live", renderScale: 1, legacyMaxLongEdge: 0 }
+  );
+});
+
+test("Tile switches renderers only at the hard canvas threshold", () => {
+  const cases = [
+    [{ width: 6144, height: 1000 }, "live"],
+    [{ width: 6145, height: 1000 }, "tiled-offscreen"],
+    [{ width: 5000, height: 5000 }, "live"],
+    [{ width: 5033, height: 5000 }, "live"],
+    [{ width: 5034, height: 5000 }, "tiled-offscreen"],
+    [{ width: 5200, height: 5000 }, "tiled-offscreen"],
+    [{ width: 6000, height: 5000 }, "tiled-offscreen"],
+    [{ width: 8000, height: 1000, maxLongEdge: 0 }, "tiled-offscreen"],
+  ];
+
+  for (const [input, renderer] of cases) {
+    const route = resolveClassicRasterRoute({
+      maxLongEdge: 4096,
+      ...input,
+      exceedMode: "tile",
+    });
+    const label = `${input.width}x${input.height}`;
+    assert.equal(route.renderer, renderer, label);
+    assert.equal(route.legacyMaxLongEdge, 0, label);
+  }
+});
+
+test("Downscale fits the configured edge and keeps the Legacy limit", () => {
+  assert.deepEqual(
+    resolveClassicRasterRoute({
+      width: 5000,
+      height: 1000,
+      maxLongEdge: 4096,
+      exceedMode: "downscale",
+    }),
+    { renderer: "live", renderScale: 4096 / 5000, legacyMaxLongEdge: 4096 }
+  );
+  assert.deepEqual(
+    resolveClassicRasterRoute({
+      width: 10000,
+      height: 5000,
+      maxLongEdge: 4096,
+      exceedMode: "downscale",
+    }),
+    { renderer: "live", renderScale: 0.4096, legacyMaxLongEdge: 4096 }
+  );
+  assert.equal(
+    resolveClassicRasterRoute({
+      width: 20000,
+      height: 10000,
+      maxLongEdge: 4096,
+      exceedMode: "downscale",
+    }).renderer,
+    "live"
+  );
+});
+
+test("Downscale uses tiled rendering only when the downscaled output is still unsafe", () => {
+  assert.deepEqual(
+    resolveClassicRasterRoute({
+      width: 50000,
+      height: 50000,
+      maxLongEdge: 20000,
+      exceedMode: "downscale",
+    }),
+    { renderer: "tiled-offscreen", renderScale: 0.4, legacyMaxLongEdge: 20000 }
+  );
+  assert.equal(
+    resolveClassicRasterRoute({
+      width: 17000,
+      height: 1000,
+      maxLongEdge: 20000,
+      exceedMode: "downscale",
+    }).renderer,
+    "tiled-offscreen"
+  );
+});
+
+test("unknown exceed modes keep the live renderer and its configured limit", () => {
+  assert.deepEqual(
+    resolveClassicRasterRoute({
+      width: 8000,
+      height: 1000,
+      maxLongEdge: 4096,
+      exceedMode: "other",
+    }),
+    { renderer: "live", renderScale: 1, legacyMaxLongEdge: 4096 }
+  );
+});
+
+test("capture passes the route's Legacy limit instead of the dialog max edge", async () => {
+  const source = await readFile(
+    new URL("../../web/js/core/capture/index.mjs", import.meta.url),
+    "utf8"
+  );
+
+  assert.equal(source.includes("resolveRasterExceedPlan"), false);
+  assert.match(source, /resolveClassicRasterRoute\(/);
+  assert.match(source, /route\.renderer === "tiled-offscreen"/);
+  assert.match(source, /maxLongEdge:\s*route\.legacyMaxLongEdge/);
 });

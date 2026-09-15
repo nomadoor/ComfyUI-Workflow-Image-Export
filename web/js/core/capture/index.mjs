@@ -1,17 +1,16 @@
 import { app } from "/scripts/app.js";
 import { detectBackend } from "../detect.mjs?v=20260825-2";
-import { captureLegacy } from "../backends/legacy_capture.mjs?v=20260907-2";
-import { captureNode2 } from "../backends/node2_compositor_capture.mjs?v=20260903-16";
+import { captureLegacy } from "../backends/legacy_capture.mjs?v=20260915-3";
+import { captureNode2 } from "../backends/node2_compositor_capture.mjs?v=20260915-3";
 import { applyBackground, downscaleIfNeeded } from "../postprocess/raster.mjs";
-import { exportWorkflowPng } from "../../export/index.mjs?v=20260907-2";
+import { exportWorkflowPng } from "../../export/index.mjs?v=20260915-3";
 import { computeGraphBBox } from "../../export/bbox.mjs?v=20260903-16";
-import { resolveRasterExceedPlan } from "../../export/limits.mjs?v=20260825-2";
+import { resolveClassicRasterRoute } from "../../export/limits.mjs?v=20260915-3";
 import { embedWorkflowInPngBlob } from "../../export/png_embed_workflow.mjs";
 import {
   attachCaptureWarnings,
   partitionCaptureNotices,
 } from "./warnings.mjs?v=20260903-16";
-import { resolveOutputResolutionScale } from "../output_scale.mjs?v=20260825-2";
 import {
   getSelectedNodeIdsFromApp,
   getWorkflowJsonFromApp,
@@ -46,10 +45,10 @@ function normalizeExportOptions(options = {}) {
 }
 
 export async function getPreviewInfo(options = {}) {
-  const { maxLongEdge = 0, outputResolution = "auto" } = options;
+  const { maxLongEdge = 0 } = options;
   return {
     estimatedSize: null,
-    willDownscale: maxLongEdge > 0 && outputResolution !== "200%",
+    willDownscale: maxLongEdge > 0,
   };
 }
 
@@ -72,7 +71,6 @@ export async function capture(options = {}) {
     const selectedNodeIds = Array.isArray(normalized.selectedNodeIds)
       ? normalized.selectedNodeIds
       : getSelectedNodeIds();
-    const scale = resolveOutputResolutionScale(normalized.outputResolution);
     // Route selection uses the live graph visible to the user. The offscreen
     // exporter later remeasures its synchronized serialized clone because that
     // clone is the geometry it actually renders; the two measurements are not
@@ -82,14 +80,13 @@ export async function capture(options = {}) {
       selectedNodeIds,
       useSelectionOnly: Boolean(normalized.scopeSelected),
     });
-    const exceedPlan = resolveRasterExceedPlan({
+    const route = resolveClassicRasterRoute({
       width: bbox.width,
       height: bbox.height,
-      scale,
       maxLongEdge: normalized.maxLongEdge,
       exceedMode: normalized.exceedMode,
     });
-    if (exceedPlan.useTiledExport) {
+    if (route.renderer === "tiled-offscreen") {
       const workflowJson = getWorkflowJson();
       if (!workflowJson) {
         throw new Error("Capture failed: workflow JSON unavailable.");
@@ -99,7 +96,7 @@ export async function capture(options = {}) {
         backgroundColor: normalized.solidColor,
         padding: normalized.padding,
         nodeOpacity: normalized.nodeOpacity,
-        scale: exceedPlan.renderScale,
+        scale: route.renderScale,
         pngCompression: normalized.pngCompression,
         includeGrid: true,
         includeDomOverlays: true,
@@ -128,6 +125,8 @@ export async function capture(options = {}) {
     } else {
       result = await captureLegacy({
         ...normalized,
+        // Tile means "do not downscale"; only Downscale forwards the edge limit.
+        maxLongEdge: route.legacyMaxLongEdge,
         background: normalized.background,
         solidColor: normalized.solidColor,
         includeGrid: true,

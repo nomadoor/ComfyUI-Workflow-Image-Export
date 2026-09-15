@@ -1,16 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import {
-  evaluateWebpAvailability,
-  getOutputResolutionScale,
-} from "../../web/js/ui/webp_availability.mjs";
-
-test("getOutputResolutionScale maps preview resolution choices", () => {
-  assert.equal(getOutputResolutionScale("200%"), 2);
-  assert.equal(getOutputResolutionScale("100%"), 1);
-  assert.equal(getOutputResolutionScale("auto"), 1);
-});
+import { evaluateWebpAvailability } from "../../web/js/ui/webp_availability.mjs";
 
 test("evaluateWebpAvailability allows non-webp formats", () => {
   const result = evaluateWebpAvailability({
@@ -27,16 +18,15 @@ test("evaluateWebpAvailability blocks huge webp exports", () => {
   const result = evaluateWebpAvailability({
     format: "webp",
     bbox: { width: 100, height: 50 },
-    scale: 2,
     shouldTileFn(width, height) {
-      assert.equal(width, 200);
-      assert.equal(height, 100);
+      assert.equal(width, 100);
+      assert.equal(height, 50);
       return true;
     },
   });
 
   assert.equal(result.blocked, true);
-  assert.match(result.message, /200x100/);
+  assert.match(result.message, /100x50/);
 });
 
 test("evaluateWebpAvailability permits webp when bbox is absent or small", () => {

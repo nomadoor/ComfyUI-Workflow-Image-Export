@@ -1,5 +1,3 @@
-import { resolveOutputResolutionScale } from "./output_scale.mjs?v=20260825-2";
-
 export function resolveNode2ExportPolicy() {
   return {
     exceedMode: "tile",
@@ -7,19 +5,21 @@ export function resolveNode2ExportPolicy() {
   };
 }
 
-export { resolveOutputResolutionScale as resolveNode2OutputScale };
+export function resolveNode2TileScale(value) {
+  const requested = Number(value);
+  return Number.isFinite(requested) && requested > 0
+    ? Math.max(0.25, Math.min(2, requested))
+    : 1;
+}
 
 export function formatNode2TilePixelLimitMessage({
   width,
   height,
-  outputResolution,
 } = {}) {
-  const prefix =
+  return (
     `Node 2.0 tiled capture requires ${width}x${height} pixels, ` +
-    "which exceeds the 64 MP safety limit.";
-  return outputResolution === "200%"
-    ? `${prefix} Use 100% output resolution or reduce the workflow bounds.`
-    : `${prefix} Reduce the workflow bounds.`;
+    "which exceeds the 64 MP safety limit. Reduce the workflow bounds."
+  );
 }
 
 export function resolveExportCaptureOptions(state = {}, {

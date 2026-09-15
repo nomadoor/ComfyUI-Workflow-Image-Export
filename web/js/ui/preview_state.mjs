@@ -1,5 +1,5 @@
 import { createWorkflowSignature } from "../core/workflow_state.mjs";
-import { PREVIEW_MAX_PIXELS } from "../export/limits.mjs?v=20260825-2";
+import { PREVIEW_MAX_PIXELS } from "../export/limits.mjs?v=20260915-3";
 
 export function buildPreviewState({
   state,
@@ -11,7 +11,6 @@ export function buildPreviewState({
     ...state,
     format: previewFormat,
     embedWorkflow: false,
-    outputResolution: "100%",
     maxLongEdge: 0,
     selectedNodeIds,
     previewFast: true,

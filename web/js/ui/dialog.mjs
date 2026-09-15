@@ -4,9 +4,9 @@ import {
   detectBackendType,
   isNode2UnsupportedError,
   isWebpHugeUnsupportedError,
-} from "../core/capture/index.mjs?v=20260907-2";
+} from "../core/capture/index.mjs?v=20260915-3";
 import { getExportWarningMessage } from "../core/capture/warnings.mjs?v=20260903-16";
-import { captureLegacy } from "../core/backends/legacy_capture.mjs?v=20260907-2";
+import { captureLegacy } from "../core/backends/legacy_capture.mjs?v=20260915-3";
 import { triggerDownload } from "../core/download.mjs";
 import { computeGraphBBox } from "../export/bbox.mjs?v=20260903-16";
 import { loadLastUsed, saveLastUsed } from "../core/storage.mjs";
@@ -18,22 +18,21 @@ import { toBlobAsync } from "../core/utils.mjs";
 import {
   DEFAULTS,
   normalizeState as normalizeSettingsState,
-} from "../core/settings_state.mjs?v=20260825-2";
-import { buildInitialState, toLastUsedState } from "./state.mjs?v=20260825-2";
+} from "../core/settings_state.mjs?v=20260915-3";
+import { buildInitialState, toLastUsedState } from "./state.mjs?v=20260915-3";
 import {
   buildPreviewState as buildPreviewStateForDialog,
   getPreviewMime,
   getPreviewStateKey,
-} from "./preview_state.mjs";
+} from "./preview_state.mjs?v=20260915-3";
 import {
   resolveBlobExtension,
   resolveWorkflowName,
 } from "./export_filename.mjs";
 import {
   evaluateWebpAvailability,
-  getOutputResolutionScale,
-} from "./webp_availability.mjs?v=20260825-2";
-import { resolveExportCaptureOptions } from "../core/node2_export_policy.mjs?v=20260825-2";
+} from "./webp_availability.mjs?v=20260915-3";
+import { resolveExportCaptureOptions } from "../core/node2_export_policy.mjs?v=20260915-3";
 import {
   createCaretIcon,
   createRadioGroup,
@@ -55,7 +54,7 @@ function ensureStyles() {
   link.id = "cwie-styles";
   link.rel = "stylesheet";
   const styleUrl = new URL("../../css/dialog.css", import.meta.url);
-  styleUrl.searchParams.set("v", "20260825-2");
+  styleUrl.searchParams.set("v", "20260915-3");
   link.href = styleUrl.toString();
   document.head.appendChild(link);
 }
@@ -422,7 +421,6 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
       const result = evaluateWebpAvailability({
         format: formatValue,
         bbox,
-        scale: getOutputResolutionScale(state.outputResolution),
       });
       webpBlocked = result.blocked;
       webpNote.textContent = result.message;

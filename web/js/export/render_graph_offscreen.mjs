@@ -18,9 +18,10 @@ import {
   configureVisibleArea,
   copyRenderSettings,
   disableCanvasInfoOverlay,
+  disableExportLevelOfDetail,
   prepareGraph,
   safeCleanup,
-} from "./offscreen_graph_setup.mjs?v=20260903-20";
+} from "./offscreen_graph_setup.mjs?v=20260915-1";
 import { collectNodeRects } from "../core/backends/legacy_bounds.mjs";
 import {
   drawExternalTextOverlays,
@@ -41,7 +42,7 @@ import {
   drawVideoOverlays,
   drawVhsVideoOverlays,
 } from "../core/backends/legacy_media_overlays.mjs?v=20260903-16";
-import { PREVIEW_MAX_PIXELS } from "./limits.mjs?v=20260825-2";
+import { PREVIEW_MAX_PIXELS } from "./limits.mjs?v=20260915-3";
 import { buildMediaFallbackTargets } from "./media_fallback_plan.mjs?v=20260903-16";
 import { createLiveRenderGuard } from "../core/backends/live_render_guard.mjs?v=20260903-16";
 import { createLiteGraphMeasureTextGuard } from "../core/backends/litegraph_measure_text_guard.mjs?v=20260903-16";
@@ -295,6 +296,7 @@ export async function renderGraphOffscreen(workflowJson, options = {}) {
   }
 
   copyRenderSettings(app?.canvas, offscreen);
+  disableExportLevelOfDetail(offscreen);
   disableCanvasInfoOverlay(offscreen);
   if (Number.isFinite(options.nodeOpacity)) {
     applyNodeOpacity(offscreen, options.nodeOpacity / 100, debugLog);

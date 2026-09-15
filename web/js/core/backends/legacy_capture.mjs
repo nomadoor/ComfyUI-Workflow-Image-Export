@@ -12,6 +12,7 @@ import {
   copyRenderSettings,
   createPerfLogger,
   disableCanvasInfoOverlay,
+  disableExportLevelOfDetail,
   drawOffscreen,
   ensure2DContext,
   ensureBgCanvas,
@@ -21,7 +22,7 @@ import {
   overrideDevicePixelRatio,
   setCanvasPixelSize,
   syncOffscreenCanvasSize,
-} from "./legacy_support.mjs?v=20260903-17";
+} from "./legacy_support.mjs?v=20260915-1";
 import {
   applyPadding,
   boundsFromNodeRects,
@@ -51,14 +52,12 @@ import {
   logDomMedia,
 } from "./legacy_media_overlays.mjs?v=20260903-16";
 import { drawVideoThumbnails } from "../../export/fallback_media_overlays.mjs?v=20260903-16";
-import { resolveOutputResolutionScale } from "../output_scale.mjs?v=20260825-2";
 import { createLiveRenderGuard } from "./live_render_guard.mjs?v=20260903-16";
 import { createLiteGraphMeasureTextGuard } from "./litegraph_measure_text_guard.mjs?v=20260903-16";
 import { drawWidgetMediaFallbacks } from "../../export/widget_media_fallback.mjs?v=20260907-2";
 
 function computeExportScale(srcW, srcH, options, debugLog) {
-  const resolutionScale = resolveOutputResolutionScale(options?.outputResolution);
-  let scale = resolutionScale;
+  let scale = 1;
 
   const maxLongEdge = Number(options?.maxLongEdge) || 0;
   if (maxLongEdge > 0) {
@@ -126,7 +125,6 @@ export async function captureLegacy(options = {}) {
     format,
     background: options.background || "ui",
     padding,
-    outputResolution: options.outputResolution || "100%",
     skipWidgetCapture: options?.skipWidgetCapture === true,
   });
 
@@ -208,6 +206,7 @@ export async function captureLegacy(options = {}) {
     const mode = measurePerf(perfLog, "offscreen.setup", () => {
       copyRenderSettings(uiCanvas, offscreen);
       forceExportQuality(offscreen);
+      disableExportLevelOfDetail(offscreen);
       disableCanvasInfoOverlay(offscreen);
       if (typeof offscreen.resize === "function") {
         offscreen.resize(width, height);

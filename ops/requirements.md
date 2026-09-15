@@ -40,9 +40,6 @@
 
 #### Advanced（折りたたみ、デフォルトは閉）
 
-* 出力解像度：Auto / 100% / 200%
-
-  * 表記は “Quality” ではなく **Output resolution / 出力解像度**
 * Max long edge：Number（px）
 * If exceeded：Downscale / Tile
 * Nodes 2.0 の If exceeded は Tile 固定で、保存済みの Legacy 値を引き継がない

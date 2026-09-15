@@ -55,3 +55,20 @@ export function copyRenderSettings(fromCanvas, toCanvas) {
     }
   });
 }
+
+/**
+ * Keep export canvases at full LiteGraph detail. The frontend recalculates
+ * low-quality mode from the export scale during draw(); a zero font-size LOD
+ * threshold disables that switch without touching the live UI canvas.
+ */
+export function disableExportLevelOfDetail(canvas) {
+  if (!canvas || typeof canvas !== "object" || !("min_font_size_for_lod" in canvas)) {
+    return false;
+  }
+  try {
+    canvas.min_font_size_for_lod = 0;
+    return canvas.min_font_size_for_lod === 0;
+  } catch (_) {
+    return false;
+  }
+}
