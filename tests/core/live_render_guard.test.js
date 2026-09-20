@@ -62,6 +62,30 @@ test("guard tolerates sparse widgets and removes render-only state", () => {
   assert.equal(Object.hasOwn(widget, "computedDisabled"), false);
 });
 
+test("guard leaves widget membership changes to the frontend", () => {
+  const textWidget = { name: "text", value: "keep" };
+  const previewWidget = { name: "preview", value: "frame" };
+  const runtimePreview = { name: "$$canvas-image-preview", value: "new frame" };
+  const storedWidgets = [textWidget];
+  const node = {};
+  Object.defineProperty(node, "widgets", {
+    configurable: true,
+    get() { return storedWidgets; },
+    set(nextWidgets) {
+      storedWidgets.splice(0, storedWidgets.length, ...nextWidgets);
+    },
+  });
+  const guard = createLiveRenderGuard({ _nodes: [node] }, null);
+
+  storedWidgets.push(previewWidget, runtimePreview);
+  guard.restore();
+
+  assert.deepEqual(storedWidgets, [textWidget, previewWidget, runtimePreview]);
+  assert.equal(storedWidgets[0].value, "keep");
+  assert.equal(storedWidgets[1].value, "frame");
+  assert.equal(storedWidgets[2].value, "new frame");
+});
+
 test("guard detaches only the temporary graph canvas", () => {
   const liveCanvas = { name: "live" };
   const offscreen = { name: "offscreen" };

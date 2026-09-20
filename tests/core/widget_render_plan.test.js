@@ -1124,7 +1124,7 @@ test("VHS-style nested video and image remain under one planned widget owner", (
   assert.equal(owned.size, 2);
 });
 
-test("VHS active media and clone geometry match in non-huge and huge plans", () => {
+test("VHS active media keeps live snapshot geometry in non-huge and huge plans", () => {
   const video = new MockElement();
   const image = new MockElement();
   video.hidden = true;
@@ -1184,8 +1184,90 @@ test("VHS active media and clone geometry match in non-huge and huge plans", () 
     assert.equal(plan.length, 1);
     assert.equal(plan[0].key, "61:0");
     assert.equal(plan[0].element, image);
-    assert.deepEqual(plan[0].graphRect, { x: 110, y: 260, w: 280, h: 130 });
+    assert.deepEqual(plan[0].graphRect, { x: 110, y: 255, w: 240, h: 110 });
   }
+});
+
+test("DOM media with flexible zero computed height uses the remaining node body", () => {
+  const video = new MockElement();
+  const wrapper = new MockElement({ children: new Map([["video", video]]) });
+  const graph = {
+    nodes: [{
+      id: 62,
+      type: "VHS_LoadVideo",
+      pos: [100, 200],
+      size: [300, 500],
+      widgets: [{
+        name: "videopreview",
+        type: "preview",
+        y: 230,
+        computedHeight: 0,
+        margin: 10,
+        element: wrapper,
+      }],
+    }],
+  };
+
+  const plan = buildWidgetRenderPlan({ graph, allowDom: true });
+
+  assert.equal(plan.length, 1);
+  assert.equal(plan[0].source, "media");
+  assert.equal(plan[0].element, video);
+  assert.deepEqual(plan[0].graphRect, { x: 110, y: 440, w: 280, h: 250 });
+});
+
+test("unplaced zero-height DOM media does not expand over the whole node", () => {
+  const video = new MockElement();
+  const wrapper = new MockElement({ children: new Map([["video", video]]) });
+  const graph = {
+    nodes: [{
+      id: 63,
+      pos: [100, 200],
+      size: [300, 500],
+      widgets: [{
+        name: "videopreview",
+        type: "preview",
+        y: 0,
+        computedHeight: 0,
+        margin: 10,
+        element: wrapper,
+      }],
+    }],
+  };
+
+  const plan = buildWidgetRenderPlan({ graph, allowDom: true });
+
+  assert.deepEqual(plan, []);
+});
+
+test("zero-height DOM media prefers measured element height in graph units", () => {
+  const video = new MockElement();
+  const wrapper = new MockElement({ children: new Map([["video", video]]) });
+  wrapper.getBoundingClientRect = () => ({ width: 280, height: 120 });
+  const graph = {
+    nodes: [{
+      id: 64,
+      pos: [100, 200],
+      size: [300, 500],
+      widgets: [{
+        name: "videopreview",
+        type: "preview",
+        y: 0,
+        computedHeight: 0,
+        margin: 10,
+        element: wrapper,
+      }],
+    }],
+  };
+
+  const plan = buildWidgetRenderPlan({
+    graph,
+    uiCanvas: { ds: { scale: 2 } },
+    allowDom: true,
+  });
+
+  assert.equal(plan.length, 1);
+  assert.deepEqual(plan[0].graphRect, { x: 110, y: 210, w: 280, h: 60 });
 });
 
 test("type-only media wrappers are not eligible for DOM media delegation", () => {
@@ -1370,6 +1452,114 @@ test("plan joins to an export graph only by node id and widget index", () => {
   });
 });
 
+test("offscreen plan keeps its live geometry snapshot when clone widgets disappear", () => {
+  const liveNode = multilineNode(70, "CLIPTextEncode");
+  const cloneNode = multilineNode("70", "CLIPTextEncode");
+  cloneNode.pos = [100, 200];
+  cloneNode.size = [300, 220];
+  cloneNode.widgets[0].y = 50;
+  cloneNode.widgets[0].computedHeight = 140;
+  cloneNode.widgets[0].margin = 10;
+
+  const planned = buildOffscreenWidgetRenderPlan({
+    liveGraph: { nodes: [liveNode] },
+    exportGraph: { nodes: [cloneNode] },
+  });
+  cloneNode.widgets.splice(0, cloneNode.widgets.length);
+  const refreshed = joinWidgetRenderPlanToGraph(planned, { nodes: [cloneNode] });
+
+  assert.equal(refreshed.length, 1);
+  assert.equal(refreshed[0].text, "line one\nline two");
+  assert.deepEqual(refreshed[0].graphRect, planned[0].graphRect);
+});
+
+test("offscreen projection can use a captured live plan after the live graph changes", () => {
+  const liveNode = multilineNode(71, "CLIPTextEncode");
+  const cloneNode = multilineNode("71", "CLIPTextEncode");
+  const capturedPlan = buildWidgetRenderPlan({
+    graph: { nodes: [liveNode] },
+    allowDom: true,
+  });
+  liveNode.widgets[0].value = "changed after snapshot";
+  liveNode.widgets[0].computedHeight = 0;
+  liveNode.widgets.splice(0, 1);
+
+  const projected = buildOffscreenWidgetRenderPlan({
+    liveGraph: { nodes: [liveNode] },
+    livePlanSnapshot: capturedPlan,
+    exportGraph: { nodes: [cloneNode] },
+  });
+
+  assert.equal(projected.length, 1);
+  assert.equal(projected[0].text, "line one\nline two");
+  assert.deepEqual(projected[0].graphRect, capturedPlan[0].graphRect);
+});
+
+test("DOM-free offscreen projection prefers captured text over stale clone text", () => {
+  const liveNode = multilineNode(72, "CLIPTextEncode");
+  const cloneNode = multilineNode("72", "CLIPTextEncode");
+  cloneNode.widgets[0].value = "stale clone text";
+  cloneNode.widgets_values = ["stale clone text"];
+  const capturedPlan = buildWidgetRenderPlan({
+    graph: { nodes: [liveNode] },
+    allowDom: true,
+  });
+
+  const projected = buildOffscreenWidgetRenderPlan({
+    liveGraph: { nodes: [] },
+    livePlanSnapshot: capturedPlan,
+    liveWidgetInventory: [{
+      nodeId: liveNode.id,
+      widgets: liveNode.widgets.map((widget) => ({
+        name: widget.name,
+        type: widget.type,
+      })),
+    }],
+    exportGraph: { nodes: [cloneNode] },
+    includeDomOverlays: false,
+  });
+
+  assert.equal(projected.length, 1);
+  assert.equal(projected[0].text, "line one\nline two");
+  assert.equal(projected[0].geometrySource, "live-node-relative");
+});
+
+test("captured live plans retain selected and unselected Scope filtering", () => {
+  const liveNodes = [
+    multilineNode(81, "CLIPTextEncode"),
+    multilineNode(82, "MarkdownNote"),
+  ];
+  liveNodes[1].pos = [400, 20];
+  const exportNodes = liveNodes.map((node) => ({
+    ...node,
+    id: String(node.id),
+    pos: [...node.pos],
+    size: [...node.size],
+    widgets: node.widgets.map((widget) => ({ ...widget })),
+  }));
+  const capturedPlan = buildWidgetRenderPlan({
+    graph: { nodes: liveNodes },
+    allowDom: true,
+  });
+  const project = (renderFilter) => buildOffscreenWidgetRenderPlan({
+    liveGraph: { nodes: [] },
+    livePlanSnapshot: capturedPlan,
+    liveWidgetInventory: liveNodes.map((node) => ({
+      nodeId: node.id,
+      widgets: node.widgets.map((widget) => ({
+        name: widget.name,
+        type: widget.type,
+      })),
+    })),
+    exportGraph: { nodes: exportNodes },
+    selectedNodeIds: [82],
+    renderFilter,
+  });
+
+  assert.deepEqual(project("selected").map((entry) => String(entry.nodeId)), ["82"]);
+  assert.deepEqual(project("unselected").map((entry) => String(entry.nodeId)), ["81"]);
+});
+
 test("planned text, capture, and delegated media claim native widget draw ownership", () => {
   const indexes = collectPlannedWidgetIndexes([
     { key: "72:0", nodeId: "72", widgetIndex: 0, source: "text", text: "owned" },
@@ -1414,7 +1604,9 @@ test("offscreen suppression filters planned widgets synchronously and restores t
 });
 
 test("offscreen suppression restores node widgets when base drawing throws", () => {
-  const widgets = [{ type: "customtext" }, { type: "image" }];
+  const textWidget = { type: "customtext" };
+  const imageWidget = { type: "image" };
+  const widgets = [textWidget, imageWidget];
   const node = { id: 72, widgets };
   const ownDraw = function () {
     throw new Error("draw failed");
@@ -1423,15 +1615,125 @@ test("offscreen suppression restores node widgets when base drawing throws", () 
   const originalDescriptor = Object.getOwnPropertyDescriptor(canvas, "drawNodeWidgets");
   const suppression = installPlannedWidgetDrawSuppression(canvas, [
     { key: "72:0", nodeId: 72, widgetIndex: 0, source: "text", text: "owned" },
+    { key: "72:1", nodeId: 72, widgetIndex: 1, source: "media", text: "media" },
   ]);
 
   assert.throws(() => canvas.drawNodeWidgets(node), /draw failed/);
   assert.equal(node.widgets, widgets);
+  assert.deepEqual(node.widgets, [textWidget, imageWidget]);
   suppression.restore();
   assert.deepEqual(
     Object.getOwnPropertyDescriptor(canvas, "drawNodeWidgets"),
     originalDescriptor
   );
+});
+
+test("offscreen suppression preserves a frontend store-backed widget view", () => {
+  const textWidget = { type: "customtext", value: "keep this text" };
+  const mediaWidget = { type: "preview", value: "keep this preview" };
+  const backingWidgets = [textWidget, mediaWidget];
+  let spliceCalls = 0;
+  let setterCalls = 0;
+  const storedWidgets = new Proxy(backingWidgets, {
+    get(target, key, receiver) {
+      if (key === "splice") {
+        return (...args) => {
+          spliceCalls += 1;
+          return Array.prototype.splice.apply(target, args);
+        };
+      }
+      return Reflect.get(target, key, receiver);
+    },
+  });
+  const node = { id: "72" };
+  Object.defineProperty(node, "widgets", {
+    configurable: true,
+    get() {
+      return storedWidgets;
+    },
+    set(nextWidgets) {
+      setterCalls += 1;
+      storedWidgets.splice(0, storedWidgets.length, ...nextWidgets);
+    },
+  });
+  const seenWidgets = [];
+  const canvas = {
+    drawNodeWidgets(currentNode) {
+      seenWidgets.push([...currentNode.widgets]);
+    },
+  };
+  const suppression = installPlannedWidgetDrawSuppression(canvas, [
+    { key: "72:0", nodeId: "72", widgetIndex: 0, source: "text", text: "owned" },
+    { key: "72:1", nodeId: "72", widgetIndex: 1, source: "media", text: "media" },
+  ]);
+
+  canvas.drawNodeWidgets(node);
+  suppression.restore();
+
+  assert.deepEqual(seenWidgets, [[]]);
+  assert.deepEqual(storedWidgets, [textWidget, mediaWidget]);
+  assert.equal(storedWidgets[0].value, "keep this text");
+  assert.equal(storedWidgets[1].value, "keep this preview");
+  assert.equal(setterCalls, 0);
+  assert.equal(spliceCalls, 2, "one bulk removal and one bulk restoration");
+});
+
+test("offscreen suppression restores a node when every widget is planned", () => {
+  const original = [
+    { name: "text", value: "first" },
+    { name: "preview", value: "second" },
+    { name: "markdown", value: "third" },
+  ];
+  const node = { id: 73, widgets: [...original] };
+  const seen = [];
+  const canvas = {
+    drawNodeWidgets(currentNode) {
+      seen.push([...currentNode.widgets]);
+    },
+  };
+  const suppression = installPlannedWidgetDrawSuppression(canvas, original.map((_, index) => ({
+    key: `73:${index}`,
+    nodeId: 73,
+    widgetIndex: index,
+    source: "text",
+    text: `owned ${index}`,
+  })));
+
+  canvas.drawNodeWidgets(node);
+  suppression.restore();
+
+  assert.deepEqual(seen, [[]]);
+  assert.deepEqual(node.widgets, original);
+  assert.equal(node.widgets[0], original[0]);
+  assert.equal(node.widgets[1], original[1]);
+  assert.equal(node.widgets[2], original[2]);
+});
+
+test("offscreen suppression keeps widgets added during native drawing", () => {
+  const suppressedWidget = { name: "text", value: "captured" };
+  const nativeWidget = { name: "seed", value: "existing" };
+  const runtimeWidget = { name: "preview", value: "added while drawing" };
+  const widgets = [suppressedWidget, nativeWidget];
+  const node = { id: 74, widgets };
+  const canvas = {
+    drawNodeWidgets(currentNode) {
+      assert.deepEqual(currentNode.widgets, [nativeWidget]);
+      currentNode.widgets.push(runtimeWidget);
+    },
+  };
+  const suppression = installPlannedWidgetDrawSuppression(canvas, [{
+    key: "74:0",
+    nodeId: 74,
+    widgetIndex: 0,
+    source: "text",
+    text: "captured",
+  }]);
+
+  canvas.drawNodeWidgets(node);
+  suppression.restore();
+
+  assert.equal(node.widgets, widgets);
+  assert.deepEqual(node.widgets, [suppressedWidget, nativeWidget, runtimeWidget]);
 });
 
 test("parallel suppression sessions never mutate their shared live widgets", () => {

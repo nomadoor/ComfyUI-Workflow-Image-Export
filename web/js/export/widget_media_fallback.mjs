@@ -63,6 +63,24 @@ function getVideoContentRect(entry, snapshot) {
   };
 }
 
+export async function snapshotPlannedWidgetMedia({
+  plan,
+  mediaSnapshotCache,
+} = {}) {
+  const cache = mediaSnapshotCache instanceof Map ? mediaSnapshotCache : new Map();
+  const entries = (Array.isArray(plan) ? plan : []).filter((entry) =>
+    entry?.source === "media" && entry?.key && entry?.element
+  );
+  await Promise.all(entries.map((entry) => resolveMediaSnapshot(
+    cache,
+    "widget",
+    entry.mediaCacheKey || entry.key,
+    async () => entry.element,
+    createOriginCleanMediaSnapshot
+  )));
+  return cache;
+}
+
 export async function drawWidgetMediaFallbacks({
   exportCtx,
   plan,
@@ -95,7 +113,7 @@ export async function drawWidgetMediaFallbacks({
     const snapshot = await resolveMediaSnapshot(
       cache,
       "widget",
-      entry.key,
+      entry.mediaCacheKey || entry.key,
       async () => entry.element,
       createOriginCleanMediaSnapshot
     );

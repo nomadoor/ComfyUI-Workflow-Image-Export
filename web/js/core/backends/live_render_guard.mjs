@@ -61,13 +61,14 @@ export function createLiveRenderGuard(graph, uiCanvas) {
   const nodeStates = [];
   for (const node of graph?._nodes || graph?.nodes || []) {
     if (!node) continue;
+    const widgets = Array.isArray(node.widgets) ? node.widgets : [];
     nodeStates.push({
       node,
       pos: capturePair(node, "pos"),
       privatePos: capturePair(node, "_pos"),
       size: capturePair(node, "size"),
       privateSize: capturePair(node, "_size"),
-      widgets: (Array.isArray(node.widgets) ? node.widgets : [])
+      widgets: widgets
         .filter(Boolean)
         .map((widget) => ({
           widget,

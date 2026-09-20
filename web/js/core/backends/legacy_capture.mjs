@@ -38,7 +38,7 @@ import {
   collectPlannedMediaElements,
   collectPlannedMediaNodeIds,
   installPlannedWidgetDrawSuppression,
-} from "./widget_render_plan.mjs?v=20260907-1";
+} from "./widget_render_plan.mjs?v=20260920-3";
 import {
   drawPlannedWidgetOverlays,
 } from "./widget_overlay_renderer.mjs?v=20260903-16";
@@ -52,9 +52,9 @@ import {
   logDomMedia,
 } from "./legacy_media_overlays.mjs?v=20260903-16";
 import { drawVideoThumbnails } from "../../export/fallback_media_overlays.mjs?v=20260903-16";
-import { createLiveRenderGuard } from "./live_render_guard.mjs?v=20260903-16";
+import { createLiveRenderGuard } from "./live_render_guard.mjs?v=20260920-2";
 import { createLiteGraphMeasureTextGuard } from "./litegraph_measure_text_guard.mjs?v=20260903-16";
-import { drawWidgetMediaFallbacks } from "../../export/widget_media_fallback.mjs?v=20260907-2";
+import { drawWidgetMediaFallbacks } from "../../export/widget_media_fallback.mjs?v=20260920-2";
 
 function computeExportScale(srcW, srcH, options, debugLog) {
   let scale = 1;

@@ -103,7 +103,52 @@ function isFiniteCoordinatePair(value) {
   );
 }
 
-function getWidgetGraphRect(node, widget) {
+function getFlexibleDomWidgetHeight(node, widget, widgetIndex, margin, uiCanvas) {
+  if (!isElementLike(widget?.element)) return null;
+  try {
+    const measuredHeight = Number(widget.element.getBoundingClientRect?.().height);
+    const canvasScale = Number(uiCanvas?.ds?.scale);
+    const graphScale = Number.isFinite(canvasScale) && canvasScale > 0 ? canvasScale : 1;
+    if (measuredHeight > 0) return measuredHeight / graphScale;
+  } catch (_) {}
+  const size = node?.size || node?._size;
+  const nodeHeight = Number(size?.[1]);
+  const widgetY = Number(widget?.y);
+  if (!(nodeHeight > 0) || !Number.isFinite(widgetY)) return null;
+
+  const widgets = Array.isArray(node?.widgets) ? node.widgets : [];
+  let boundaryY = nodeHeight;
+  let hasLaterWidget = false;
+  for (let index = widgetIndex + 1; index < widgets.length; index += 1) {
+    const nextWidget = widgets[index];
+    if (
+      !nextWidget ||
+      nextWidget.hidden === true ||
+      nextWidget.type === "hidden" ||
+      nextWidget.computedDisabled === true
+    ) {
+      continue;
+    }
+    if (
+      typeof node?.isWidgetVisible === "function" &&
+      node.isWidgetVisible(nextWidget) === false
+    ) {
+      continue;
+    }
+    const nextY = Number(nextWidget.y);
+    if (Number.isFinite(nextY) && nextY > widgetY) {
+      hasLaterWidget = true;
+      boundaryY = Math.min(boundaryY, nextY);
+    }
+  }
+
+  if (!(widgetY > 0) && !hasLaterWidget) return null;
+
+  const height = boundaryY - widgetY - margin * 2;
+  return height > 0 ? height : null;
+}
+
+function getWidgetGraphRect(node, widget, widgetIndex = -1, uiCanvas = null) {
   const pos = node?.pos || node?._pos;
   const size = node?.size || node?._size;
   if (!isFiniteCoordinatePair(pos)) return null;
@@ -121,7 +166,10 @@ function getWidgetGraphRect(node, widget) {
       ? Number(widget.height)
       : 50;
   const width = nodeWidth - margin * 2;
-  const height = computedHeight - margin * 2;
+  let height = computedHeight - margin * 2;
+  if (!(height > 0)) {
+    height = getFlexibleDomWidgetHeight(node, widget, widgetIndex, margin, uiCanvas);
+  }
 
   if (
     !Number.isFinite(Number(pos[0])) ||
@@ -246,7 +294,6 @@ export function buildWidgetRenderPlan({
   allowDom = true,
   options = {},
 } = {}) {
-  void uiCanvas;
   const nodes = graph?._nodes || graph?.nodes || [];
   const planByKey = new Map();
   const selectedNodeIds = normalizeSelectedNodeIds(options.selectedNodeIds);
@@ -278,7 +325,7 @@ export function buildWidgetRenderPlan({
       const ownedElement = allowDom && isElementLike(widget.element) ? widget.element : null;
       const classification = classifyWidget(widget, ownedElement);
       if (!classification) continue;
-      const graphRect = getWidgetGraphRect(node, widget);
+      const graphRect = getWidgetGraphRect(node, widget, widgetIndex, uiCanvas);
       const nodeGraphRect = getNodeGraphRect(node);
       if (!graphRect || !nodeGraphRect) continue;
 
@@ -346,10 +393,9 @@ export function joinWidgetRenderPlanToGraph(plan, graph, debugLog = null) {
     const widget = Number.isInteger(entry?.widgetIndex)
       ? widgets[entry.widgetIndex]
       : null;
-    let graphRect = widget ? getWidgetGraphRect(node, widget) : null;
     const nodeGraphRect = getNodeGraphRect(node);
+    let graphRect = null;
     if (
-      !graphRect &&
       nodeGraphRect &&
       entry?.geometrySource === "live-node-relative" &&
       entry?.relativeGraphRect
@@ -364,6 +410,9 @@ export function joinWidgetRenderPlanToGraph(plan, graph, debugLog = null) {
           h: values[3],
         };
       }
+    }
+    if (!graphRect && widget) {
+      graphRect = getWidgetGraphRect(node, widget, entry.widgetIndex);
     }
     if (!graphRect || !nodeGraphRect) continue;
     joined.push({
@@ -382,27 +431,51 @@ export function joinWidgetRenderPlanToGraph(plan, graph, debugLog = null) {
 
 export function buildOffscreenWidgetRenderPlan({
   liveGraph,
+  livePlanSnapshot = null,
+  liveWidgetInventory = null,
   exportGraph,
   includeDomOverlays = true,
   selectedNodeIds = null,
   renderFilter = "all",
   debugLog = null,
 } = {}) {
-  const rawLivePlan = buildWidgetRenderPlan({
-    graph: liveGraph,
-    allowDom: true,
-    options: { selectedNodeIds, renderFilter },
-  });
+  const selectedIds = normalizeSelectedNodeIds(selectedNodeIds);
+  const rawLivePlan = (Array.isArray(livePlanSnapshot)
+    ? livePlanSnapshot
+    : buildWidgetRenderPlan({
+      graph: liveGraph,
+      allowDom: true,
+      options: { selectedNodeIds, renderFilter },
+    })
+  ).filter((entry) => shouldRenderResolvedNode(
+    entry?.nodeId,
+    selectedIds,
+    renderFilter
+  ));
   const clonePlan = buildWidgetRenderPlan({
     graph: exportGraph,
     allowDom: false,
     options: { selectedNodeIds, renderFilter },
   });
-  const liveNodes = liveGraph?._nodes || liveGraph?.nodes || [];
-  const liveNodesById = new Map();
-  for (const node of liveNodes) {
-    const nodeId = toNodeIdKey(node?.id);
-    if (nodeId !== null) liveNodesById.set(nodeId, node);
+  const liveWidgetsByNodeId = new Map();
+  if (Array.isArray(liveWidgetInventory)) {
+    for (const entry of liveWidgetInventory) {
+      const nodeId = toNodeIdKey(entry?.nodeId);
+      if (nodeId !== null) {
+        liveWidgetsByNodeId.set(nodeId, Array.isArray(entry?.widgets) ? entry.widgets : []);
+      }
+    }
+  } else {
+    const liveNodes = liveGraph?._nodes || liveGraph?.nodes || [];
+    for (const node of liveNodes) {
+      const nodeId = toNodeIdKey(node?.id);
+      if (nodeId !== null) {
+        liveWidgetsByNodeId.set(
+          nodeId,
+          Array.isArray(node?.widgets) ? node.widgets : []
+        );
+      }
+    }
   }
   const exportNodes = exportGraph?._nodes || exportGraph?.nodes || [];
   const exportNodesById = new Map();
@@ -470,9 +543,8 @@ export function buildOffscreenWidgetRenderPlan({
   }
   const transientMediaNodeIds = new Set();
   for (const [nodeId, entries] of concreteLiveMediaByNode) {
-    const liveNode = liveNodesById.get(nodeId);
     const exportNode = exportNodesById.get(nodeId);
-    const liveWidgets = Array.isArray(liveNode?.widgets) ? liveNode.widgets : [];
+    const liveWidgets = liveWidgetsByNodeId.get(nodeId) || [];
     const exportWidgets = Array.isArray(exportNode?.widgets) ? exportNode.widgets : [];
     const liveIdentities = entries.map((entry) => mediaIdentity(entry.widgetName, entry.widgetType));
     const cloneEntries = cloneMediaByNode.get(nodeId) || [];
@@ -547,12 +619,13 @@ export function buildOffscreenWidgetRenderPlan({
       return {
         ...relativeEntry,
         key: `${nodeId}:live-text:${entry.widgetIndex}`,
+        mediaCacheKey: entry.mediaCacheKey || entry.key,
         liveWidgetIndex: entry.widgetIndex,
         widgetIndex: null,
       };
     }
     if (entry.source !== "media" || !entry.element) {
-      return entry;
+      return relativeEntry;
     }
     if (
       entry.mediaDelegationEligible === true &&
@@ -562,6 +635,7 @@ export function buildOffscreenWidgetRenderPlan({
       return {
         ...relativeEntry,
         key: `${nodeId}:live-media:${entry.widgetIndex}`,
+        mediaCacheKey: entry.mediaCacheKey || entry.key,
         liveWidgetIndex: entry.widgetIndex,
         widgetIndex: null,
         suppressedCloneWidgetIndexes: [
@@ -576,6 +650,7 @@ export function buildOffscreenWidgetRenderPlan({
     return {
       ...relativeEntry,
       key: `${nodeId}:live-media:${entry.widgetIndex}`,
+      mediaCacheKey: entry.mediaCacheKey || entry.key,
       liveWidgetIndex: entry.widgetIndex,
       widgetIndex: null,
     };
@@ -603,8 +678,7 @@ export function buildOffscreenWidgetRenderPlan({
       byKey.set(entry.key, entry);
     } else if (
       entry.source === "text" &&
-      entry.geometrySource === "live-node-relative" &&
-      !Number.isInteger(entry.widgetIndex)
+      entry.geometrySource === "live-node-relative"
     ) {
       byKey.set(entry.key, {
         ...entry,
@@ -670,6 +744,35 @@ export function collectPlannedMediaNodeIds(plan) {
   return nodeIds;
 }
 
+function restoreSuppressedWidgets(widgets, original, suppressedIndexes) {
+  const restored = [...widgets];
+  for (let originalIndex = 0; originalIndex < original.length; originalIndex += 1) {
+    if (!suppressedIndexes.has(originalIndex)) continue;
+    const widget = original[originalIndex];
+    if (restored.includes(widget)) continue;
+
+    let insertAt = -1;
+    for (let index = originalIndex + 1; index < original.length; index += 1) {
+      const nextAt = restored.indexOf(original[index]);
+      if (nextAt >= 0) {
+        insertAt = nextAt;
+        break;
+      }
+    }
+    if (insertAt < 0) {
+      for (let index = originalIndex - 1; index >= 0; index -= 1) {
+        const previousAt = restored.indexOf(original[index]);
+        if (previousAt >= 0) {
+          insertAt = previousAt + 1;
+          break;
+        }
+      }
+    }
+    restored.splice(insertAt < 0 ? 0 : insertAt, 0, widget);
+  }
+  widgets.splice(0, widgets.length, ...restored);
+}
+
 /**
  * Scope ownership to one offscreen canvas. Planned widgets are removed only
  * during the synchronous drawNodeWidgets call, so live widget objects are never
@@ -691,16 +794,23 @@ export function installPlannedWidgetDrawSuppression(canvas, plan) {
       return baseDrawNodeWidgets.call(this, node, ...args);
     }
 
-    const filteredWidgets = widgets.filter((_, index) => !indexes.has(index));
+    const original = [...widgets];
+    const kept = original.filter((_, index) => !indexes.has(index));
+    if (kept.length === original.length || typeof widgets.splice !== "function") {
+      return baseDrawNodeWidgets.call(this, node, ...args);
+    }
     try {
-      node.widgets = filteredWidgets;
+      widgets.splice(0, widgets.length, ...kept);
     } catch (_) {
+      try {
+        widgets.splice(0, widgets.length, ...original);
+      } catch (_) {}
       return baseDrawNodeWidgets.call(this, node, ...args);
     }
     try {
       return baseDrawNodeWidgets.call(this, node, ...args);
     } finally {
-      node.widgets = widgets;
+      restoreSuppressedWidgets(widgets, original, indexes);
     }
   };
 

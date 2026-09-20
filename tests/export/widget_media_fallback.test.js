@@ -3,7 +3,10 @@ import assert from "node:assert/strict";
 
 import { drawPlannedWidgetOverlays } from "../../web/js/core/backends/widget_overlay_renderer.mjs";
 import { buildOffscreenWidgetRenderPlan, buildWidgetRenderPlan } from "../../web/js/core/backends/widget_render_plan.mjs";
-import { drawWidgetMediaFallbacks } from "../../web/js/export/widget_media_fallback.mjs";
+import {
+  drawWidgetMediaFallbacks,
+  snapshotPlannedWidgetMedia,
+} from "../../web/js/export/widget_media_fallback.mjs";
 
 function mediaEntry(key, element, x = 40) {
   return {
@@ -167,7 +170,7 @@ test("computed calc positions preserve both video axes in normal and offscreen p
   for (const [plan, expected] of [
     [buildWidgetRenderPlan({ graph: graphs.liveGraph }), [15, 48, 200, 50]],
     [buildOffscreenWidgetRenderPlan({ ...graphs, includeDomOverlays: false }),
-      [35, 83, 220, 55]],
+      [35, 88, 200, 50]],
   ]) {
     const ctx = createExportContext();
     await drawWidgetMediaFallbacks({
@@ -310,6 +313,100 @@ test("widget-owned media uses one origin-clean snapshot across tiles", async () 
     assert.equal(secondCtx.calls[0].media.copiedFrame, 1);
     assert.deepEqual(firstCoverage.get("17"), [{ x: 40, y: 10, w: 120, h: 60 }]);
     assert.deepEqual(secondCoverage.get("17"), [{ x: 40, y: 10, w: 120, h: 60 }]);
+  } finally {
+    globalThis.document = previousDocument;
+  }
+});
+
+test("planned media can be frozen before the first tile is rendered", async () => {
+  const previousDocument = globalThis.document;
+  const source = { width: 320, height: 180, frame: 1 };
+  globalThis.document = {
+    createElement() {
+      const canvas = { width: 0, height: 0, copiedFrame: null };
+      canvas.getContext = () => ({
+        drawImage(media) { canvas.copiedFrame = media.frame; },
+        getImageData() { return { data: new Uint8ClampedArray([0, 0, 0, 255]) }; },
+      });
+      return canvas;
+    },
+  };
+
+  try {
+    const cache = new Map();
+    const plan = [mediaEntry("18:0", source)];
+    await snapshotPlannedWidgetMedia({ plan, mediaSnapshotCache: cache });
+    source.frame = 2;
+
+    const ctx = createExportContext();
+    await drawWidgetMediaFallbacks({
+      exportCtx: ctx,
+      plan,
+      bounds: { left: 0, top: 0, right: 200, bottom: 100 },
+      scale: 1,
+      mediaSnapshotCache: cache,
+    });
+
+    assert.equal(ctx.calls[0].media.copiedFrame, 1);
+  } finally {
+    globalThis.document = previousDocument;
+  }
+});
+
+test("rekeyed live-only media reuses its export-start snapshot with and without DOM overlays", async () => {
+  const previousDocument = globalThis.document;
+  const source = { videoWidth: 320, videoHeight: 180, frame: 1 };
+  let snapshotCopies = 0;
+  globalThis.document = {
+    createElement() {
+      const canvas = { width: 0, height: 0, copiedFrame: null };
+      canvas.getContext = () => ({
+        drawImage(media) {
+          snapshotCopies += 1;
+          canvas.copiedFrame = media.frame;
+        },
+        getImageData() { return { data: new Uint8ClampedArray([0, 0, 0, 255]) }; },
+      });
+      return canvas;
+    },
+  };
+
+  try {
+    for (const includeDomOverlays of [true, false]) {
+      const graphs = connectedMediaGraphs(source);
+      graphs.exportGraph.nodes[0].widgets = [];
+      const livePlan = buildWidgetRenderPlan({ graph: graphs.liveGraph });
+      const cache = new Map();
+      const copiesBefore = snapshotCopies;
+      await snapshotPlannedWidgetMedia({ plan: livePlan, mediaSnapshotCache: cache });
+      source.frame = 2;
+      const plan = buildOffscreenWidgetRenderPlan({
+        ...graphs,
+        livePlanSnapshot: livePlan,
+        liveWidgetInventory: [{
+          nodeId: graphs.liveGraph.nodes[0].id,
+          widgets: graphs.liveGraph.nodes[0].widgets.map((widget) => ({
+            name: widget.name,
+            type: widget.type,
+          })),
+        }],
+        includeDomOverlays,
+      });
+      const ctx = createExportContext();
+      await drawWidgetMediaFallbacks({
+        exportCtx: ctx,
+        plan,
+        bounds: { left: 0, top: 0, right: 300, bottom: 200 },
+        scale: 1,
+        mediaSnapshotCache: cache,
+      });
+
+      assert.equal(plan[0].key, "71:live-media:0");
+      assert.equal(ctx.calls[0].media.copiedFrame, 1);
+      assert.equal(snapshotCopies - copiesBefore, 1);
+      assert.equal(cache.size, 1);
+      source.frame = 1;
+    }
   } finally {
     globalThis.document = previousDocument;
   }

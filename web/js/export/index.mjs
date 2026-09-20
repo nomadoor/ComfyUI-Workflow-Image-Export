@@ -7,7 +7,11 @@ import {
   EXTRACT_BG_1,
   EXTRACT_BG_2,
 } from "./background_modes.mjs";
-import { computeOffscreenBBox, renderGraphOffscreen } from "./render_graph_offscreen.mjs?v=20260915-3";
+import {
+  captureLiveClassicRenderModel,
+  computeOffscreenBBox,
+  renderGraphOffscreen,
+} from "./render_graph_offscreen.mjs?v=20260920-3";
 import { embedWorkflowInPngBlob } from "./png_embed_workflow.mjs";
 import { shouldTile } from "./limits.mjs?v=20260915-3";
 import { clampPngCompression } from "./tiled_png_encoder.mjs?v=20260915-3";
@@ -198,6 +202,20 @@ export async function exportWorkflowPng(workflowJson, options = {}) {
     linkFilter: options.linkFilter,
   };
 
+  const classicRenderModel = await timeSpan(
+    perfLog,
+    "render-model.capture",
+    () => captureLiveClassicRenderModel({
+      debug,
+      mediaSnapshotCache: new Map(),
+    })
+  );
+  renderOptions = {
+    ...renderOptions,
+    classicRenderModel,
+    mediaSnapshotCache: classicRenderModel.mediaSnapshotCache,
+  };
+
   let bboxOverride = null;
   if (!previewFast) {
     try {
@@ -221,7 +239,7 @@ export async function exportWorkflowPng(workflowJson, options = {}) {
       ...renderOptions,
       renderScaleFactor: scale,
       // Freeze widget-owned canvas/img/video once for every tile and scope pass.
-      mediaSnapshotCache: new Map(),
+      mediaSnapshotCache: classicRenderModel.mediaSnapshotCache,
     };
   }
   if (tileEnabled) {
