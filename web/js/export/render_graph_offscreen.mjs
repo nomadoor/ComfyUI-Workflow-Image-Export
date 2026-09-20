@@ -33,7 +33,7 @@ import {
   collectPlannedMediaNodeIds,
   installPlannedWidgetDrawSuppression,
   joinWidgetRenderPlanToGraph,
-} from "../core/backends/widget_render_plan.mjs?v=20260907-1";
+} from "../core/backends/widget_render_plan.mjs?v=20260920-2";
 import {
   drawPlannedWidgetOverlays,
 } from "../core/backends/widget_overlay_renderer.mjs?v=20260903-16";
@@ -44,9 +44,10 @@ import {
 } from "../core/backends/legacy_media_overlays.mjs?v=20260903-16";
 import { PREVIEW_MAX_PIXELS } from "./limits.mjs?v=20260915-3";
 import { buildMediaFallbackTargets } from "./media_fallback_plan.mjs?v=20260903-16";
-import { createLiveRenderGuard } from "../core/backends/live_render_guard.mjs?v=20260903-16";
+import { createLiveRenderGuard } from "../core/backends/live_render_guard.mjs?v=20260920-2";
 import { createLiteGraphMeasureTextGuard } from "../core/backends/litegraph_measure_text_guard.mjs?v=20260903-16";
-import { drawWidgetMediaFallbacks } from "./widget_media_fallback.mjs?v=20260907-2";
+import { drawWidgetMediaFallbacks } from "./widget_media_fallback.mjs?v=20260920-2";
+import { captureClassicRenderModel } from "./classic_render_model.mjs?v=20260920-2";
 
 function getNowMs() {
   if (typeof performance !== "undefined" && typeof performance.now === "function") {
@@ -97,6 +98,18 @@ export async function computeOffscreenBBox(workflowJson, options = {}) {
   } finally {
     safeCleanup(null, graph);
   }
+}
+
+export async function captureLiveClassicRenderModel(options = {}) {
+  const debugLog = options.debug
+    ? (label, payload) => console.log(`[CWIE][ClassicModel] ${label}`, payload)
+    : null;
+  return captureClassicRenderModel({
+    graph: app?.graph,
+    uiCanvas: app?.canvas,
+    mediaSnapshotCache: options.mediaSnapshotCache || new Map(),
+    debugLog,
+  });
 }
 
 export async function renderGraphOffscreen(workflowJson, options = {}) {
@@ -346,6 +359,8 @@ export async function renderGraphOffscreen(workflowJson, options = {}) {
     widgetPlan = await timeSpan(perfLog, "widget.plan.build", () =>
       buildOffscreenWidgetRenderPlan({
         liveGraph: app?.graph,
+        livePlanSnapshot: options.classicRenderModel?.widgetPlan,
+        liveWidgetInventory: options.classicRenderModel?.widgetInventory,
         exportGraph: graph,
         includeDomOverlays: options.includeDomOverlays !== false,
         selectedNodeIds: options.selectedNodeIds,
@@ -373,8 +388,9 @@ export async function renderGraphOffscreen(workflowJson, options = {}) {
     measureTextGuard.restore();
   }
 
-  // The base pass arranges cloned widgets. Refresh geometry now so tiled/huge
-  // overlays use final computedHeight/y values rather than setup-time fallbacks.
+  // Re-project the captured node-relative snapshot onto the synchronized clone
+  // node positions. Clone widget geometry is only a fallback for entries that
+  // have no authoritative live snapshot rectangle.
   if (widgetPlan) {
     widgetPlan = joinWidgetRenderPlanToGraph(widgetPlan, graph, debugLog);
   }
@@ -491,7 +507,8 @@ export async function renderGraphOffscreen(workflowJson, options = {}) {
         plan: widgetPlan,
         bounds,
         scale: scaleFactor,
-        mediaSnapshotCache: options.mediaSnapshotCache,
+        mediaSnapshotCache:
+          options.classicRenderModel?.mediaSnapshotCache || options.mediaSnapshotCache,
         debugLog,
       })
     );
@@ -571,7 +588,8 @@ export async function renderGraphOffscreen(workflowJson, options = {}) {
           plan: widgetPlan,
           bounds,
           scale: scaleFactor,
-          mediaSnapshotCache: options.mediaSnapshotCache,
+          mediaSnapshotCache:
+            options.classicRenderModel?.mediaSnapshotCache || options.mediaSnapshotCache,
           debugLog,
         })
       );
