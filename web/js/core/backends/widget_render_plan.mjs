@@ -744,6 +744,35 @@ export function collectPlannedMediaNodeIds(plan) {
   return nodeIds;
 }
 
+function restoreSuppressedWidgets(widgets, original, suppressedIndexes) {
+  const restored = [...widgets];
+  for (let originalIndex = 0; originalIndex < original.length; originalIndex += 1) {
+    if (!suppressedIndexes.has(originalIndex)) continue;
+    const widget = original[originalIndex];
+    if (restored.includes(widget)) continue;
+
+    let insertAt = -1;
+    for (let index = originalIndex + 1; index < original.length; index += 1) {
+      const nextAt = restored.indexOf(original[index]);
+      if (nextAt >= 0) {
+        insertAt = nextAt;
+        break;
+      }
+    }
+    if (insertAt < 0) {
+      for (let index = originalIndex - 1; index >= 0; index -= 1) {
+        const previousAt = restored.indexOf(original[index]);
+        if (previousAt >= 0) {
+          insertAt = previousAt + 1;
+          break;
+        }
+      }
+    }
+    restored.splice(insertAt < 0 ? 0 : insertAt, 0, widget);
+  }
+  widgets.splice(0, widgets.length, ...restored);
+}
+
 /**
  * Scope ownership to one offscreen canvas. Planned widgets are removed only
  * during the synchronous drawNodeWidgets call, so live widget objects are never
@@ -781,7 +810,7 @@ export function installPlannedWidgetDrawSuppression(canvas, plan) {
     try {
       return baseDrawNodeWidgets.call(this, node, ...args);
     } finally {
-      widgets.splice(0, widgets.length, ...original);
+      restoreSuppressedWidgets(widgets, original, indexes);
     }
   };
 

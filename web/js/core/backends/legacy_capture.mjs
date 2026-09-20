@@ -38,7 +38,7 @@ import {
   collectPlannedMediaElements,
   collectPlannedMediaNodeIds,
   installPlannedWidgetDrawSuppression,
-} from "./widget_render_plan.mjs?v=20260920-2";
+} from "./widget_render_plan.mjs?v=20260920-3";
 import {
   drawPlannedWidgetOverlays,
 } from "./widget_overlay_renderer.mjs?v=20260903-16";

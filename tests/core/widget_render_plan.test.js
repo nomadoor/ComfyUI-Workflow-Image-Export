@@ -1709,6 +1709,33 @@ test("offscreen suppression restores a node when every widget is planned", () =>
   assert.equal(node.widgets[2], original[2]);
 });
 
+test("offscreen suppression keeps widgets added during native drawing", () => {
+  const suppressedWidget = { name: "text", value: "captured" };
+  const nativeWidget = { name: "seed", value: "existing" };
+  const runtimeWidget = { name: "preview", value: "added while drawing" };
+  const widgets = [suppressedWidget, nativeWidget];
+  const node = { id: 74, widgets };
+  const canvas = {
+    drawNodeWidgets(currentNode) {
+      assert.deepEqual(currentNode.widgets, [nativeWidget]);
+      currentNode.widgets.push(runtimeWidget);
+    },
+  };
+  const suppression = installPlannedWidgetDrawSuppression(canvas, [{
+    key: "74:0",
+    nodeId: 74,
+    widgetIndex: 0,
+    source: "text",
+    text: "captured",
+  }]);
+
+  canvas.drawNodeWidgets(node);
+  suppression.restore();
+
+  assert.equal(node.widgets, widgets);
+  assert.deepEqual(node.widgets, [suppressedWidget, nativeWidget, runtimeWidget]);
+});
+
 test("parallel suppression sessions never mutate their shared live widgets", () => {
   const widgets = [{ type: "customtext", draw() {} }];
   const node = { id: 72, widgets };

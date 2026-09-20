@@ -33,7 +33,7 @@ import {
   collectPlannedMediaNodeIds,
   installPlannedWidgetDrawSuppression,
   joinWidgetRenderPlanToGraph,
-} from "../core/backends/widget_render_plan.mjs?v=20260920-2";
+} from "../core/backends/widget_render_plan.mjs?v=20260920-3";
 import {
   drawPlannedWidgetOverlays,
 } from "../core/backends/widget_overlay_renderer.mjs?v=20260903-16";
@@ -47,7 +47,7 @@ import { buildMediaFallbackTargets } from "./media_fallback_plan.mjs?v=20260903-
 import { createLiveRenderGuard } from "../core/backends/live_render_guard.mjs?v=20260920-2";
 import { createLiteGraphMeasureTextGuard } from "../core/backends/litegraph_measure_text_guard.mjs?v=20260903-16";
 import { drawWidgetMediaFallbacks } from "./widget_media_fallback.mjs?v=20260920-2";
-import { captureClassicRenderModel } from "./classic_render_model.mjs?v=20260920-2";
+import { captureClassicRenderModel } from "./classic_render_model.mjs?v=20260920-3";
 
 function getNowMs() {
   if (typeof performance !== "undefined" && typeof performance.now === "function") {

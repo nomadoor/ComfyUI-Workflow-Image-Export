@@ -1,4 +1,4 @@
-import { buildWidgetRenderPlan } from "../core/backends/widget_render_plan.mjs?v=20260920-2";
+import { buildWidgetRenderPlan } from "../core/backends/widget_render_plan.mjs?v=20260920-3";
 import { snapshotPlannedWidgetMedia } from "./widget_media_fallback.mjs?v=20260920-2";
 
 function freezeRecord(value) {
