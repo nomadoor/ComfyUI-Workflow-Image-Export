@@ -11,7 +11,7 @@ import {
   applyRenderFilter,
   computeScaleToFit,
   computeTileBounds,
-} from "./offscreen_render_utils.mjs";
+} from "./offscreen_render_utils.mjs?v=20260927-3";
 import { applyNodeOpacity } from "./offscreen_node_opacity.mjs";
 import {
   configureTransform,

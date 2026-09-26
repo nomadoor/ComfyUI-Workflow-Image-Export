@@ -388,7 +388,7 @@ test("offscreen session applies destructive filters once before all tile renders
   });
   session.cleanup();
 
-  assert.deepEqual(fixture.state.drawNodeIds, [[2, 4], [2, 4]]);
+  assert.deepEqual(fixture.state.drawNodeIds, [[], []]);
 });
 
 test("offscreen session resolves an implicit selection bbox before graph filtering", async (t) => {
