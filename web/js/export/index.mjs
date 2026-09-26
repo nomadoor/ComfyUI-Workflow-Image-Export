@@ -10,13 +10,13 @@ import {
 import {
   captureLiveClassicRenderModel,
   computeOffscreenBBox,
-  renderGraphOffscreen,
-} from "./render_graph_offscreen.mjs?v=20260920-3";
+  createOffscreenRenderSession,
+} from "./render_graph_offscreen.mjs?v=20260927-3";
 import { embedWorkflowInPngBlob } from "./png_embed_workflow.mjs";
 import { shouldTile } from "./limits.mjs?v=20260915-3";
 import { clampPngCompression } from "./tiled_png_encoder.mjs?v=20260915-3";
 import { isCanvasTransparent, recoverTransparentCanvas } from "./transparent_recovery.mjs";
-import { renderTiled, renderTiledPng } from "./tiled_render.mjs?v=20260915-3";
+import { renderTiled, renderTiledPng } from "./tiled_render.mjs?v=20260927-2";
 
 function getNowMs() {
   if (typeof performance !== "undefined" && typeof performance.now === "function") {
@@ -80,8 +80,9 @@ function normalizeSelectedIds(value) {
 }
 
 async function renderOnce(workflowJson, options) {
-  const rendered = await renderGraphOffscreen(workflowJson, options);
+  const session = await createOffscreenRenderSession(workflowJson, options);
   try {
+    const rendered = await session.render(options);
     if (options?.debug) {
       console.log("[CWIE][Offscreen] rendered canvas", {
         width: rendered.canvas?.width,
@@ -90,8 +91,19 @@ async function renderOnce(workflowJson, options) {
     }
     return rendered.canvas;
   } finally {
-    rendered.cleanup?.();
+    session.cleanup();
   }
+}
+
+async function createRenderSession(workflowJson, options) {
+  const session = await createOffscreenRenderSession(workflowJson, options);
+  return {
+    async render(renderOptions) {
+      const rendered = await session.render(renderOptions);
+      return rendered.canvas;
+    },
+    cleanup: () => session.cleanup(),
+  };
 }
 
 async function renderTransparentFallback(workflowJson, options, warnings) {
@@ -322,7 +334,7 @@ export async function exportWorkflowPng(workflowJson, options = {}) {
         onProgress: reportProgress,
         perfLog,
         compressionLevel: pngCompression,
-        renderOnce,
+        createRenderSession,
       })
     );
     reportProgress?.(1);
@@ -363,7 +375,7 @@ export async function exportWorkflowPng(workflowJson, options = {}) {
           onProgress: reportProgress,
           perfLog,
           compressionLevel: pngCompression,
-          renderOnce,
+          createRenderSession,
         })
       );
       reportProgress?.(1);
@@ -395,7 +407,7 @@ export async function exportWorkflowPng(workflowJson, options = {}) {
           bboxOverride,
           onProgress: reportProgress,
           perfLog,
-          renderOnce,
+          createRenderSession,
         })
       );
       reportProgress?.(1);

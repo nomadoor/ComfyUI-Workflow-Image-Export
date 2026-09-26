@@ -125,10 +125,13 @@ test("canvas tiling renders directly at the requested raster scale", async (t) =
       backgroundMode: "transparent",
     },
     bboxOverride: { width: 1500, height: 1000 },
-    renderOnce: async (_workflowJson, options) => {
-      renderCalls.push(options);
-      return { width: 1, height: 1 };
-    },
+    createRenderSession: async () => ({
+      async render(options) {
+        renderCalls.push(options);
+        return { width: 1, height: 1 };
+      },
+      cleanup() {},
+    }),
   });
 
   assert.equal(output.width, 3000);
@@ -143,4 +146,96 @@ test("canvas tiling renders directly at the requested raster scale", async (t) =
     [0, 0, 2048, 2000, 0, 0, 2048, 2000],
     [128, 0, 952, 2000, 2048, 0, 952, 2000],
   ]);
+});
+
+test("canvas tiling reuses one render session for every tile", async (t) => {
+  const previousDocument = globalThis.document;
+  globalThis.document = {
+    createElement(tag) {
+      assert.equal(tag, "canvas");
+      return {
+        width: 0,
+        height: 0,
+        getContext() {
+          return {
+            fillRect() {},
+            drawImage() {},
+          };
+        },
+      };
+    },
+  };
+  t.after(() => {
+    globalThis.document = previousDocument;
+  });
+
+  let sessions = 0;
+  let cleanups = 0;
+  let sessionOptions;
+  const renderedTiles = [];
+  const bboxOverride = { width: 5000, height: 1000 };
+  await renderTiled({
+    workflowJson: { nodes: [] },
+    options: {
+      renderScaleFactor: 1,
+      tileBleed: 64,
+      backgroundMode: "transparent",
+    },
+    bboxOverride,
+    createRenderSession: async (_workflowJson, options) => {
+      sessions += 1;
+      sessionOptions = options;
+      return {
+        async render(options) {
+          renderedTiles.push(options.tileRect);
+          return { width: 1, height: 1 };
+        },
+        cleanup() {
+          cleanups += 1;
+        },
+      };
+    },
+  });
+
+  assert.equal(sessions, 1);
+  assert.equal(sessionOptions.bboxOverride, bboxOverride);
+  assert.equal(renderedTiles.length, 3);
+  assert.equal(cleanups, 1);
+});
+
+test("canvas tiling closes its render session when a tile fails", async (t) => {
+  const previousDocument = globalThis.document;
+  globalThis.document = {
+    createElement() {
+      return {
+        width: 0,
+        height: 0,
+        getContext() {
+          return { fillRect() {}, drawImage() {} };
+        },
+      };
+    },
+  };
+  t.after(() => {
+    globalThis.document = previousDocument;
+  });
+
+  let cleanups = 0;
+  await assert.rejects(
+    renderTiled({
+      workflowJson: { nodes: [] },
+      options: { renderScaleFactor: 1, backgroundMode: "transparent" },
+      bboxOverride: { width: 3000, height: 1000 },
+      createRenderSession: async () => ({
+        async render() {
+          throw new Error("tile failed");
+        },
+        cleanup() {
+          cleanups += 1;
+        },
+      }),
+    }),
+    /tile failed/
+  );
+  assert.equal(cleanups, 1);
 });

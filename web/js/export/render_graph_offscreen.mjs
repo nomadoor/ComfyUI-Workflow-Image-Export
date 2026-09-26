@@ -11,7 +11,7 @@ import {
   applyRenderFilter,
   computeScaleToFit,
   computeTileBounds,
-} from "./offscreen_render_utils.mjs";
+} from "./offscreen_render_utils.mjs?v=20260927-3";
 import { applyNodeOpacity } from "./offscreen_node_opacity.mjs";
 import {
   configureTransform,
@@ -112,23 +112,94 @@ export async function captureLiveClassicRenderModel(options = {}) {
   });
 }
 
-export async function renderGraphOffscreen(workflowJson, options = {}) {
-  const debug = Boolean(options.debug);
-  const debugLog = debug
+function createOffscreenDebugLog(debug) {
+  return debug
     ? (label, payload) => {
       if (String(label).startsWith("diag.")) return;
       console.log(`[CWIE][Offscreen][dom] ${label}`, payload);
     }
     : null;
-  const perfLog = createPerfLogger(debug, "[CWIE][Offscreen][perf]");
-  perfLog?.("start");
+}
 
-  const padding = Number(options.padding) || 0;
-  const { graph, LGraphCanvasRef } = await timeSpan(
+export async function createOffscreenRenderSession(workflowJson, options = {}) {
+  const debug = Boolean(options.debug);
+  const debugLog = createOffscreenDebugLog(debug);
+  const perfLog = createPerfLogger(debug, "[CWIE][Offscreen][perf]");
+  const prepared = await timeSpan(
     perfLog,
     "prepareGraph",
     () => prepareGraph(workflowJson, debugLog)
   );
+  const padding = Number(options.padding) || 0;
+  const sessionBBox = options.bboxOverride || await timeSpan(
+    perfLog,
+    "computeGraphBBox",
+    () => computeGraphBBox(prepared.graph, {
+      padding,
+      debug,
+      selectedNodeIds: options.selectedNodeIds,
+      useSelectionOnly: options.cropToSelection,
+      useBounding: options.previewFast ? false : undefined,
+    })
+  );
+  applyRenderFilter(prepared.graph, options.selectedNodeIds, options.renderFilter);
+  applyLinkFilter(
+    prepared.graph,
+    options.selectedNodeIds,
+    options.showLinks === false ? "none" : options.linkFilter
+  );
+  let closed = false;
+  let cleanupCanvas = null;
+  let renderCount = 0;
+  debugLog?.("session.open", {
+    nodes: prepared.graph?._nodes?.length || prepared.graph?.nodes?.length || 0,
+  });
+  return {
+    async render(renderOptions = {}) {
+      if (closed) {
+        throw new Error("Offscreen render session is closed.");
+      }
+      // In tiled sessions detachCanvas keeps primaryCanvas pointing at the
+      // previous canvas, and cleanup -> next LGraphCanvas attachment runs
+      // synchronously before the first await. The final canvas stays attached
+      // so session cleanup can clear the graph while that canvas is still valid.
+      cleanupCanvas?.();
+      cleanupCanvas = null;
+      const rendered = await renderPreparedGraphOffscreen(
+        prepared,
+        renderOptions,
+        renderOptions.bboxOverride || sessionBBox,
+        (cleanup) => {
+          cleanupCanvas = cleanup;
+        }
+      );
+      renderCount += 1;
+      return rendered;
+    },
+    cleanup() {
+      if (closed) return;
+      closed = true;
+      safeCleanup(null, prepared.graph);
+      cleanupCanvas?.();
+      cleanupCanvas = null;
+      debugLog?.("session.close", { renders: renderCount });
+    },
+  };
+}
+
+async function renderPreparedGraphOffscreen(
+  prepared,
+  options,
+  bbox,
+  takeCanvasOwnership
+) {
+  const debug = Boolean(options.debug);
+  const debugLog = createOffscreenDebugLog(debug);
+  const perfLog = createPerfLogger(debug, "[CWIE][Offscreen][perf]");
+  perfLog?.("start");
+
+  const padding = Number(options.padding) || 0;
+  const { graph, LGraphCanvasRef } = prepared;
   perfLog?.("graph.ready");
   if (debug) {
     const nodes = graph?._nodes || graph?.nodes || [];
@@ -161,22 +232,7 @@ export async function renderGraphOffscreen(workflowJson, options = {}) {
     });
   }
 
-  const bbox =
-    options.bboxOverride ||
-    await timeSpan(perfLog, "computeGraphBBox", () => computeGraphBBox(graph, {
-      padding,
-      debug,
-      selectedNodeIds: options.selectedNodeIds,
-      useSelectionOnly: options.cropToSelection,
-      useBounding: options.previewFast ? false : undefined,
-    }));
   perfLog?.("bbox.ready", { width: bbox.width, height: bbox.height });
-  applyRenderFilter(graph, options.selectedNodeIds, options.renderFilter);
-  applyLinkFilter(
-    graph,
-    options.selectedNodeIds,
-    options.showLinks === false ? "none" : options.linkFilter
-  );
   const baseWidth = Math.max(1, Math.ceil(bbox.width));
   const baseHeight = Math.max(1, Math.ceil(bbox.height));
   const tileRect = options.tileRect || null;
@@ -283,6 +339,19 @@ export async function renderGraphOffscreen(workflowJson, options = {}) {
   // LiteGraph should render at high resolution automatically.
 
   const measureTextGuard = createLiteGraphMeasureTextGuard(LGraphCanvasRef);
+  const takeOffscreenOwnership = (owner) => {
+    if (!owner) return;
+    takeCanvasOwnership(() => {
+      if (debug) {
+        console.log("[CWIE][Offscreen] cleanup");
+      }
+      safeCleanup(owner, null);
+      try {
+        graph?.detachCanvas?.(owner);
+      } catch (_) {}
+    });
+  };
+  const previousPrimaryCanvas = graph?.primaryCanvas;
   let offscreen;
   try {
     offscreen = new LGraphCanvasRef(canvas, graph);
@@ -294,14 +363,17 @@ export async function renderGraphOffscreen(workflowJson, options = {}) {
     disableCanvasInfoOverlay(offscreen);
   } catch (error) {
     measureTextGuard.restore();
-    safeCleanup(offscreen, graph);
+    const attachedCanvas = offscreen || (
+      graph?.primaryCanvas !== previousPrimaryCanvas ? graph?.primaryCanvas : null
+    );
+    takeOffscreenOwnership(attachedCanvas);
     throw error;
   }
+  takeOffscreenOwnership(offscreen);
   offscreen._cwieScaleFactor = scaleFactor;
   offscreen._cwieTileOffsetX = tileRect?.x || 0;
   offscreen._cwieTileOffsetY = tileRect?.y || 0;
 
-  let _exportOk = false;
   try {
   // Keep resize opt-in; current ComfyUI/LiteGraph can double-scale offscreen canvases.
   if (offscreen.resize && options.enableOffscreenResize) {
@@ -642,25 +714,15 @@ export async function renderGraphOffscreen(workflowJson, options = {}) {
   }
 
   perfLog?.("done");
-  _exportOk = true;
   return {
     canvas: outputCanvas,
     ctx: outputCtx,
     bbox,
     scaleFactor,
     tileRect,
-    cleanup: () => {
-      if (debug) {
-        console.log("[CWIE][Offscreen] cleanup");
-      }
-      safeCleanup(offscreen, graph);
-    },
   };
   } finally {
     measureTextGuard.restore();
-    if (!_exportOk) {
-      safeCleanup(offscreen, graph);
-    }
   }
 }
 

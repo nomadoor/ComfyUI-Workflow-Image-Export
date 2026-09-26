@@ -62,9 +62,8 @@ decision.
 - Custom widget support remains best-effort: LiteGraph-native drawing stays in
   the base adapter, while DOM/media support requires an owned `widget.element`
   or an existing safe fallback.
-- The current exporter may still construct a disposable clone per tile. Clone
-  lifetime is now an implementation detail behind the render-model boundary;
-  it can be optimized into a session later without changing the model contract.
+- Each tiled pass reuses one configured clone for all of its tiles. Clone
+  lifetime remains an implementation detail behind the render-model boundary.
 - Browser regression checks must compare live widget values, serialized graph
   data, and `graphToPrompt()` before and after both live and tiled exports.
 

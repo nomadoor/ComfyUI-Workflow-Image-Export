@@ -10,7 +10,7 @@ export function applyRenderFilter(graph, selectedNodeIds, mode) {
   const nodes = graph?._nodes || graph?.nodes || [];
   if (mode === "none") {
     if (typeof graph.remove === "function") {
-      nodes.forEach((node) => {
+      [...nodes].forEach((node) => {
         try {
           graph.remove(node);
         } catch (_) {}
