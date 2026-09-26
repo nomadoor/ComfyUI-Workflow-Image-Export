@@ -42,7 +42,7 @@ export async function renderTiled({
   bboxOverride,
   onProgress,
   perfLog,
-  renderOnce,
+  createRenderSession,
 }) {
   const {
     scale: renderScale,
@@ -53,72 +53,78 @@ export async function renderTiled({
   tiledCanvas.width = outputWidth;
   tiledCanvas.height = outputHeight;
   const tiledCtx = tiledCanvas.getContext("2d", { alpha: true });
-  if (!tiledCtx) {
-    return renderOnce(workflowJson, { ...options, bboxOverride });
-  }
+  const session = await createRenderSession(workflowJson, { ...options, bboxOverride });
 
-  if (options.backgroundMode === "solid" && options.backgroundColor) {
-    tiledCtx.fillStyle = options.backgroundColor;
-    tiledCtx.fillRect(0, 0, outputWidth, outputHeight);
-  }
-
-  const tilesX = Math.ceil(outputWidth / TILE_SIZE);
-  const tilesY = Math.ceil(outputHeight / TILE_SIZE);
-  const totalTiles = Math.max(1, tilesX * tilesY);
-  const bleed = Number.isFinite(Number(options.tileBleed)) ? Math.max(0, Number(options.tileBleed)) : 64;
-
-  perfLog?.("tile.render.start", {
-    width: outputWidth,
-    height: outputHeight,
-    renderScale,
-    tilesX,
-    tilesY,
-    totalTiles,
-    bleed,
-  });
-
-  let completedTiles = 0;
-  for (let y = 0; y < outputHeight; y += TILE_SIZE) {
-    for (let x = 0; x < outputWidth; x += TILE_SIZE) {
-      const w = Math.min(TILE_SIZE, outputWidth - x);
-      const h = Math.min(TILE_SIZE, outputHeight - y);
-      const geometry = resolveScaledTileGeometry({
-        x,
-        y,
-        width: w,
-        height: h,
-        outputWidth,
-        outputHeight,
-        renderScaleFactor: renderScale,
-        bleed,
-      });
-
-      const expandedCanvas = await renderOnce(workflowJson, {
-        ...options,
-        bboxOverride,
-        tileRect: geometry.tileRect,
-        previewFast: false,
-        maxPixels: 0,
-      });
-
-      tiledCtx.drawImage(
-        expandedCanvas,
-        geometry.crop.x,
-        geometry.crop.y,
-        geometry.crop.width,
-        geometry.crop.height,
-        x,
-        y,
-        w,
-        h
-      );
-
-      completedTiles += 1;
-      onProgress?.(completedTiles / totalTiles);
+  try {
+    if (!tiledCtx) {
+      return await session.render({ ...options, bboxOverride });
     }
+
+    if (options.backgroundMode === "solid" && options.backgroundColor) {
+      tiledCtx.fillStyle = options.backgroundColor;
+      tiledCtx.fillRect(0, 0, outputWidth, outputHeight);
+    }
+
+    const tilesX = Math.ceil(outputWidth / TILE_SIZE);
+    const tilesY = Math.ceil(outputHeight / TILE_SIZE);
+    const totalTiles = Math.max(1, tilesX * tilesY);
+    const bleed = Number.isFinite(Number(options.tileBleed)) ? Math.max(0, Number(options.tileBleed)) : 64;
+
+    perfLog?.("tile.render.start", {
+      width: outputWidth,
+      height: outputHeight,
+      renderScale,
+      tilesX,
+      tilesY,
+      totalTiles,
+      bleed,
+    });
+
+    let completedTiles = 0;
+    for (let y = 0; y < outputHeight; y += TILE_SIZE) {
+      for (let x = 0; x < outputWidth; x += TILE_SIZE) {
+        const w = Math.min(TILE_SIZE, outputWidth - x);
+        const h = Math.min(TILE_SIZE, outputHeight - y);
+        const geometry = resolveScaledTileGeometry({
+          x,
+          y,
+          width: w,
+          height: h,
+          outputWidth,
+          outputHeight,
+          renderScaleFactor: renderScale,
+          bleed,
+        });
+
+        const expandedCanvas = await session.render({
+          ...options,
+          bboxOverride,
+          tileRect: geometry.tileRect,
+          previewFast: false,
+          maxPixels: 0,
+        });
+
+        tiledCtx.drawImage(
+          expandedCanvas,
+          geometry.crop.x,
+          geometry.crop.y,
+          geometry.crop.width,
+          geometry.crop.height,
+          x,
+          y,
+          w,
+          h
+        );
+
+        completedTiles += 1;
+        onProgress?.(completedTiles / totalTiles);
+      }
+    }
+    perfLog?.("tile.render.done");
+    return tiledCanvas;
+  } finally {
+    await session.cleanup();
   }
-  perfLog?.("tile.render.done");
-  return tiledCanvas;
 }
 
 export async function renderTiledPng({
@@ -128,72 +134,77 @@ export async function renderTiledPng({
   onProgress,
   perfLog,
   compressionLevel,
-  renderOnce,
+  createRenderSession,
 }) {
-  if (!bboxOverride) {
-    const canvas = await renderOnce(workflowJson, options);
-    return toBlobAsync(canvas, "image/png");
+  const session = await createRenderSession(workflowJson, { ...options, bboxOverride });
+  try {
+    if (!bboxOverride) {
+      const canvas = await session.render(options);
+      return await toBlobAsync(canvas, "image/png");
+    }
+    const {
+      baseWidth,
+      baseHeight,
+      scale: renderScale,
+      width: outputWidth,
+      height: outputHeight,
+    } = resolveTiledPngOutputSize(bboxOverride, options.renderScaleFactor);
+
+    const tilesX = Math.ceil(outputWidth / TILE_SIZE);
+    const tilesY = Math.ceil(outputHeight / TILE_SIZE);
+    const bleed = Number.isFinite(Number(options.tileBleed)) ? Math.max(0, Number(options.tileBleed)) : 64;
+
+    if (options.debug) {
+      console.log(`[CWIE][Export] Tiled export: mode=png, tiles=${tilesX}x${tilesY}, size=${outputWidth}x${outputHeight}, scale=${renderScale}, ratio=${options.uiPxRatio}, bleed=${bleed}`);
+    }
+
+    return await encodePngFromTiles(
+      outputWidth,
+      outputHeight,
+      async (x, y, w, h) => {
+        const geometry = resolveScaledTileGeometry({
+          x,
+          y,
+          width: w,
+          height: h,
+          outputWidth,
+          outputHeight,
+          renderScaleFactor: renderScale,
+          bleed,
+        });
+
+        const expandedCanvas = await session.render({
+          ...options,
+          bboxOverride,
+          tileRect: geometry.tileRect,
+          previewFast: false,
+          maxPixels: 0,
+        });
+
+        const cropCanvas = document.createElement("canvas");
+        cropCanvas.width = w;
+        cropCanvas.height = h;
+        const cropCtx = cropCanvas.getContext("2d", { alpha: true });
+        if (cropCtx) {
+          cropCtx.drawImage(
+            expandedCanvas,
+            geometry.crop.x,
+            geometry.crop.y,
+            geometry.crop.width,
+            geometry.crop.height,
+            0,
+            0,
+            w,
+            h
+          );
+        }
+        return cropCanvas;
+      },
+      onProgress,
+      perfLog,
+      compressionLevel
+    );
+  } finally {
+    await session.cleanup();
   }
-  const {
-    baseWidth,
-    baseHeight,
-    scale: renderScale,
-    width: outputWidth,
-    height: outputHeight,
-  } = resolveTiledPngOutputSize(bboxOverride, options.renderScaleFactor);
-
-  const tilesX = Math.ceil(outputWidth / TILE_SIZE);
-  const tilesY = Math.ceil(outputHeight / TILE_SIZE);
-  const bleed = Number.isFinite(Number(options.tileBleed)) ? Math.max(0, Number(options.tileBleed)) : 64;
-
-  if (options.debug) {
-    console.log(`[CWIE][Export] Tiled export: mode=png, tiles=${tilesX}x${tilesY}, size=${outputWidth}x${outputHeight}, scale=${renderScale}, ratio=${options.uiPxRatio}, bleed=${bleed}`);
-  }
-
-  return encodePngFromTiles(
-    outputWidth,
-    outputHeight,
-    async (x, y, w, h) => {
-      const geometry = resolveScaledTileGeometry({
-        x,
-        y,
-        width: w,
-        height: h,
-        outputWidth,
-        outputHeight,
-        renderScaleFactor: renderScale,
-        bleed,
-      });
-
-      const expandedCanvas = await renderOnce(workflowJson, {
-        ...options,
-        bboxOverride,
-        tileRect: geometry.tileRect,
-        previewFast: false,
-        maxPixels: 0,
-      });
-
-      const cropCanvas = document.createElement("canvas");
-      cropCanvas.width = w;
-      cropCanvas.height = h;
-      const cropCtx = cropCanvas.getContext("2d", { alpha: true });
-      if (cropCtx) {
-        cropCtx.drawImage(
-          expandedCanvas,
-          geometry.crop.x,
-          geometry.crop.y,
-          geometry.crop.width,
-          geometry.crop.height,
-          0,
-          0,
-          w,
-          h
-        );
-      }
-      return cropCanvas;
-    },
-    onProgress,
-    perfLog,
-    compressionLevel
-  );
 }

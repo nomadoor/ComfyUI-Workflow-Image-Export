@@ -95,6 +95,11 @@ test("scaled tiled PNG preserves coordinates across encoder tile boundaries", as
 
   const renderedGraphRects = [];
   const mediaSnapshotCache = new Map();
+  let sessions = 0;
+  let cleanups = 0;
+  let closed = false;
+  let sessionOptions;
+  const bboxOverride = { width: 2500, height: 1 };
   const blob = await renderTiledPng({
     workflowJson: { nodes: [] },
     options: {
@@ -102,19 +107,32 @@ test("scaled tiled PNG preserves coordinates across encoder tile boundaries", as
       tileBleed: 64,
       mediaSnapshotCache,
     },
-    bboxOverride: { width: 2500, height: 1 },
+    bboxOverride,
     compressionLevel: 0,
-    renderOnce: async (_workflowJson, options) => {
-      assert.equal(options.mediaSnapshotCache, mediaSnapshotCache);
-      const tileGraphRect = options.tileRect;
-      renderedGraphRects.push(tileGraphRect);
-      const canvas = createPixelCanvas();
-      canvas.width = Math.ceil(tileGraphRect.width * options.renderScaleFactor);
-      canvas.height = Math.ceil(tileGraphRect.height * options.renderScaleFactor);
-      const outputOriginX = Math.round(tileGraphRect.x * options.renderScaleFactor);
-      const outputOriginY = Math.round(tileGraphRect.y * options.renderScaleFactor);
-      canvas.pixelAt = (x, y) => coordinateColor(outputOriginX + x, outputOriginY + y);
-      return canvas;
+    createRenderSession: async (_workflowJson, options) => {
+      sessions += 1;
+      sessionOptions = options;
+      return {
+        async render(options) {
+          if (closed) {
+            throw new Error("Offscreen render session is closed.");
+          }
+          assert.equal(options.mediaSnapshotCache, mediaSnapshotCache);
+          const tileGraphRect = options.tileRect;
+          renderedGraphRects.push(tileGraphRect);
+          const canvas = createPixelCanvas();
+          canvas.width = Math.ceil(tileGraphRect.width * options.renderScaleFactor);
+          canvas.height = Math.ceil(tileGraphRect.height * options.renderScaleFactor);
+          const outputOriginX = Math.round(tileGraphRect.x * options.renderScaleFactor);
+          const outputOriginY = Math.round(tileGraphRect.y * options.renderScaleFactor);
+          canvas.pixelAt = (x, y) => coordinateColor(outputOriginX + x, outputOriginY + y);
+          return canvas;
+        },
+        cleanup() {
+          cleanups += 1;
+          closed = true;
+        },
+      };
     },
   });
 
@@ -124,6 +142,9 @@ test("scaled tiled PNG preserves coordinates across encoder tile boundaries", as
     assert.deepEqual(png.pixelAt(x, 0), coordinateColor(x, 0), `pixel x=${x}`);
   }
   assert.equal(renderedGraphRects.length, 3);
+  assert.equal(sessions, 1);
+  assert.equal(sessionOptions.bboxOverride, bboxOverride);
+  assert.equal(cleanups, 1);
 });
 
 test("fractional-scale final tile stays inside the clamped renderer canvas", async (t) => {
@@ -154,21 +175,24 @@ test("fractional-scale final tile stays inside the clamped renderer canvas", asy
     options: { renderScaleFactor: scale, tileBleed: 64 },
     bboxOverride: bbox,
     compressionLevel: 0,
-    renderOnce: async (_workflowJson, options) => {
-      const tileBounds = computeTileBounds(
-        bbox,
-        options.tileRect,
-        baseWidth,
-        baseHeight
-      );
-      const canvas = createPixelCanvas();
-      canvas.width = Math.ceil(tileBounds.width * scale);
-      canvas.height = Math.ceil(tileBounds.height * scale);
-      const outputOriginX = Math.round(tileBounds.paddedMinX * scale);
-      const outputOriginY = Math.round(tileBounds.paddedMinY * scale);
-      canvas.pixelAt = (x, y) => coordinateColor(outputOriginX + x, outputOriginY + y);
-      return canvas;
-    },
+    createRenderSession: async () => ({
+      async render(options) {
+        const tileBounds = computeTileBounds(
+          bbox,
+          options.tileRect,
+          baseWidth,
+          baseHeight
+        );
+        const canvas = createPixelCanvas();
+        canvas.width = Math.ceil(tileBounds.width * scale);
+        canvas.height = Math.ceil(tileBounds.height * scale);
+        const outputOriginX = Math.round(tileBounds.paddedMinX * scale);
+        const outputOriginY = Math.round(tileBounds.paddedMinY * scale);
+        canvas.pixelAt = (x, y) => coordinateColor(outputOriginX + x, outputOriginY + y);
+        return canvas;
+      },
+      cleanup() {},
+    }),
   });
 
   const png = readPng(new Uint8Array(await blob.arrayBuffer()));
@@ -176,4 +200,26 @@ test("fractional-scale final tile stays inside the clamped renderer canvas", asy
   for (const x of [0, 2047, 2048, 4095, 4096]) {
     assert.deepEqual(png.pixelAt(x, 0), coordinateColor(x, 0), `pixel x=${x}`);
   }
+});
+
+test("tiled PNG closes its render session exactly once when a tile fails", async () => {
+  let cleanups = 0;
+  await assert.rejects(
+    renderTiledPng({
+      workflowJson: { nodes: [] },
+      options: { renderScaleFactor: 1, tileBleed: 64 },
+      bboxOverride: { width: 5000, height: 1 },
+      compressionLevel: 0,
+      createRenderSession: async () => ({
+        async render() {
+          throw new Error("tile failed");
+        },
+        cleanup() {
+          cleanups += 1;
+        },
+      }),
+    }),
+    /tile failed/
+  );
+  assert.equal(cleanups, 1);
 });

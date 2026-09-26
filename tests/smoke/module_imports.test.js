@@ -99,9 +99,176 @@ async function importMirroredModule(entryRelativePath) {
   const entrySourcePath = path.join(REPO_ROOT, entryRelativePath);
   await mirrorModule(entrySourcePath, tempRoot, appStubPath);
   const entryTempPath = path.join(tempRoot, entryRelativePath);
+  const module = await import(pathToFileURL(entryTempPath).href);
+  const { app } = await import(pathToFileURL(appStubPath).href);
+  return { tempRoot, module, app };
+}
+
+function createFakeCanvasElement() {
+  const context = {
+    globalAlpha: 1,
+    globalCompositeOperation: "source-over",
+    shadowColor: "transparent",
+    shadowBlur: 0,
+    clearRect() {},
+    drawImage() {},
+    fillRect() {},
+    setTransform() {},
+  };
   return {
-    tempRoot,
-    module: await import(pathToFileURL(entryTempPath).href),
+    width: 0,
+    height: 0,
+    style: {},
+    getContext(type) {
+      assert.equal(type, "2d");
+      return context;
+    },
+  };
+}
+
+function installOffscreenSessionFixture(
+  app,
+  { nodeCount = 4, failConstruct = false, failDraw = false } = {}
+) {
+  const events = [];
+  const state = {
+    configureCount: 0,
+    graphClearCount: 0,
+    drawNodeIds: [],
+    canvases: [],
+    events,
+  };
+
+  class FakeGraph {
+    constructor() {
+      this._nodes = [];
+      this._groups = [];
+      this.links = {};
+      this.list_of_graphcanvas = [];
+      this.primaryCanvas = null;
+    }
+
+    configure(data) {
+      state.configureCount += 1;
+      this._nodes = (data?.nodes || []).map((item) => ({
+        id: item.id,
+        pos: [...(item.pos || [0, 0])],
+        size: [...(item.size || [100, 80])],
+        widgets: [],
+        graph: this,
+      }));
+    }
+
+    remove(node) {
+      const index = this._nodes.indexOf(node);
+      if (index >= 0) this._nodes.splice(index, 1);
+    }
+
+    detachCanvas(canvas) {
+      events.push({ type: "detach", canvas });
+      const index = this.list_of_graphcanvas.indexOf(canvas);
+      if (index >= 0) this.list_of_graphcanvas.splice(index, 1);
+      // Current LiteGraph keeps primaryCanvas pointing at the detached canvas
+      // until the next canvas is attached.
+    }
+
+    clear() {
+      state.graphClearCount += 1;
+      events.push({
+        type: "graph.clear",
+        canvas: this.primaryCanvas,
+        hasCanvas: Boolean(this.primaryCanvas?.canvas),
+      });
+      this._nodes.length = 0;
+    }
+
+    stop() {}
+  }
+
+  class FakeLGraphCanvas {
+    constructor(canvas, graph) {
+      this.canvas = canvas;
+      this.ctx = canvas.getContext("2d");
+      this.graph = graph;
+      this.ds = { scale: 1, offset: [0, 0] };
+      this.visible_area = new Float32Array(4);
+      this.last_drawn_area = new Float32Array(4);
+      this.min_font_size_for_lod = 8;
+      graph.list_of_graphcanvas.push(this);
+      graph.primaryCanvas = this;
+      state.canvases.push(this);
+      events.push({ type: "attach", canvas: this });
+      if (failConstruct) throw new Error("construct failed");
+    }
+
+    computeVisibleArea() {}
+    setDirtyCanvas() {}
+    stopRendering() {}
+    unbind_events() {}
+    clear() {}
+
+    setCanvas(canvas) {
+      events.push({ type: "setCanvas", owner: this, canvas });
+      this.canvas = canvas;
+    }
+
+    draw() {
+      state.drawNodeIds.push(this.graph._nodes.map((node) => node.id));
+      if (failDraw) throw new Error("draw failed");
+    }
+  }
+
+  const liveGraph = Object.assign(Object.create(FakeGraph.prototype), {
+    _nodes: Array.from({ length: nodeCount }, (_, index) => ({
+      id: index + 1,
+      pos: [index * 120, 0],
+      size: [100, 80],
+      widgets: [],
+    })),
+    _groups: [],
+    links: {},
+    list_of_graphcanvas: [],
+    primaryCanvas: null,
+  });
+  app.graph = liveGraph;
+  app.canvas = {
+    constructor: FakeLGraphCanvas,
+    canvas: { closest() { return null; }, parentElement: null },
+  };
+  globalThis.document = {
+    createElement(tag) {
+      assert.equal(tag, "canvas");
+      return createFakeCanvasElement();
+    },
+    documentElement: {},
+    body: null,
+  };
+
+  return {
+    state,
+    workflowJson: {
+      nodes: liveGraph._nodes.map((node) => ({
+        id: node.id,
+        pos: node.pos,
+        size: node.size,
+      })),
+    },
+    renderOptions: {
+      bboxOverride: {
+        paddedMinX: 0,
+        paddedMinY: 0,
+        width: 400,
+        height: 100,
+      },
+      backgroundMode: "transparent",
+      includeDomOverlays: false,
+      includeGrid: false,
+      mediaMode: "off",
+      renderScaleFactor: 1,
+      skipTextFallback: true,
+      tileRect: { x: 0, y: 0, width: 200, height: 100 },
+      uiPxRatio: 1,
+    },
   };
 }
 
@@ -197,6 +364,184 @@ test("scaled tile geometry reaches the real offscreen transform in graph units",
       (value + offscreen.ds.offset[axis]) * offscreen.ds.scale
     ),
     [0, 0]
+  );
+});
+
+test("offscreen session applies destructive filters once before all tile renders", async (t) => {
+  const { tempRoot, module, app } = await importMirroredModule(
+    "web/js/export/render_graph_offscreen.mjs"
+  );
+  t.after(async () => {
+    delete globalThis.document;
+    await fs.rm(tempRoot, { recursive: true, force: true });
+  });
+  const fixture = installOffscreenSessionFixture(app);
+  const session = await module.createOffscreenRenderSession(
+    fixture.workflowJson,
+    { ...fixture.renderOptions, renderFilter: "none", linkFilter: "none" }
+  );
+
+  await session.render(fixture.renderOptions);
+  await session.render({
+    ...fixture.renderOptions,
+    tileRect: { x: 200, y: 0, width: 200, height: 100 },
+  });
+  session.cleanup();
+
+  assert.deepEqual(fixture.state.drawNodeIds, [[2, 4], [2, 4]]);
+});
+
+test("offscreen session resolves an implicit selection bbox before graph filtering", async (t) => {
+  const { tempRoot, module, app } = await importMirroredModule(
+    "web/js/export/render_graph_offscreen.mjs"
+  );
+  t.after(async () => {
+    delete globalThis.document;
+    await fs.rm(tempRoot, { recursive: true, force: true });
+  });
+  const fixture = installOffscreenSessionFixture(app);
+  const baseOptions = {
+    ...fixture.renderOptions,
+    bboxOverride: null,
+    cropToSelection: true,
+    previewFast: true,
+    selectedNodeIds: [1],
+    tileRect: null,
+  };
+
+  const allSession = await module.createOffscreenRenderSession(
+    fixture.workflowJson,
+    { ...baseOptions, renderFilter: "all" }
+  );
+  const allResult = await allSession.render(baseOptions);
+  allSession.cleanup();
+
+  const noneSession = await module.createOffscreenRenderSession(
+    fixture.workflowJson,
+    { ...baseOptions, renderFilter: "none" }
+  );
+  const noneResult = await noneSession.render(baseOptions);
+  noneSession.cleanup();
+
+  assert.deepEqual(noneResult.bbox, allResult.bbox);
+  assert.deepEqual(
+    {
+      width: noneResult.bbox.width,
+      height: noneResult.bbox.height,
+      paddedMinX: noneResult.bbox.paddedMinX,
+      paddedMinY: noneResult.bbox.paddedMinY,
+    },
+    { width: 100, height: 80, paddedMinX: 0, paddedMinY: 0 }
+  );
+});
+
+test("offscreen session owns one graph and releases canvases in lifecycle order", async (t) => {
+  const { tempRoot, module, app } = await importMirroredModule(
+    "web/js/export/render_graph_offscreen.mjs"
+  );
+  t.after(async () => {
+    delete globalThis.document;
+    await fs.rm(tempRoot, { recursive: true, force: true });
+  });
+  const fixture = installOffscreenSessionFixture(app);
+  const session = await module.createOffscreenRenderSession(
+    fixture.workflowJson,
+    fixture.renderOptions
+  );
+
+  const firstResult = await session.render(fixture.renderOptions);
+  const firstCanvas = fixture.state.canvases[0];
+  assert.equal(firstResult.cleanup, undefined);
+  assert.ok(firstCanvas.canvas, "first canvas remains attached after its render");
+
+  await session.render({
+    ...fixture.renderOptions,
+    tileRect: { x: 200, y: 0, width: 200, height: 100 },
+  });
+  const secondCanvas = fixture.state.canvases[1];
+  assert.equal(firstCanvas.canvas, null, "next render releases the previous canvas");
+  assert.ok(secondCanvas.canvas, "final canvas remains attached until session cleanup");
+
+  session.cleanup();
+  session.cleanup();
+
+  assert.equal(fixture.state.configureCount, 1);
+  assert.equal(fixture.state.graphClearCount, 1);
+  assert.equal(secondCanvas.canvas, null);
+  assert.equal(
+    fixture.state.events.filter((event) => event.type === "detach").length,
+    2
+  );
+  const clearIndex = fixture.state.events.findIndex((event) => event.type === "graph.clear");
+  const finalCanvasReleaseIndex = fixture.state.events.findIndex(
+    (event) => event.type === "setCanvas" && event.owner === secondCanvas && event.canvas === null
+  );
+  assert.equal(fixture.state.events[clearIndex].hasCanvas, true);
+  assert.ok(clearIndex < finalCanvasReleaseIndex);
+  await assert.rejects(session.render(fixture.renderOptions), /session is closed/i);
+});
+
+test("offscreen session retains and detaches a canvas whose draw fails", async (t) => {
+  const { tempRoot, module, app } = await importMirroredModule(
+    "web/js/export/render_graph_offscreen.mjs"
+  );
+  t.after(async () => {
+    delete globalThis.document;
+    await fs.rm(tempRoot, { recursive: true, force: true });
+  });
+  const fixture = installOffscreenSessionFixture(app, { failDraw: true });
+  const session = await module.createOffscreenRenderSession(
+    fixture.workflowJson,
+    fixture.renderOptions
+  );
+
+  await assert.rejects(session.render(fixture.renderOptions), /draw failed/);
+  const failedCanvas = fixture.state.canvases[0];
+  session.cleanup();
+  session.cleanup();
+
+  assert.equal(fixture.state.configureCount, 1);
+  assert.equal(fixture.state.graphClearCount, 1);
+  assert.equal(failedCanvas.canvas, null);
+  assert.equal(
+    fixture.state.events.filter(
+      (event) => event.type === "detach" && event.canvas === failedCanvas
+    ).length,
+    1
+  );
+  const clearIndex = fixture.state.events.findIndex((event) => event.type === "graph.clear");
+  const failedCanvasReleaseIndex = fixture.state.events.findIndex(
+    (event) => event.type === "setCanvas" && event.owner === failedCanvas && event.canvas === null
+  );
+  assert.equal(fixture.state.events[clearIndex].hasCanvas, true);
+  assert.ok(clearIndex < failedCanvasReleaseIndex);
+});
+
+test("offscreen session detaches a canvas attached by a throwing constructor", async (t) => {
+  const { tempRoot, module, app } = await importMirroredModule(
+    "web/js/export/render_graph_offscreen.mjs"
+  );
+  t.after(async () => {
+    delete globalThis.document;
+    await fs.rm(tempRoot, { recursive: true, force: true });
+  });
+  const fixture = installOffscreenSessionFixture(app, { failConstruct: true });
+  const session = await module.createOffscreenRenderSession(
+    fixture.workflowJson,
+    fixture.renderOptions
+  );
+
+  await assert.rejects(session.render(fixture.renderOptions), /construct failed/);
+  const failedCanvas = fixture.state.canvases[0];
+  session.cleanup();
+
+  assert.equal(fixture.state.graphClearCount, 1);
+  assert.equal(failedCanvas.canvas, null);
+  assert.equal(
+    fixture.state.events.filter(
+      (event) => event.type === "detach" && event.canvas === failedCanvas
+    ).length,
+    1
   );
 });
 
