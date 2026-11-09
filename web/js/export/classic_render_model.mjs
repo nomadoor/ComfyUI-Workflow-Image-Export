@@ -20,15 +20,20 @@ function freezePlanEntry(entry) {
 }
 
 // Load Image and execution previews live only on the live node. The clone draws
-// them natively through its own preview widget, so only images that cannot
-// taint the export canvas are handed over.
+// them natively through its own preview widget, so only loaded images that
+// cannot taint the export canvas are handed over. Other nodes keep the
+// thumbnail fallback.
+function isDrawablePreviewImage(img) {
+  return img?.complete === true && img.naturalWidth > 0 && isMediaOriginClean(img);
+}
+
 function captureRuntimePreviews(nodes) {
   const previews = new Map();
   for (const node of nodes) {
     const id = toNodeIdKey(node?.id);
     const imgs = node?.imgs;
     if (id === null || !imgs?.length || node.animatedImages) continue;
-    if (!imgs.every(isMediaOriginClean)) continue;
+    if (!imgs.every(isDrawablePreviewImage)) continue;
     previews.set(id, Object.freeze({
       imgs: Object.freeze([...imgs]),
       imageIndex: node.imageIndex,

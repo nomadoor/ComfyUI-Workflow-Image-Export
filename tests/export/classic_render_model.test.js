@@ -68,8 +68,8 @@ function installScratchCanvasDocument(t) {
 
 test("Classic render model keeps origin-clean runtime preview images for clone drawing", async (t) => {
   installScratchCanvasDocument(t);
-  const first = { naturalWidth: 64, naturalHeight: 64 };
-  const second = { naturalWidth: 32, naturalHeight: 32 };
+  const first = { complete: true, naturalWidth: 64, naturalHeight: 64 };
+  const second = { complete: true, naturalWidth: 32, naturalHeight: 32 };
   const node = { id: 7, pos: [0, 0], size: [100, 100], widgets: [], imgs: [first, second], imageIndex: 1 };
 
   const model = await captureClassicRenderModel({ graph: { nodes: [node] } });
@@ -83,8 +83,8 @@ test("Classic render model keeps origin-clean runtime preview images for clone d
 
 test("Classic render model omits previews that would taint or that are not canvas-drawn", async (t) => {
   installScratchCanvasDocument(t);
-  const clean = { naturalWidth: 64, naturalHeight: 64 };
-  const tainted = { naturalWidth: 64, naturalHeight: 64, crossOrigin: "tainted" };
+  const clean = { complete: true, naturalWidth: 64, naturalHeight: 64 };
+  const tainted = { complete: true, naturalWidth: 64, naturalHeight: 64, crossOrigin: "tainted" };
   const nodes = [
     { id: 1, pos: [0, 0], size: [10, 10], widgets: [], imgs: [clean, tainted] },
     { id: 2, pos: [0, 0], size: [10, 10], widgets: [], imgs: [clean], animatedImages: true },
@@ -96,4 +96,22 @@ test("Classic render model omits previews that would taint or that are not canva
   const model = await captureClassicRenderModel({ graph: { nodes } });
 
   assert.deepEqual([...model.runtimePreviews.keys()], ["5"]);
+});
+
+test("Classic render model leaves still-loading previews to the thumbnail fallback", async (t) => {
+  installScratchCanvasDocument(t);
+  const loaded = { complete: true, naturalWidth: 64, naturalHeight: 64 };
+  const loading = { complete: false, naturalWidth: 0, naturalHeight: 0 };
+  const broken = { complete: true, naturalWidth: 0, naturalHeight: 0 };
+  const nodes = [
+    { id: 1, pos: [0, 0], size: [10, 10], widgets: [], imgs: [loaded, loading] },
+    { id: 2, pos: [0, 0], size: [10, 10], widgets: [], imgs: [broken] },
+    { id: 3, pos: [0, 0], size: [10, 10], widgets: [], imgs: [loaded] },
+  ];
+
+  const model = await captureClassicRenderModel({ graph: { nodes } });
+
+  // A native draw of an unloaded image paints nothing, while registering the
+  // node would also suppress its huge-export thumbnail.
+  assert.deepEqual([...model.runtimePreviews.keys()], ["3"]);
 });
