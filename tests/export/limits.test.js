@@ -35,7 +35,7 @@ test("hard canvas thresholds use exact binary-megabyte pixel counts", () => {
   assert.equal(TILE_THRESHOLD_PIXELS, 25_165_824);
 });
 
-test("Tile keeps the requested resolution on the live renderer below the hard canvas threshold", () => {
+test("Tile keeps the requested resolution below the hard canvas threshold", () => {
   assert.deepEqual(
     resolveClassicRasterRoute({
       width: 5000,
@@ -43,35 +43,35 @@ test("Tile keeps the requested resolution on the live renderer below the hard ca
       maxLongEdge: 4096,
       exceedMode: "tile",
     }),
-    { renderer: "live", renderScale: 1, legacyMaxLongEdge: 0 }
+    { tiled: false, renderScale: 1 }
   );
 });
 
-test("Tile switches renderers only at the hard canvas threshold", () => {
+test("Tile switches to tiled rendering only at the hard canvas threshold", () => {
   const cases = [
-    [{ width: 6144, height: 1000 }, "live"],
-    [{ width: 6145, height: 1000 }, "tiled-offscreen"],
-    [{ width: 5000, height: 5000 }, "live"],
-    [{ width: 5033, height: 5000 }, "live"],
-    [{ width: 5034, height: 5000 }, "tiled-offscreen"],
-    [{ width: 5200, height: 5000 }, "tiled-offscreen"],
-    [{ width: 6000, height: 5000 }, "tiled-offscreen"],
-    [{ width: 8000, height: 1000, maxLongEdge: 0 }, "tiled-offscreen"],
+    [{ width: 6144, height: 1000 }, false],
+    [{ width: 6145, height: 1000 }, true],
+    [{ width: 5000, height: 5000 }, false],
+    [{ width: 5033, height: 5000 }, false],
+    [{ width: 5034, height: 5000 }, true],
+    [{ width: 5200, height: 5000 }, true],
+    [{ width: 6000, height: 5000 }, true],
+    [{ width: 8000, height: 1000, maxLongEdge: 0 }, true],
   ];
 
-  for (const [input, renderer] of cases) {
+  for (const [input, tiled] of cases) {
     const route = resolveClassicRasterRoute({
       maxLongEdge: 4096,
       ...input,
       exceedMode: "tile",
     });
     const label = `${input.width}x${input.height}`;
-    assert.equal(route.renderer, renderer, label);
-    assert.equal(route.legacyMaxLongEdge, 0, label);
+    assert.equal(route.tiled, tiled, label);
+    assert.equal(route.renderScale, 1, label);
   }
 });
 
-test("Downscale fits the configured edge and keeps the Legacy limit", () => {
+test("Downscale renders at the scale that fits the configured edge", () => {
   assert.deepEqual(
     resolveClassicRasterRoute({
       width: 5000,
@@ -79,7 +79,7 @@ test("Downscale fits the configured edge and keeps the Legacy limit", () => {
       maxLongEdge: 4096,
       exceedMode: "downscale",
     }),
-    { renderer: "live", renderScale: 4096 / 5000, legacyMaxLongEdge: 4096 }
+    { tiled: false, renderScale: 4096 / 5000 }
   );
   assert.deepEqual(
     resolveClassicRasterRoute({
@@ -88,16 +88,16 @@ test("Downscale fits the configured edge and keeps the Legacy limit", () => {
       maxLongEdge: 4096,
       exceedMode: "downscale",
     }),
-    { renderer: "live", renderScale: 0.4096, legacyMaxLongEdge: 4096 }
+    { tiled: false, renderScale: 0.4096 }
   );
-  assert.equal(
+  assert.deepEqual(
     resolveClassicRasterRoute({
-      width: 20000,
-      height: 10000,
+      width: 800,
+      height: 400,
       maxLongEdge: 4096,
       exceedMode: "downscale",
-    }).renderer,
-    "live"
+    }),
+    { tiled: false, renderScale: 1 }
   );
 });
 
@@ -109,7 +109,7 @@ test("Downscale uses tiled rendering only when the downscaled output is still un
       maxLongEdge: 20000,
       exceedMode: "downscale",
     }),
-    { renderer: "tiled-offscreen", renderScale: 0.4, legacyMaxLongEdge: 20000 }
+    { tiled: true, renderScale: 0.4 }
   );
   assert.equal(
     resolveClassicRasterRoute({
@@ -117,12 +117,12 @@ test("Downscale uses tiled rendering only when the downscaled output is still un
       height: 1000,
       maxLongEdge: 20000,
       exceedMode: "downscale",
-    }).renderer,
-    "tiled-offscreen"
+    }).tiled,
+    true
   );
 });
 
-test("unknown exceed modes keep the live renderer and its configured limit", () => {
+test("unknown exceed modes downscale like the default policy", () => {
   assert.deepEqual(
     resolveClassicRasterRoute({
       width: 8000,
@@ -130,18 +130,18 @@ test("unknown exceed modes keep the live renderer and its configured limit", () 
       maxLongEdge: 4096,
       exceedMode: "other",
     }),
-    { renderer: "live", renderScale: 1, legacyMaxLongEdge: 4096 }
+    { tiled: false, renderScale: 4096 / 8000 }
   );
 });
 
-test("capture passes the route's Legacy limit instead of the dialog max edge", async () => {
+test("Classic capture renders every raster export through the clone exporter", async () => {
   const source = await readFile(
     new URL("../../web/js/core/capture/index.mjs", import.meta.url),
     "utf8"
   );
 
-  assert.equal(source.includes("resolveRasterExceedPlan"), false);
+  assert.equal(source.includes("captureLegacy"), false);
   assert.match(source, /resolveClassicRasterRoute\(/);
-  assert.match(source, /route\.renderer === "tiled-offscreen"/);
-  assert.match(source, /maxLongEdge:\s*route\.legacyMaxLongEdge/);
+  assert.match(source, /scale:\s*route\.renderScale/);
+  assert.match(source, /forceTile:\s*route\.tiled/);
 });

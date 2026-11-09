@@ -6,7 +6,7 @@ import {
 import {
   drawBlockedMediaPlaceholder,
   drawMediaSafely,
-} from "./safe_media_draw.mjs";
+} from "./safe_media_draw.mjs?v=20261109-1";
 import {
   toNodeIdKey,
 } from "../node_ids.mjs";

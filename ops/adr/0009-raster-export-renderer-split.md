@@ -5,6 +5,8 @@
 Superseded in part by [ADR 0014](./0014-export-policy-and-local-defaults.md).
 The safe preview path remains, but final raster export no longer saves the
 preview snapshot and tile selection now follows the configured limit.
+[ADR 0016](./0016-classic-clone-only-renderer.md) removes `captureLegacy()`;
+preview and export both use the clone renderer.
 
 ### Context
 

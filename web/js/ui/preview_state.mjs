@@ -1,5 +1,4 @@
 import { createWorkflowSignature } from "../core/workflow_state.mjs";
-import { PREVIEW_MAX_PIXELS } from "../export/limits.mjs?v=20260915-3";
 
 export function buildPreviewState({
   state,
@@ -14,7 +13,6 @@ export function buildPreviewState({
     maxLongEdge: 0,
     selectedNodeIds,
     previewFast: true,
-    previewMaxPixels: PREVIEW_MAX_PIXELS,
     workflowSignature: createWorkflowSignature(workflowJsonText),
     workflowJsonText,
   };
@@ -33,8 +31,4 @@ export function getPreviewStateKey(previewState) {
     selectedNodeIds: previewState.selectedNodeIds,
     workflowSignature: previewState.workflowSignature,
   });
-}
-
-export function getPreviewMime(previewState) {
-  return previewState?.format === "webp" ? "image/webp" : "image/png";
 }

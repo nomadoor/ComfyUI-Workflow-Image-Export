@@ -1,5 +1,7 @@
-import { buildWidgetRenderPlan } from "../core/backends/widget_render_plan.mjs?v=20260920-3";
+import { buildWidgetRenderPlan } from "../core/backends/widget_render_plan.mjs?v=20261109-1";
 import { snapshotPlannedWidgetMedia } from "./widget_media_fallback.mjs?v=20260920-2";
+import { isMediaOriginClean } from "../core/backends/safe_media_draw.mjs?v=20261109-1";
+import { toNodeIdKey } from "../core/node_ids.mjs";
 
 function freezeRecord(value) {
   return value && typeof value === "object"
@@ -15,6 +17,24 @@ function freezePlanEntry(entry) {
     relativeGraphRect: freezeRecord(entry?.relativeGraphRect),
     style: freezeRecord(entry?.style),
   });
+}
+
+// Load Image and execution previews live only on the live node. The clone draws
+// them natively through its own preview widget, so only images that cannot
+// taint the export canvas are handed over.
+function captureRuntimePreviews(nodes) {
+  const previews = new Map();
+  for (const node of nodes) {
+    const id = toNodeIdKey(node?.id);
+    const imgs = node?.imgs;
+    if (id === null || !imgs?.length || node.animatedImages) continue;
+    if (!imgs.every(isMediaOriginClean)) continue;
+    previews.set(id, Object.freeze({
+      imgs: Object.freeze([...imgs]),
+      imageIndex: node.imageIndex,
+    }));
+  }
+  return previews;
 }
 
 export async function captureClassicRenderModel({
@@ -53,6 +73,7 @@ export async function captureClassicRenderModel({
   return Object.freeze({
     widgetPlan,
     widgetInventory,
+    runtimePreviews: captureRuntimePreviews(nodes),
     mediaSnapshotCache,
   });
 }

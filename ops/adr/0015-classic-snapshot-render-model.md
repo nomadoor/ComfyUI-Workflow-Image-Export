@@ -2,7 +2,8 @@
 
 ## Status
 
-Accepted
+Accepted. Decision 7 is superseded by
+[ADR 0016](./0016-classic-clone-only-renderer.md): there is no live renderer.
 
 ## Context
 

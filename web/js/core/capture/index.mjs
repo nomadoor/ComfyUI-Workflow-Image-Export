@@ -1,11 +1,10 @@
 import { app } from "/scripts/app.js";
 import { detectBackend } from "../detect.mjs?v=20260825-2";
-import { captureLegacy } from "../backends/legacy_capture.mjs?v=20260920-3";
 import { captureNode2 } from "../backends/node2_compositor_capture.mjs?v=20260915-3";
 import { applyBackground, downscaleIfNeeded } from "../postprocess/raster.mjs";
-import { exportWorkflowPng } from "../../export/index.mjs?v=20260927-3";
+import { exportWorkflowPng } from "../../export/index.mjs?v=20261109-1";
 import { computeGraphBBox } from "../../export/bbox.mjs?v=20260903-16";
-import { resolveClassicRasterRoute } from "../../export/limits.mjs?v=20260915-3";
+import { resolveClassicRasterRoute } from "../../export/limits.mjs?v=20261109-1";
 import { embedWorkflowInPngBlob } from "../../export/png_embed_workflow.mjs";
 import {
   attachCaptureWarnings,
@@ -44,14 +43,6 @@ function normalizeExportOptions(options = {}) {
   };
 }
 
-export async function getPreviewInfo(options = {}) {
-  const { maxLongEdge = 0 } = options;
-  return {
-    estimatedSize: null,
-    willDownscale: maxLongEdge > 0,
-  };
-}
-
 function getWorkflowJson() {
   return getWorkflowJsonFromApp(app);
 }
@@ -67,13 +58,13 @@ export async function capture(options = {}) {
   let result;
   if (backend === "node2") {
     result = await captureNode2(normalized);
-  } else if (normalized.format === "png" || normalized.format === "webp") {
+  } else {
     const selectedNodeIds = Array.isArray(normalized.selectedNodeIds)
       ? normalized.selectedNodeIds
       : getSelectedNodeIds();
-    // Route selection uses the live graph visible to the user. The offscreen
-    // exporter later remeasures its synchronized serialized clone because that
-    // clone is the geometry it actually renders; the two measurements are not
+    // Route selection uses the live graph visible to the user. The exporter
+    // later remeasures its synchronized serialized clone because that clone is
+    // the geometry it actually renders; the two measurements are not
     // interchangeable.
     const bbox = computeGraphBBox(app?.graph, {
       padding: normalized.padding,
@@ -86,59 +77,39 @@ export async function capture(options = {}) {
       maxLongEdge: normalized.maxLongEdge,
       exceedMode: normalized.exceedMode,
     });
-    if (route.renderer === "tiled-offscreen") {
-      const workflowJson = getWorkflowJson();
-      if (!workflowJson) {
-        throw new Error("Capture failed: workflow JSON unavailable.");
-      }
-      const blob = await exportWorkflowPng(workflowJson, {
-        backgroundMode: normalized.background,
-        backgroundColor: normalized.solidColor,
-        padding: normalized.padding,
-        nodeOpacity: normalized.nodeOpacity,
-        scale: route.renderScale,
-        pngCompression: normalized.pngCompression,
-        includeGrid: true,
-        includeDomOverlays: true,
-        debug: normalized.debug,
-        embedWorkflow: false,
-        format: normalized.format,
-        previewFast: Boolean(normalized.previewFast),
-        maxPixels: normalized.previewMaxPixels,
-        scopeSelected: Boolean(normalized.scopeSelected),
-        scopeOpacity: normalized.scopeOpacity,
-        selectedNodeIds,
-        showLinks: normalized.showLinks !== false,
-        linkFilter: normalized.showLinks === false ? "none" : "all",
-        onProgress: normalized.onProgress,
-        exceedMode: normalized.exceedMode,
-        forceTile: true,
-        tileBleed: normalized.tileBleed,
-      });
-      const warnings = blob?.cwieWarnings;
-      result = {
-        type: "raster",
-        mime: normalized.format === "webp" ? "image/webp" : "image/png",
-        blob,
-        cwieWarnings: warnings,
-      };
-    } else {
-      result = await captureLegacy({
-        ...normalized,
-        // Tile means "do not downscale"; only Downscale forwards the edge limit.
-        maxLongEdge: route.legacyMaxLongEdge,
-        background: normalized.background,
-        solidColor: normalized.solidColor,
-        includeGrid: true,
-        scopeSelected: Boolean(normalized.scopeSelected),
-        scopeOpacity: normalized.scopeOpacity,
-        selectedNodeIds,
-        showLinks: normalized.showLinks !== false,
-        skipWidgetCapture: true,
-      });
+    const workflowJson = getWorkflowJson();
+    if (!workflowJson) {
+      throw new Error("Capture failed: workflow JSON unavailable.");
     }
-  } else {
-    result = await captureLegacy(normalized);
+    const blob = await exportWorkflowPng(workflowJson, {
+      backgroundMode: normalized.background,
+      backgroundColor: normalized.solidColor,
+      padding: normalized.padding,
+      nodeOpacity: normalized.nodeOpacity,
+      scale: route.renderScale,
+      pngCompression: normalized.pngCompression,
+      includeGrid: true,
+      includeDomOverlays: true,
+      debug: normalized.debug,
+      embedWorkflow: false,
+      format: normalized.format,
+      previewFast: Boolean(normalized.previewFast),
+      scopeSelected: Boolean(normalized.scopeSelected),
+      scopeOpacity: normalized.scopeOpacity,
+      selectedNodeIds,
+      showLinks: normalized.showLinks !== false,
+      linkFilter: normalized.showLinks === false ? "none" : "all",
+      onProgress: normalized.onProgress,
+      exceedMode: normalized.exceedMode,
+      forceTile: route.tiled,
+      tileBleed: normalized.tileBleed,
+    });
+    result = {
+      type: "raster",
+      mime: normalized.format === "webp" ? "image/webp" : "image/png",
+      blob,
+      cwieWarnings: blob?.cwieWarnings,
+    };
   }
 
   if (!result) {

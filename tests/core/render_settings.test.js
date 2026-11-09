@@ -6,26 +6,15 @@ import {
   copyRenderSettings,
   disableExportLevelOfDetail,
 } from "../../web/js/core/render_settings.mjs";
-import {
-  copyRenderSettings as copyLegacyRenderSettings,
-  disableExportLevelOfDetail as disableLegacyExportLevelOfDetail,
-} from "../../web/js/core/backends/legacy_support.mjs";
 
-const renderSettingCopiers = [
-  ["shared", copyRenderSettings],
-  ["Classic", copyLegacyRenderSettings],
-];
+test("export preserves the current LiteGraph link render mode", () => {
+  const sourceCanvas = { links_render_mode: 2 };
+  const exportCanvas = {};
 
-for (const [name, copySettings] of renderSettingCopiers) {
-  test(`${name} export preserves the current LiteGraph link render mode`, () => {
-    const sourceCanvas = { links_render_mode: 2 };
-    const exportCanvas = {};
+  copyRenderSettings(sourceCanvas, exportCanvas);
 
-    copySettings(sourceCanvas, exportCanvas);
-
-    assert.equal(exportCanvas.links_render_mode, 2);
-  });
-}
+  assert.equal(exportCanvas.links_render_mode, 2);
+});
 
 test("render settings preserve the falsy straight-link mode", () => {
   const exportCanvas = {};
@@ -125,23 +114,16 @@ test("LiteGraph switches a downscaled export canvas to low quality by default", 
   assert.equal(canvas.low_quality, true);
 });
 
-const levelOfDetailDisablers = [
-  ["shared", disableExportLevelOfDetail],
-  ["Classic", disableLegacyExportLevelOfDetail],
-];
+for (const scale of [0.539, 0.5, 0.25]) {
+  test(`export keeps full-detail drawing at ${scale}x`, () => {
+    const canvas = new LiteGraphCanvasFixture();
 
-for (const [name, disableLevelOfDetail] of levelOfDetailDisablers) {
-  for (const scale of [0.539, 0.5, 0.25]) {
-    test(`${name} export keeps full-detail drawing at ${scale}x`, () => {
-      const canvas = new LiteGraphCanvasFixture();
+    assert.equal(disableExportLevelOfDetail(canvas), true);
+    canvas.ds.scale = scale;
+    canvas.draw();
 
-      assert.equal(disableLevelOfDetail(canvas), true);
-      canvas.ds.scale = scale;
-      canvas.draw();
-
-      assert.equal(canvas.low_quality, false);
-    });
-  }
+    assert.equal(canvas.low_quality, false);
+  });
 }
 
 test("disabling export LOD clears low quality that is already active", () => {
@@ -178,16 +160,7 @@ function assertOrdered(source, markers, label) {
   }
 }
 
-test("both Classic renderers disable LOD after copying live settings and before drawing", async () => {
-  assertOrdered(
-    await readSource("web/js/core/backends/legacy_capture.mjs"),
-    [
-      "copyRenderSettings(uiCanvas, offscreen);",
-      "disableExportLevelOfDetail(offscreen);",
-      "drawOffscreen(offscreen",
-    ],
-    "live renderer"
-  );
+test("Classic export disables LOD after copying live settings and before drawing", async () => {
   assertOrdered(
     await readSource("web/js/export/render_graph_offscreen.mjs"),
     [
@@ -195,6 +168,6 @@ test("both Classic renderers disable LOD after copying live settings and before 
       "disableExportLevelOfDetail(offscreen);",
       "offscreen.draw(",
     ],
-    "tiled renderer"
+    "Classic renderer"
   );
 });

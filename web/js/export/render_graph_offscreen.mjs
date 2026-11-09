@@ -5,7 +5,7 @@ import {
   drawBackgroundImageOverlays,
   drawImageThumbnails,
   drawVideoThumbnails,
-} from "./fallback_media_overlays.mjs?v=20260903-16";
+} from "./fallback_media_overlays.mjs?v=20261109-1";
 import {
   applyLinkFilter,
   applyRenderFilter,
@@ -21,8 +21,8 @@ import {
   disableExportLevelOfDetail,
   prepareGraph,
   safeCleanup,
-} from "./offscreen_graph_setup.mjs?v=20260915-1";
-import { collectNodeRects } from "../core/backends/legacy_bounds.mjs";
+} from "./offscreen_graph_setup.mjs?v=20261109-1";
+import { collectNodeRects } from "../core/backends/legacy_bounds.mjs?v=20261109-1";
 import {
   drawExternalTextOverlays,
   isExternalTextOverlayEnabled,
@@ -33,21 +33,20 @@ import {
   collectPlannedMediaNodeIds,
   installPlannedWidgetDrawSuppression,
   joinWidgetRenderPlanToGraph,
-} from "../core/backends/widget_render_plan.mjs?v=20260920-3";
+} from "../core/backends/widget_render_plan.mjs?v=20261109-1";
 import {
   drawPlannedWidgetOverlays,
-} from "../core/backends/widget_overlay_renderer.mjs?v=20260903-16";
+} from "../core/backends/widget_overlay_renderer.mjs?v=20261109-1";
 import {
   drawImageOverlays,
   drawVideoOverlays,
   drawVhsVideoOverlays,
-} from "../core/backends/legacy_media_overlays.mjs?v=20260903-16";
-import { PREVIEW_MAX_PIXELS } from "./limits.mjs?v=20260915-3";
+} from "../core/backends/legacy_media_overlays.mjs?v=20261109-1";
+import { PREVIEW_MAX_PIXELS } from "./limits.mjs?v=20261109-1";
 import { buildMediaFallbackTargets } from "./media_fallback_plan.mjs?v=20260903-16";
-import { createLiveRenderGuard } from "../core/backends/live_render_guard.mjs?v=20260920-2";
 import { createLiteGraphMeasureTextGuard } from "../core/backends/litegraph_measure_text_guard.mjs?v=20260903-16";
 import { drawWidgetMediaFallbacks } from "./widget_media_fallback.mjs?v=20260920-2";
-import { captureClassicRenderModel } from "./classic_render_model.mjs?v=20260920-3";
+import { captureClassicRenderModel } from "./classic_render_model.mjs?v=20261109-1";
 
 function getNowMs() {
   if (typeof performance !== "undefined" && typeof performance.now === "function") {
@@ -80,14 +79,8 @@ function timeSpan(log, label, fn) {
 
 export async function computeOffscreenBBox(workflowJson, options = {}) {
   const debug = Boolean(options.debug);
-  const debugLog = debug
-    ? (label, payload) => {
-      if (String(label).startsWith("diag.")) return;
-      console.log(`[CWIE][Offscreen][dom] ${label}`, payload);
-    }
-    : null;
   const padding = Number(options.padding) || 0;
-  const { graph } = await prepareGraph(workflowJson, debugLog);
+  const { graph } = await prepareGraph(workflowJson);
   try {
     return computeGraphBBox(graph, {
       padding,
@@ -128,7 +121,7 @@ export async function createOffscreenRenderSession(workflowJson, options = {}) {
   const prepared = await timeSpan(
     perfLog,
     "prepareGraph",
-    () => prepareGraph(workflowJson, debugLog)
+    () => prepareGraph(workflowJson, options.classicRenderModel?.runtimePreviews)
   );
   const padding = Number(options.padding) || 0;
   const sessionBBox = options.bboxOverride || await timeSpan(
@@ -354,10 +347,7 @@ async function renderPreparedGraphOffscreen(
   const previousPrimaryCanvas = graph?.primaryCanvas;
   let offscreen;
   try {
-    offscreen = new LGraphCanvasRef(canvas, graph);
-    if (typeof offscreen.stopRendering === "function") {
-      offscreen.stopRendering();
-    }
+    offscreen = new LGraphCanvasRef(canvas, graph, { skip_events: true, skip_render: true });
     offscreen.canvas = canvas;
     offscreen.ctx = ctx;
     disableCanvasInfoOverlay(offscreen);
@@ -402,6 +392,11 @@ async function renderPreparedGraphOffscreen(
     offscreen.bgcolor = "rgba(0,0,0,0)";
     offscreen.background_color = "rgba(0,0,0,0)";
   }
+  // Reuse the live canvas's loaded grid image. A new Image would draw nothing
+  // now and its load event would redraw this canvas after release.
+  if (offscreen.background_image && uiCanvasDom?._bg_img?.name === offscreen.background_image) {
+    offscreen._bg_img = uiCanvasDom._bg_img;
+  }
   configureTransform(offscreen, bbox, padding);
   configureVisibleArea(offscreen, bbox, tileBounds);
   if (debug) {
@@ -444,19 +439,18 @@ async function renderPreparedGraphOffscreen(
 
   // Override devicePixelRatio during draw to keep LiteGraph canvas math stable.
   const restoreDpr = overrideDevicePixelRatio(uiPxRatio, debug ? console.log : null);
-  let liveRenderGuard = null;
   let nativeWidgetSuppression = null;
   try {
-    liveRenderGuard = createLiveRenderGuard(app?.graph, app?.canvas);
     nativeWidgetSuppression = installPlannedWidgetDrawSuppression(offscreen, widgetPlan);
     debugLog?.("widget.native-draw.suppressed", {
       count: nativeWidgetSuppression.suppressed,
     });
+    // LiteGraph's image preview widget paints in a microtask queued by draw();
+    // this await lets it finish before the canvas is composited below.
     await timeSpan(perfLog, "offscreen.draw", () => offscreen.draw(true, true));
   } finally {
     nativeWidgetSuppression?.restore();
     restoreDpr?.();
-    liveRenderGuard?.restore();
     measureTextGuard.restore();
   }
 
@@ -594,6 +588,7 @@ async function renderPreparedGraphOffscreen(
         // coverage returned by the safe snapshot path may delegate ownership;
         // missing/tainted media must retain a visible placeholder.
         mediaDelegationAvailable: false,
+        skipWidgetCapture: Boolean(options.previewFast),
         mediaFallbackCoverage: widgetMediaCoverage,
       },
       debugLog,
@@ -667,6 +662,11 @@ async function renderPreparedGraphOffscreen(
       );
       mergeFallbackCoverage(widgetCoverage);
       const widgetMediaNodeIds = new Set(widgetCoverage.keys());
+      // Runtime previews handed to the clone are already drawn by LiteGraph.
+      const nativePreviewNodeIds = new Set([
+        ...widgetMediaNodeIds,
+        ...(options.classicRenderModel?.runtimePreviews?.keys() || []),
+      ]);
 
       const imageCoverage = await timeSpan(perfLog, "fallback.image.thumbs", () => drawImageThumbnails({
         exportCtx: outputCtx,
@@ -678,7 +678,7 @@ async function renderPreparedGraphOffscreen(
         mediaSnapshotCache: options.mediaSnapshotCache,
         drawBlockedPlaceholder: false,
         mediaFallbackTargets,
-        skipNodeIds: widgetMediaNodeIds,
+        skipNodeIds: nativePreviewNodeIds,
       }));
       mergeFallbackCoverage(imageCoverage);
 
@@ -706,6 +706,7 @@ async function renderPreparedGraphOffscreen(
         scale: scaleFactor,
         options: {
           mediaDelegationAvailable: false,
+          skipWidgetCapture: Boolean(options.previewFast),
           mediaFallbackCoverage,
         },
         debugLog,

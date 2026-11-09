@@ -2,7 +2,9 @@
 
 ## Status
 
-Accepted
+Accepted. Renderer routing and the live-renderer consequence are superseded
+by [ADR 0016](./0016-classic-clone-only-renderer.md), which also hands
+origin-clean runtime preview images to the clone.
 
 ## Context
 

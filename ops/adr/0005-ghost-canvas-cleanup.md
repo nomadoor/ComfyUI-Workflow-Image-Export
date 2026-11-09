@@ -26,4 +26,6 @@
 
 ### 補足
 
+- 2026-11-09: 現在の frontend に `unbind_events()` は存在しない。書き出し用キャンバスは `skip_events` で作り、イベントを登録しない（[ADR 0016](./0016-classic-clone-only-renderer.md)）。`captureLegacy` は削除済み。
+
 - 修正は `web/js/core/backends/legacy_capture.js` および `web/js/export/render_graph_offscreen.js` の両方に適用する。
