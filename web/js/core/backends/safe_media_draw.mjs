@@ -23,6 +23,22 @@ export function isCanvasOriginClean(canvas) {
   }
 }
 
+// A canvas stays tainted once cross-origin media is drawn, so every probe needs
+// its own scratch canvas.
+export function isMediaOriginClean(media) {
+  const scratch = document.createElement("canvas");
+  scratch.width = 1;
+  scratch.height = 1;
+  const ctx = getCanvasContext(scratch);
+  if (!ctx) return false;
+  try {
+    ctx.drawImage(media, 0, 0, 1, 1);
+  } catch (_) {
+    return false;
+  }
+  return isCanvasOriginClean(scratch);
+}
+
 export function drawBlockedMediaPlaceholder(ctx, x, y, w, h, label = "media blocked") {
   if (!ctx || w <= 0 || h <= 0) return;
   ctx.save?.();

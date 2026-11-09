@@ -1,4 +1,4 @@
-import { shouldTile } from "../export/limits.mjs?v=20260915-3";
+import { shouldTile } from "../export/limits.mjs?v=20261109-1";
 
 export function evaluateWebpAvailability({
   format,

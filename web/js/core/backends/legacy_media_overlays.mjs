@@ -14,7 +14,7 @@ import {
   normalizeSelectedNodeIds,
   shouldRenderResolvedNode,
 } from "./legacy_overlay_utils.mjs";
-import { drawMediaSafely } from "./safe_media_draw.mjs";
+import { drawMediaSafely } from "./safe_media_draw.mjs?v=20261109-1";
 import { nodeIdsEqual, toNodeIdKey } from "../node_ids.mjs";
 
 function findGraphNodeById(graph, id) {

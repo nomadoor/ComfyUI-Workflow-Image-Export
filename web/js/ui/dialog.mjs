@@ -4,9 +4,8 @@ import {
   detectBackendType,
   isNode2UnsupportedError,
   isWebpHugeUnsupportedError,
-} from "../core/capture/index.mjs?v=20260927-3";
+} from "../core/capture/index.mjs?v=20261109-2";
 import { getExportWarningMessage } from "../core/capture/warnings.mjs?v=20260903-16";
-import { captureLegacy } from "../core/backends/legacy_capture.mjs?v=20260920-3";
 import { triggerDownload } from "../core/download.mjs";
 import { computeGraphBBox } from "../export/bbox.mjs?v=20260903-16";
 import { loadLastUsed, saveLastUsed } from "../core/storage.mjs";
@@ -14,7 +13,6 @@ import {
   getSelectedNodeIdsFromApp,
   getWorkflowJsonTextFromApp,
 } from "../core/workflow_state.mjs";
-import { toBlobAsync } from "../core/utils.mjs";
 import {
   DEFAULTS,
   normalizeState as normalizeSettingsState,
@@ -22,16 +20,15 @@ import {
 import { buildInitialState, toLastUsedState } from "./state.mjs?v=20260915-3";
 import {
   buildPreviewState as buildPreviewStateForDialog,
-  getPreviewMime,
   getPreviewStateKey,
-} from "./preview_state.mjs?v=20260915-3";
+} from "./preview_state.mjs?v=20261109-1";
 import {
   resolveBlobExtension,
   resolveWorkflowName,
 } from "./export_filename.mjs";
 import {
   evaluateWebpAvailability,
-} from "./webp_availability.mjs?v=20260915-3";
+} from "./webp_availability.mjs?v=20261109-1";
 import { resolveExportCaptureOptions } from "../core/node2_export_policy.mjs?v=20260915-3";
 import {
   createCaretIcon,
@@ -54,7 +51,7 @@ function ensureStyles() {
   link.id = "cwie-styles";
   link.rel = "stylesheet";
   const styleUrl = new URL("../../css/dialog.css", import.meta.url);
-  styleUrl.searchParams.set("v", "20260915-3");
+  styleUrl.searchParams.set("v", "20261109-1");
   link.href = styleUrl.toString();
   document.head.appendChild(link);
 }
@@ -179,12 +176,6 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
   previewImg.className = "cwie-preview-image";
   previewImg.alt = "Export preview";
 
-  const previewCanvas = document.createElement("canvas");
-  previewCanvas.className = "cwie-preview-canvas";
-  previewCanvas.setAttribute("aria-label", "Export preview");
-  previewCanvas.width = 0;
-  previewCanvas.height = 0;
-
   const previewLoading = document.createElement("div");
   previewLoading.className = "cwie-preview-loading";
   previewLoading.innerHTML = `
@@ -193,7 +184,6 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
   `;
 
   previewFrame.appendChild(previewImg);
-  previewFrame.appendChild(previewCanvas);
   previewFrame.appendChild(previewLoading);
   previewPane.appendChild(previewFrame);
 
@@ -622,38 +612,9 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
     if (previewImg) {
       previewImg.src = "";
     }
-    if (previewCanvas) {
-      previewCanvas.width = 0;
-      previewCanvas.height = 0;
-    }
   };
 
   activeDialogCleanup = cleanupDialog;
-
-  function drawPreviewCanvas(sourceCanvas) {
-    if (!sourceCanvas?.width || !sourceCanvas?.height) return false;
-    previewCanvas.width = sourceCanvas.width;
-    previewCanvas.height = sourceCanvas.height;
-    const ctx = previewCanvas.getContext("2d", { alpha: true });
-    if (!ctx) return false;
-    ctx.clearRect(0, 0, previewCanvas.width, previewCanvas.height);
-    ctx.drawImage(sourceCanvas, 0, 0);
-    if (previewImg.src) {
-      previewImg.src = "";
-    }
-    previewFrame.classList.remove("is-loading");
-    return true;
-  }
-
-  async function encodePreviewSnapshot(snapshot, fallbackState = null) {
-    if (!snapshot) return null;
-    if (snapshot.blob) return snapshot.blob;
-    if (!snapshot.canvas) return null;
-    const mime = snapshot.mime || (fallbackState?.format === "webp" ? "image/webp" : "image/png");
-    const encoded = await toBlobAsync(snapshot.canvas, mime);
-    snapshot.blob = encoded;
-    return encoded;
-  }
 
   function cachePreviewSnapshot(snapshot) {
     if (!snapshot?.key) return;
@@ -667,21 +628,12 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
     }
   }
 
-  async function displayPreviewSnapshot(snapshot, previewState) {
-    if (!snapshot) return false;
-    if (snapshot.canvas && drawPreviewCanvas(snapshot.canvas)) {
-      if (previewUrl) {
-        URL.revokeObjectURL(previewUrl);
-        previewUrl = null;
-      }
-      return true;
-    }
-    const displayBlob = snapshot.blob || await encodePreviewSnapshot(snapshot, previewState);
-    if (!displayBlob) return false;
+  function displayPreviewSnapshot(snapshot) {
+    if (!snapshot?.blob) return false;
     if (previewUrl) {
       URL.revokeObjectURL(previewUrl);
     }
-    previewUrl = URL.createObjectURL(displayBlob);
+    previewUrl = URL.createObjectURL(snapshot.blob);
     previewImg.src = previewUrl;
     return true;
   }
@@ -712,38 +664,26 @@ export function openExportDialog({ onExportStarted, onExportFinished, log } = {}
       previewCache.delete(previewKey);
       previewCache.set(previewKey, cachedSnapshot);
       previewSnapshot = cachedSnapshot;
-      await displayPreviewSnapshot(cachedSnapshot, previewState);
+      displayPreviewSnapshot(cachedSnapshot);
       previewFrame.classList.remove("is-loading");
       return cachedSnapshot;
     }
     try {
       previewBusy = true;
       previewFrame.classList.add("is-loading");
-      const previewResult = await captureLegacy({
-        ...previewState,
-        skipWidgetCapture: true,
-        deferBlob: true,
-      });
-      const blob = previewResult?.blob || null;
-      const canvas = previewResult?.canvas || null;
+      const blob = await capture(previewState);
       if (dialogClosed || token !== previewToken) {
         previewFrame.classList.remove("is-loading");
         return;
       }
-      if (!blob && !canvas) {
+      if (!blob) {
         previewFrame.classList.remove("is-loading");
         previewBusy = false;
         return;
       }
-      previewSnapshot = {
-        blob,
-        canvas,
-        key: previewKey,
-        mime: previewResult?.mime || getPreviewMime(previewState),
-        state: previewState,
-      };
+      previewSnapshot = { blob, key: previewKey };
       cachePreviewSnapshot(previewSnapshot);
-      await displayPreviewSnapshot(previewSnapshot, previewState);
+      displayPreviewSnapshot(previewSnapshot);
       return previewSnapshot;
     } catch (error) {
       log?.("preview:error", { message: error?.message || String(error) });

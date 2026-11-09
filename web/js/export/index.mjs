@@ -11,12 +11,12 @@ import {
   captureLiveClassicRenderModel,
   computeOffscreenBBox,
   createOffscreenRenderSession,
-} from "./render_graph_offscreen.mjs?v=20260927-3";
+} from "./render_graph_offscreen.mjs?v=20261109-2";
 import { embedWorkflowInPngBlob } from "./png_embed_workflow.mjs";
-import { shouldTile } from "./limits.mjs?v=20260915-3";
-import { clampPngCompression } from "./tiled_png_encoder.mjs?v=20260915-3";
+import { shouldTile } from "./limits.mjs?v=20261109-1";
+import { clampPngCompression } from "./tiled_png_encoder.mjs?v=20261109-1";
 import { isCanvasTransparent, recoverTransparentCanvas } from "./transparent_recovery.mjs";
-import { renderTiled, renderTiledPng } from "./tiled_render.mjs?v=20260927-2";
+import { renderTiled, renderTiledPng } from "./tiled_render.mjs?v=20261109-1";
 
 function getNowMs() {
   if (typeof performance !== "undefined" && typeof performance.now === "function") {

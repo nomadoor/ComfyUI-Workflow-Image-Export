@@ -31,7 +31,7 @@ import {
   normalizeNodeIdSet,
   toNodeIdKey,
 } from "../core/node_ids.mjs";
-import { drawMediaSafely } from "../core/backends/safe_media_draw.mjs";
+import { drawMediaSafely } from "../core/backends/safe_media_draw.mjs?v=20261109-1";
 import {
   createOriginCleanMediaSnapshot,
   hasMediaSnapshot,

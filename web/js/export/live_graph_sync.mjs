@@ -296,11 +296,21 @@ function syncLiveGroups(exportGraph, liveGraph) {
   }
 }
 
-export function syncLiveGraphState(exportGraph, liveGraph, uiCanvas) {
-  void uiCanvas;
+function syncRuntimePreviews(exportGraph, runtimePreviews) {
+  if (!runtimePreviews?.size) return;
+  for (const node of exportGraph?._nodes || exportGraph?.nodes || []) {
+    const preview = runtimePreviews.get(toNodeIdKey(node?.id));
+    if (!preview) continue;
+    node.imgs = [...preview.imgs];
+    node.imageIndex = preview.imageIndex;
+  }
+}
+
+export function syncLiveGraphState(exportGraph, liveGraph, runtimePreviews) {
   syncLiveNodeText(exportGraph, liveGraph);
   // The live graph is the visual source of truth; clone sizing hooks must not
   // replace the position or size the user is viewing.
   syncLiveNodeGeometry(exportGraph, liveGraph);
   syncLiveGroups(exportGraph, liveGraph);
+  syncRuntimePreviews(exportGraph, runtimePreviews);
 }

@@ -135,6 +135,9 @@ function installOffscreenSessionFixture(
     configureCount: 0,
     graphClearCount: 0,
     drawNodeIds: [],
+    constructorOptions: [],
+    configuredGraphIds: [],
+    backgroundImagesAtDraw: [],
     canvases: [],
     events,
   };
@@ -150,6 +153,7 @@ function installOffscreenSessionFixture(
 
     configure(data) {
       state.configureCount += 1;
+      state.configuredGraphIds.push(data?.id);
       this._nodes = (data?.nodes || []).map((item) => ({
         id: item.id,
         pos: [...(item.pos || [0, 0])],
@@ -186,7 +190,8 @@ function installOffscreenSessionFixture(
   }
 
   class FakeLGraphCanvas {
-    constructor(canvas, graph) {
+    constructor(canvas, graph, options) {
+      state.constructorOptions.push(options);
       this.canvas = canvas;
       this.ctx = canvas.getContext("2d");
       this.graph = graph;
@@ -214,6 +219,7 @@ function installOffscreenSessionFixture(
 
     draw() {
       state.drawNodeIds.push(this.graph._nodes.map((node) => node.id));
+      state.backgroundImagesAtDraw.push(this._bg_img);
       if (failDraw) throw new Error("draw failed");
     }
   }
@@ -545,6 +551,89 @@ test("offscreen session detaches a canvas attached by a throwing constructor", a
   );
 });
 
+test("offscreen export canvases neither bind events nor start a render loop", async (t) => {
+  const { tempRoot, module, app } = await importMirroredModule(
+    "web/js/export/render_graph_offscreen.mjs"
+  );
+  t.after(async () => {
+    delete globalThis.document;
+    await fs.rm(tempRoot, { recursive: true, force: true });
+  });
+  const fixture = installOffscreenSessionFixture(app);
+  const session = await module.createOffscreenRenderSession(
+    fixture.workflowJson,
+    fixture.renderOptions
+  );
+  await session.render(fixture.renderOptions);
+  session.cleanup();
+
+  assert.deepEqual(fixture.state.constructorOptions, [
+    { skip_events: true, skip_render: true },
+  ]);
+  assert.equal(app.graph.primaryCanvas, null, "live graph keeps its canvas");
+  assert.deepEqual(app.graph.list_of_graphcanvas, []);
+});
+
+test("offscreen clones never request the live root graph id", async (t) => {
+  const { tempRoot, module, app } = await importMirroredModule(
+    "web/js/export/render_graph_offscreen.mjs"
+  );
+  t.after(async () => {
+    delete globalThis.document;
+    await fs.rm(tempRoot, { recursive: true, force: true });
+  });
+  const fixture = installOffscreenSessionFixture(app);
+  const workflowJson = { ...fixture.workflowJson, id: "live-root-id" };
+  const session = await module.createOffscreenRenderSession(workflowJson, fixture.renderOptions);
+  session.cleanup();
+
+  // LiteGraph refuses the occupied id with a console warning and falls back to
+  // a fresh one; the clone should take the fresh id directly.
+  assert.deepEqual(fixture.state.configuredGraphIds, [undefined]);
+  assert.equal(workflowJson.id, "live-root-id", "caller workflow is not mutated");
+});
+
+test("offscreen export canvases reuse the loaded live grid image", async (t) => {
+  const { tempRoot, module, app } = await importMirroredModule(
+    "web/js/export/render_graph_offscreen.mjs"
+  );
+  t.after(async () => {
+    delete globalThis.document;
+    await fs.rm(tempRoot, { recursive: true, force: true });
+  });
+  const fixture = installOffscreenSessionFixture(app);
+  const grid = { name: "data:image/png;base64,grid", complete: true, width: 100 };
+  app.canvas.background_image = grid.name;
+  app.canvas._bg_img = grid;
+  globalThis.window.getComputedStyle = () => ({ getPropertyValue: () => "" });
+  const options = { ...fixture.renderOptions, backgroundMode: "ui", includeGrid: true };
+  const session = await module.createOffscreenRenderSession(fixture.workflowJson, options);
+  await session.render(options);
+  session.cleanup();
+
+  // LiteGraph otherwise creates a new Image whose late load event redraws the
+  // released export canvas.
+  assert.deepEqual(fixture.state.backgroundImagesAtDraw, [grid]);
+});
+
+test("Classic export has no renderer bound to the live graph", async () => {
+  for (const removed of [
+    "web/js/core/backends/legacy_capture.mjs",
+    "web/js/core/backends/live_render_guard.mjs",
+  ]) {
+    await assert.rejects(fs.access(path.join(REPO_ROOT, removed)), removed);
+  }
+  for (const file of [
+    "web/js/ui/dialog.mjs",
+    "web/js/core/capture/index.mjs",
+    "web/js/export/render_graph_offscreen.mjs",
+  ]) {
+    const source = await fs.readFile(path.join(REPO_ROOT, file), "utf8");
+    assert.equal(source.includes("captureLegacy"), false, file);
+    assert.equal(source.includes("createLiveRenderGuard"), false, file);
+  }
+});
+
 test("main.js is the only ComfyUI auto-loaded JS entry under web/js", async () => {
   const webJsRoot = path.join(REPO_ROOT, "web", "js");
   const jsFiles = [];
@@ -640,6 +729,33 @@ test("huge tiled exports share safe media snapshots and retain failure ownership
   assert.match(renderSource, /drawPlaceholderOnMiss:\s*false/);
   assert.match(renderSource, /drawBlockedPlaceholder:\s*false/);
   assert.match(renderSource, /mediaFallbackCoverage/);
+});
+
+test("previews draw markdown as text instead of foreignObject captures", async () => {
+  const renderSource = await fs.readFile(
+    path.join(REPO_ROOT, "web/js/export/render_graph_offscreen.mjs"),
+    "utf8"
+  );
+  const overlayCalls = renderSource.split("drawPlannedWidgetOverlays({").slice(1);
+
+  assert.equal(overlayCalls.length, 2);
+  for (const call of overlayCalls) {
+    assert.match(call.slice(0, call.indexOf("})")), /skipWidgetCapture:\s*Boolean\(options\.previewFast\)/);
+  }
+});
+
+test("huge image thumbnails skip previews the clone already draws natively", async () => {
+  const renderSource = await fs.readFile(
+    path.join(REPO_ROOT, "web/js/export/render_graph_offscreen.mjs"),
+    "utf8"
+  );
+  const thumbnailCall = extractBracedBlockAfter(renderSource, "drawImageThumbnails(");
+
+  assert.match(thumbnailCall, /skipNodeIds:\s*nativePreviewNodeIds/);
+  assert.match(
+    renderSource,
+    /nativePreviewNodeIds = new Set\(\[\s*\.\.\.widgetMediaNodeIds,\s*\.\.\.\(options\.classicRenderModel\?\.runtimePreviews\?\.keys\(\) \|\| \[\]\),?\s*\]\)/
+  );
 });
 
 test("removed extension Settings registration does not return to the import graph", async () => {

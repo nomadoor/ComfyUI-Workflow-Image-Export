@@ -346,10 +346,6 @@ export function buildWidgetRenderPlan({
       } else if (!allowDom) {
         styleSource = "default";
         renderElement = null;
-      } else if (source === "capture" && options.skipWidgetCapture === true) {
-        source = "text";
-        styleSource = "default";
-        renderElement = null;
       }
 
       planByKey.set(key, {

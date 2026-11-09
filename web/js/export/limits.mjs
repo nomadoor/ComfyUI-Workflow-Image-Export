@@ -17,10 +17,9 @@ export function shouldTile(width, height) {
 }
 
 /**
- * Choose the Classic raster renderer from the final output size only.
- * `exceedMode` controls scale: `downscale` fits the configured edge, while
- * `tile` keeps the requested resolution. The tiled offscreen renderer is used
- * only when one safe canvas cannot hold the output.
+ * Choose the Classic raster scale and tiling from the final output size only.
+ * `tile` keeps the requested resolution; any other mode fits the configured
+ * edge. Tiling is used only when one safe canvas cannot hold the output.
  */
 export function resolveClassicRasterRoute({
   width,
@@ -30,26 +29,14 @@ export function resolveClassicRasterRoute({
 } = {}) {
   const outputWidth = normalizeCanvasDimension(width);
   const outputHeight = normalizeCanvasDimension(height);
-  if (exceedMode === "tile") {
-    return {
-      renderer: shouldTile(outputWidth, outputHeight) ? "tiled-offscreen" : "live",
-      renderScale: 1,
-      legacyMaxLongEdge: 0,
-    };
-  }
-  if (exceedMode !== "downscale") {
-    return { renderer: "live", renderScale: 1, legacyMaxLongEdge: maxLongEdge };
-  }
   const limit = Number(maxLongEdge);
   const longEdge = Math.max(outputWidth, outputHeight);
-  const downscale = Number.isFinite(limit) && limit > 0 && longEdge > limit
-    ? limit / longEdge
-    : 1;
+  const renderScale =
+    exceedMode !== "tile" && Number.isFinite(limit) && limit > 0 && longEdge > limit
+      ? limit / longEdge
+      : 1;
   return {
-    renderer: shouldTile(outputWidth * downscale, outputHeight * downscale)
-      ? "tiled-offscreen"
-      : "live",
-    renderScale: downscale,
-    legacyMaxLongEdge: maxLongEdge,
+    tiled: shouldTile(outputWidth * renderScale, outputHeight * renderScale),
+    renderScale,
   };
 }

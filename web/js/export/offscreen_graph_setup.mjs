@@ -1,6 +1,6 @@
 import { app } from "/scripts/app.js";
 export { copyRenderSettings, disableExportLevelOfDetail } from "../core/render_settings.mjs?v=20260915-1";
-import { syncLiveGraphState } from "./live_graph_sync.mjs?v=20260903-20";
+import { syncLiveGraphState } from "./live_graph_sync.mjs?v=20261109-1";
 import { resolveTileTransform } from "./tile_plan.mjs?v=20260903-16";
 
 function resolveGraphConstructor() {
@@ -56,6 +56,8 @@ function configureGraph(graph, workflowJson) {
   const clonedData = isObjectData && typeof structuredClone === "function"
     ? structuredClone(data)
     : data;
+  // The live root id is occupied; LiteGraph would warn and mint a fresh id.
+  if (clonedData !== data) delete clonedData.id;
   const errors = [];
   const tryLoad = (label, fn, ...args) => {
     try {
@@ -151,11 +153,6 @@ export function safeCleanup(offscreen, graph) {
     }
   } catch (_) {}
   try {
-    if (typeof offscreen?.unbind_events === "function") {
-      offscreen.unbind_events();
-    }
-  } catch (_) {}
-  try {
     if (typeof offscreen?.clear === "function") {
       offscreen.clear();
     }
@@ -172,7 +169,7 @@ export function safeCleanup(offscreen, graph) {
   } catch (_) {}
 }
 
-export async function prepareGraph(workflowJson, debugLog) {
+export async function prepareGraph(workflowJson, runtimePreviews) {
   const LGraphRef = resolveGraphConstructor();
   const LGraphCanvasRef = resolveCanvasConstructor();
   if (!LGraphRef || !LGraphCanvasRef) {
@@ -180,6 +177,6 @@ export async function prepareGraph(workflowJson, debugLog) {
   }
   const graph = new LGraphRef();
   configureGraph(graph, workflowJson);
-  syncLiveGraphState(graph, app?.graph, app?.canvas);
+  syncLiveGraphState(graph, app?.graph, runtimePreviews);
   return { graph, LGraphCanvasRef };
 }

@@ -577,41 +577,6 @@ test("allowDom false preserves entry count and forces text with default style", 
   assert.ok(noDomPlan.every((entry) => entry.element === null));
 });
 
-test("skipWidgetCapture immediately downgrades markdown within the same entry", () => {
-  const markdownElement = new MockElement({ matches: [".comfy-markdown-content"] });
-  const graph = {
-    nodes: [{
-      id: 12,
-      pos: [0, 0],
-      size: [220, 120],
-      widgets: [{
-        type: "markdown",
-        value: "# title",
-        y: 30,
-        computedHeight: 80,
-        margin: 4,
-        element: markdownElement,
-      }],
-    }],
-  };
-
-  const capturePlan = buildWidgetRenderPlan({ graph, allowDom: true });
-  const safePlan = buildWidgetRenderPlan({
-    graph,
-    allowDom: true,
-    options: { skipWidgetCapture: true },
-  });
-
-  assert.equal(capturePlan.length, 1);
-  assert.equal(capturePlan[0].source, "capture");
-  assert.equal(capturePlan[0].styleSource, "dom");
-  assert.equal(safePlan.length, 1);
-  assert.equal(safePlan[0].key, capturePlan[0].key);
-  assert.equal(safePlan[0].source, "text");
-  assert.equal(safePlan[0].styleSource, "default");
-  assert.equal(safePlan[0].element, null);
-});
-
 test("media entries retain ownedElement only as a delegation hint", () => {
   const media = new MockElement();
   const container = new MockElement({ children: new Map([["canvas", media]]) });
