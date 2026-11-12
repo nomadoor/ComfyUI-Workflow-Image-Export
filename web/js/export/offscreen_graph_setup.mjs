@@ -177,6 +177,10 @@ export async function prepareGraph(workflowJson, runtimePreviews) {
   }
   const graph = new LGraphRef();
   configureGraph(graph, workflowJson);
+  // The frontend registers clone DOM widgets as visible at an unplaced
+  // position and hides widgets of other graphs only in the live canvas
+  // foreground pass. Run that pass before Vue mounts them.
+  app?.canvas?.draw?.(true, false);
   syncLiveGraphState(graph, app?.graph, runtimePreviews);
   return { graph, LGraphCanvasRef };
 }

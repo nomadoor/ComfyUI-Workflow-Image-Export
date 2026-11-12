@@ -21,7 +21,7 @@ import {
   disableExportLevelOfDetail,
   prepareGraph,
   safeCleanup,
-} from "./offscreen_graph_setup.mjs?v=20261109-1";
+} from "./offscreen_graph_setup.mjs?v=20261113-2";
 import { collectNodeRects } from "../core/backends/legacy_bounds.mjs?v=20261109-1";
 import {
   drawExternalTextOverlays,
