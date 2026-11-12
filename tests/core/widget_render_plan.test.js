@@ -1309,6 +1309,23 @@ test("component widget media stays media when its container also holds text", ()
   assert.equal(plan[0].element, viewport);
 });
 
+test("declared text component widgets keep text ownership over placed media", () => {
+  globalThis.document.querySelectorAll = () => [domWidgetContainer(
+    { left: 290, top: 550, width: 760, height: 960 },
+    new Map([["canvas", load3dViewport()]])
+  )];
+  for (const declared of [{ options: { multiline: true } }, { type: "markdown" }]) {
+    const graph = load3dGraph();
+    Object.assign(graph.nodes[0].widgets[0], { value: "notes" }, declared);
+
+    const plan = buildWidgetRenderPlan({ graph, uiCanvas: load3dCanvas });
+
+    assert.equal(plan.length, 1);
+    assert.notEqual(plan[0].source, "media");
+    assert.equal(plan[0].text, "notes");
+  }
+});
+
 test("component widget media joins the clone by node-relative geometry", () => {
   const viewport = load3dViewport();
   globalThis.document.querySelectorAll = () => [domWidgetContainer(
@@ -1338,6 +1355,7 @@ test("component widgets without one exactly placed media container stay unplanne
     [],
     [domWidgetContainer({ left: 0, top: 0, width: 0, height: 0 }, new Map([["canvas", load3dViewport()]]))],
     [domWidgetContainer({ ...placed, left: 300 }, new Map([["canvas", load3dViewport()]]))],
+    [domWidgetContainer({ ...placed, left: 291, width: 761 }, new Map([["canvas", load3dViewport()]]))],
     [domWidgetContainer(placed)],
     [
       domWidgetContainer(placed, new Map([["canvas", load3dViewport()]])),

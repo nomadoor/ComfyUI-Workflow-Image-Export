@@ -127,7 +127,8 @@ never exported in Classic.
 
 The plan therefore looks up one element by placement, with these limits:
 
-- Only widgets with `widget.component` and no `widget.element`, and only when
+- Only widgets with `widget.component` and no `widget.element`, not declared
+  as multiline or markdown, and only when
   DOM is allowed.
 - Identity still comes from the graph widget. The expected client rectangle is
   computed the same way the frontend places the container

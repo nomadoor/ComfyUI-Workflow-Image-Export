@@ -208,16 +208,13 @@ function findComponentWidgetMedia(node, widget, widgetIndex, uiCanvas) {
   const origin = getCanvasClientOrigin(uiCanvas);
   const rect = getWidgetGraphRect(node, widget, widgetIndex, uiCanvas);
   if (!origin || !rect) return null;
-  const expected = [
-    origin.left + (rect.x + origin.offsetX) * origin.scale,
-    origin.top + (rect.y + origin.offsetY) * origin.scale,
-    rect.w * origin.scale,
-    rect.h * origin.scale,
-  ];
+  const left = origin.left + (rect.x + origin.offsetX) * origin.scale;
+  const top = origin.top + (rect.y + origin.offsetY) * origin.scale;
+  const expected = [left, top, left + rect.w * origin.scale, top + rect.h * origin.scale];
   const placed = [...(globalThis.document?.querySelectorAll?.(".dom-widget") || [])].filter((container) => {
     const box = container.getBoundingClientRect?.();
-    const actual = [box?.left, box?.top, box?.width, box?.height].map(Number);
-    return actual.every((value, index) => Math.abs(value - expected[index]) <= 1);
+    const edges = [box?.left, box?.top, box?.left + box?.width, box?.top + box?.height].map(Number);
+    return edges.every((value, index) => Math.abs(value - expected[index]) <= 1);
   });
   if (placed.length !== 1) return null;
   const media = findActiveMediaElement(placed[0]);
@@ -368,8 +365,10 @@ export function buildWidgetRenderPlan({
       }
 
       // widget.element is authoritative; component widgets without one use only
-      // the exact placement lookup (ADR 0011).
-      const componentMedia = allowDom && !isElementLike(widget.element) && widget.component
+      // the exact placement lookup (ADR 0011). Declared text keeps text ownership.
+      const declaredKind = classifyWidget(widget, null)?.kind;
+      const componentMedia = allowDom && !isElementLike(widget.element) && widget.component &&
+        declaredKind !== "markdown" && declaredKind !== "multiline"
         ? findComponentWidgetMedia(node, widget, widgetIndex, uiCanvas)
         : null;
       const ownedElement = allowDom && isElementLike(widget.element)
