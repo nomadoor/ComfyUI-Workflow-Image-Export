@@ -118,6 +118,35 @@ authority.
 If a specific extension later needs node-external DOM support, it should be
 added through an explicit allowlist rather than weakening this boundary.
 
+### Component Widget Media
+
+Amended 2026-11-12. Vue component widgets such as Load3D, Preview3D, and
+Save 3D Model have `widget.component` but no `widget.element`, and nothing in
+the DOM or widget object links them. Without an exception their viewport is
+never exported in Classic.
+
+The plan therefore looks up one element by placement, with these limits:
+
+- Only widgets with `widget.component` and no `widget.element`, not declared
+  as multiline or markdown, and only when
+  DOM is allowed.
+- Identity still comes from the graph widget. The expected client rectangle is
+  computed the same way the frontend places the container
+  (`node.pos + margin + widget.y`, widget width, `computedHeight`, canvas
+  `ds`). A `.dom-widget` is taken only when all four edges match within 1px
+  and exactly one container matches.
+- The container is used only when it holds a `canvas`, `img`, or `video`. The
+  entry is drawn at that media element's own rectangle, because the viewport
+  does not fill the widget.
+- Off-screen containers are hidden by the frontend and have no rectangle, so
+  their media stays out of the export. A frontend placement change degrades to
+  the same omission.
+
+This is not DOM-to-node hit testing: no overlap threshold is used, and the
+lookup cannot create an entry for a widget absent from the graph, duplicate
+one, or reassign one. It applies to any component widget whose container
+holds media; only the `load3D` viewport was verified (frontend 1.58.5).
+
 ### Tile Semantics
 
 The offscreen renderer rebuilds a plan for each tile and clips every entry to
@@ -128,7 +157,8 @@ regions. The one-widget/one-draw invariant applies within each tile.
 ### Prohibited Approaches
 
 - DOM-to-node hit testing as a widget deduplication mechanism
-- overlap thresholds or increasingly elaborate rectangle matching
+- overlap thresholds or increasingly elaborate rectangle matching (the exact
+  component-widget placement lookup above is the only rectangle match)
 - node-type or node-title special cases such as Note detection
 - frontend class names such as `comfy-multiline-input` as ownership signals
 - separate fallback passes that rediscover plausible widget text

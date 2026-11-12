@@ -4,7 +4,7 @@ import {
   detectBackendType,
   isNode2UnsupportedError,
   isWebpHugeUnsupportedError,
-} from "../core/capture/index.mjs?v=20261109-2";
+} from "../core/capture/index.mjs?v=20261113-1";
 import { getExportWarningMessage } from "../core/capture/warnings.mjs?v=20260903-16";
 import { triggerDownload } from "../core/download.mjs";
 import { computeGraphBBox } from "../export/bbox.mjs?v=20260903-16";

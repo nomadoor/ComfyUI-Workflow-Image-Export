@@ -66,6 +66,7 @@ current defaults and Last used values are managed only by the export dialog.
 - Preview is a faster render path and may skip heavy things (like video thumbnails).
 - DOM-backed widgets are handled best-effort.
 - VHS previews and multiline widgets are supported in export.
+- In Classic, 3D viewport widgets (e.g. Load 3D, Preview 3D, Save 3D Model) are exported only while they are visible on screen. Their toolbars are not exported.
 - Markdown export is content-first, not full WYSIWYG. Export prefers rendered text with a stable background over raw markdown or broken overlay capture.
 
 ## Acknowledgments
