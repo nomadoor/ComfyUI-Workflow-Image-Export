@@ -190,6 +190,52 @@ function getWidgetGraphRect(node, widget, widgetIndex = -1, uiCanvas = null) {
   };
 }
 
+function getCanvasClientOrigin(uiCanvas) {
+  const canvasRect = uiCanvas?.canvas?.getBoundingClientRect?.();
+  const offset = uiCanvas?.ds?.offset;
+  const scale = Number(uiCanvas?.ds?.scale);
+  const values = [canvasRect?.left, canvasRect?.top, offset?.[0], offset?.[1]].map(Number);
+  if (!values.every(Number.isFinite) || !(scale > 0)) return null;
+  return { left: values[0], top: values[1], offsetX: values[2], offsetY: values[3], scale };
+}
+
+// Vue component widgets (such as the Load3D, Preview3D, and Save 3D Model
+// viewports) expose no element.
+// The frontend places their .dom-widget container exactly at the widget rect,
+// so only a visible container at that client rect is taken, and only when it
+// holds media. Off-screen containers are hidden and have no rect (ADR 0011).
+function findComponentWidgetMedia(node, widget, widgetIndex, uiCanvas) {
+  const origin = getCanvasClientOrigin(uiCanvas);
+  const rect = getWidgetGraphRect(node, widget, widgetIndex, uiCanvas);
+  if (!origin || !rect) return null;
+  const expected = [
+    origin.left + (rect.x + origin.offsetX) * origin.scale,
+    origin.top + (rect.y + origin.offsetY) * origin.scale,
+    rect.w * origin.scale,
+    rect.h * origin.scale,
+  ];
+  const placed = [...(globalThis.document?.querySelectorAll?.(".dom-widget") || [])].filter((container) => {
+    const box = container.getBoundingClientRect?.();
+    const actual = [box?.left, box?.top, box?.width, box?.height].map(Number);
+    return actual.every((value, index) => Math.abs(value - expected[index]) <= 1);
+  });
+  if (placed.length !== 1) return null;
+  const media = findActiveMediaElement(placed[0]);
+  const box = media?.getBoundingClientRect?.();
+  const values = [box?.left, box?.top, box?.width, box?.height].map(Number);
+  if (!values.every(Number.isFinite) || values[2] <= 0 || values[3] <= 0) return null;
+  return {
+    container: placed[0],
+    media,
+    graphRect: {
+      x: (values[0] - origin.left) / origin.scale - origin.offsetX,
+      y: (values[1] - origin.top) / origin.scale - origin.offsetY,
+      w: values[2] / origin.scale,
+      h: values[3] / origin.scale,
+    },
+  };
+}
+
 function getNodeGraphRect(node) {
   const pos = node?.pos || node?._pos;
   const size = node?.size || node?._size;
@@ -321,11 +367,20 @@ export function buildWidgetRenderPlan({
         continue;
       }
 
-      // widget.element is authoritative. Never recover ownership from DOM position.
-      const ownedElement = allowDom && isElementLike(widget.element) ? widget.element : null;
-      const classification = classifyWidget(widget, ownedElement);
+      // widget.element is authoritative; component widgets without one use only
+      // the exact placement lookup (ADR 0011).
+      const componentMedia = allowDom && !isElementLike(widget.element) && widget.component
+        ? findComponentWidgetMedia(node, widget, widgetIndex, uiCanvas)
+        : null;
+      const ownedElement = allowDom && isElementLike(widget.element)
+        ? widget.element
+        : componentMedia?.container || null;
+      const classification = componentMedia
+        ? { kind: "media", renderElement: componentMedia.media, mediaDelegationEligible: true }
+        : classifyWidget(widget, ownedElement);
       if (!classification) continue;
-      const graphRect = getWidgetGraphRect(node, widget, widgetIndex, uiCanvas);
+      const graphRect = componentMedia?.graphRect ||
+        getWidgetGraphRect(node, widget, widgetIndex, uiCanvas);
       const nodeGraphRect = getNodeGraphRect(node);
       if (!graphRect || !nodeGraphRect) continue;
 

@@ -11,7 +11,7 @@ import {
   captureLiveClassicRenderModel,
   computeOffscreenBBox,
   createOffscreenRenderSession,
-} from "./render_graph_offscreen.mjs?v=20261109-2";
+} from "./render_graph_offscreen.mjs?v=20261112-1";
 import { embedWorkflowInPngBlob } from "./png_embed_workflow.mjs";
 import { shouldTile } from "./limits.mjs?v=20261109-1";
 import { clampPngCompression } from "./tiled_png_encoder.mjs?v=20261109-1";

@@ -1235,6 +1235,132 @@ test("zero-height DOM media prefers measured element height in graph units", () 
   assert.deepEqual(plan[0].graphRect, { x: 110, y: 210, w: 280, h: 60 });
 });
 
+function load3dGraph() {
+  return {
+    nodes: [{
+      id: 70,
+      type: "SaveGLB",
+      pos: [100, 200],
+      size: [400, 550],
+      widgets: [{
+        name: "image",
+        type: "load3D",
+        component: {},
+        y: 50,
+        computedHeight: 500,
+        margin: 10,
+      }],
+    }],
+  };
+}
+
+// ds offset [10, -5], scale 2, canvas at client (50, 40): the widget rect
+// { x: 110, y: 260, w: 380, h: 480 } is placed at client (290, 550, 760, 960).
+const load3dCanvas = {
+  canvas: { getBoundingClientRect: () => ({ left: 50, top: 40 }) },
+  ds: { offset: [10, -5], scale: 2 },
+};
+
+function domWidgetContainer(rect, children = new Map()) {
+  const container = new MockElement({ children });
+  container.getBoundingClientRect = () => rect;
+  return container;
+}
+
+function load3dViewport() {
+  const viewport = new MockElement();
+  viewport.width = 760;
+  viewport.height = 648;
+  viewport.getBoundingClientRect = () => ({ left: 290, top: 622, width: 760, height: 648 });
+  return viewport;
+}
+
+test("component widget media is found by the frontend placement of its container", () => {
+  const viewport = load3dViewport();
+  const container = domWidgetContainer(
+    { left: 290, top: 550, width: 760, height: 960 },
+    new Map([["canvas", viewport]])
+  );
+  const offscreen = domWidgetContainer({ left: 0, top: 0, width: 0, height: 0 });
+  globalThis.document.querySelectorAll = () => [offscreen, container];
+
+  const plan = buildWidgetRenderPlan({ graph: load3dGraph(), uiCanvas: load3dCanvas });
+
+  assert.equal(plan.length, 1);
+  assert.equal(plan[0].source, "media");
+  assert.equal(plan[0].element, viewport);
+  assert.equal(plan[0].ownedElement, container);
+  assert.equal(plan[0].mediaDelegationEligible, true);
+  assert.deepEqual(plan[0].graphRect, { x: 110, y: 296, w: 380, h: 324 });
+});
+
+test("component widget media stays media when its container also holds text", () => {
+  const viewport = load3dViewport();
+  const container = domWidgetContainer(
+    { left: 290, top: 550, width: 760, height: 960 },
+    new Map([["textarea", new MockTextAreaElement()], ["canvas", viewport]])
+  );
+  globalThis.document.querySelectorAll = () => [container];
+
+  const plan = buildWidgetRenderPlan({ graph: load3dGraph(), uiCanvas: load3dCanvas });
+
+  assert.equal(plan.length, 1);
+  assert.equal(plan[0].source, "media");
+  assert.equal(plan[0].element, viewport);
+});
+
+test("component widget media joins the clone by node-relative geometry", () => {
+  const viewport = load3dViewport();
+  globalThis.document.querySelectorAll = () => [domWidgetContainer(
+    { left: 290, top: 550, width: 760, height: 960 },
+    new Map([["canvas", viewport]])
+  )];
+  const livePlanSnapshot = buildWidgetRenderPlan({ graph: load3dGraph(), uiCanvas: load3dCanvas });
+  const exportGraph = load3dGraph();
+  exportGraph.nodes[0].pos = [0, 0];
+
+  const plan = buildOffscreenWidgetRenderPlan({
+    liveGraph: load3dGraph(),
+    livePlanSnapshot,
+    exportGraph,
+  });
+
+  assert.equal(plan.length, 1);
+  assert.equal(plan[0].element, viewport);
+  assert.equal(plan[0].geometrySource, "live-node-relative");
+  assert.deepEqual(plan[0].graphRect, { x: 10, y: 96, w: 380, h: 324 });
+  assert.deepEqual([...collectPlannedWidgetIndexes(plan).get("70")], [0]);
+});
+
+test("component widgets without one exactly placed media container stay unplanned", () => {
+  const placed = { left: 290, top: 550, width: 760, height: 960 };
+  const cases = [
+    [],
+    [domWidgetContainer({ left: 0, top: 0, width: 0, height: 0 }, new Map([["canvas", load3dViewport()]]))],
+    [domWidgetContainer({ ...placed, left: 300 }, new Map([["canvas", load3dViewport()]]))],
+    [domWidgetContainer(placed)],
+    [
+      domWidgetContainer(placed, new Map([["canvas", load3dViewport()]])),
+      domWidgetContainer(placed, new Map([["canvas", load3dViewport()]])),
+    ],
+  ];
+  for (const containers of cases) {
+    globalThis.document.querySelectorAll = () => containers;
+    assert.deepEqual(buildWidgetRenderPlan({ graph: load3dGraph(), uiCanvas: load3dCanvas }), []);
+  }
+});
+
+test("component widgets are never looked up without DOM access", () => {
+  globalThis.document.querySelectorAll = () => {
+    throw new Error("DOM must not be read");
+  };
+  assert.deepEqual(buildWidgetRenderPlan({
+    graph: load3dGraph(),
+    uiCanvas: load3dCanvas,
+    allowDom: false,
+  }), []);
+});
+
 test("type-only media wrappers are not eligible for DOM media delegation", () => {
   const wrapper = new MockElement();
   const graph = {
