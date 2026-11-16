@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import {
   isEffectivelyVisibleElement,
   sanitizeInlineStyleValue,
-} from "../../web/js/core/backends/legacy_text_helpers.mjs";
+} from "../../web/js/core/backends/legacy_text_helpers.js";
 
 class MockHTMLElement {
   constructor(style = {}) {

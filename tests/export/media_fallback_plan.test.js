@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import {
   buildMediaFallbackTargets,
   resolveMediaFallbackRect,
-} from "../../web/js/export/media_fallback_plan.mjs";
+} from "../../web/js/export/media_fallback_plan.js";
 
 test("media fallback targets the first owned media widget per node", () => {
   const targets = buildMediaFallbackTargets([

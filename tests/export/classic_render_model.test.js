@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { captureClassicRenderModel } from "../../web/js/export/classic_render_model.mjs";
+import { captureClassicRenderModel } from "../../web/js/export/classic_render_model.js";
 
 test("Classic render model freezes live widget text and geometry at export start", async () => {
   const widget = {

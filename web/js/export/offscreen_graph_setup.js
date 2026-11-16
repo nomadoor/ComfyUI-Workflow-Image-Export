@@ -1,0 +1,186 @@
+import { app } from "/scripts/app.js";
+export { copyRenderSettings, disableExportLevelOfDetail } from "../core/render_settings.js";
+import { syncLiveGraphState } from "./live_graph_sync.js";
+import { resolveTileTransform } from "./tile_plan.js";
+
+function resolveGraphConstructor() {
+  if (app?.graph?.constructor) {
+    return app.graph.constructor;
+  }
+  return window?.LGraph || window?.LiteGraph?.LGraph || null;
+}
+
+function resolveCanvasConstructor() {
+  if (app?.canvas?.constructor) {
+    return app.canvas.constructor;
+  }
+  return window?.LGraphCanvas || window?.LiteGraph?.LGraphCanvas || null;
+}
+
+export function disableCanvasInfoOverlay(canvas) {
+  if (!canvas) return;
+  const forceFalseKeys = [
+    "render_canvas_border",
+    "render_canvas_info",
+    "show_canvas_info",
+    "render_info",
+    "show_info",
+    "draw_info",
+    "render_fps",
+    "show_fps",
+    "show_stats",
+    "render_stats",
+  ];
+  for (const key of forceFalseKeys) {
+    try {
+      if (key in canvas || Object.getOwnPropertyDescriptor(canvas, key)?.writable !== false) {
+        canvas[key] = false;
+      }
+    } catch (_) {}
+  }
+}
+
+function configureGraph(graph, workflowJson) {
+  if (!graph) {
+    throw new Error("Offscreen render: LGraph is not available.");
+  }
+  let data = workflowJson;
+  if (typeof workflowJson === "string") {
+    try {
+      data = JSON.parse(workflowJson);
+    } catch (error) {
+      throw new Error("Offscreen render: workflow JSON parse failed.");
+    }
+  }
+  const isObjectData = data && typeof data === "object";
+  const clonedData = isObjectData && typeof structuredClone === "function"
+    ? structuredClone(data)
+    : data;
+  // The live root id is occupied; LiteGraph would warn and mint a fresh id.
+  if (clonedData !== data) delete clonedData.id;
+  const errors = [];
+  const tryLoad = (label, fn, ...args) => {
+    try {
+      fn?.call(graph, ...args);
+      return true;
+    } catch (error) {
+      errors.push({ label, error });
+      return false;
+    }
+  };
+
+  const hasNodes = () => {
+    const nodes = graph?._nodes || graph?.nodes || [];
+    return Array.isArray(nodes) && nodes.length > 0;
+  };
+
+  let loaded = false;
+  if (typeof graph.configure === "function") {
+    loaded = tryLoad("configure(keep_old=true)", graph.configure, clonedData, true);
+  }
+  if (!hasNodes() && typeof graph.deserialize === "function") {
+    loaded = tryLoad("deserialize", graph.deserialize, clonedData) || loaded;
+  }
+  if (!hasNodes() && typeof workflowJson === "string" && typeof graph.load === "function") {
+    loaded = tryLoad("load(string)", graph.load, workflowJson) || loaded;
+  }
+  if (!loaded && !hasNodes()) {
+    const detail = errors
+      .map(({ label, error }) => `${label}: ${error?.message || String(error)}`)
+      .join(" | ");
+    throw new Error(
+      detail
+        ? `Offscreen render: graph.configure failed. ${detail}`
+        : "Offscreen render: graph.configure not available."
+    );
+  }
+}
+
+export function configureTransform(offscreen, bbox, padding) {
+  if (!offscreen || !offscreen.ds) {
+    return;
+  }
+  const ds = offscreen.ds;
+  if (!Array.isArray(ds.offset)) {
+    ds.offset = [0, 0];
+  }
+  const transform = resolveTileTransform({
+    bbox,
+    padding,
+    renderScale: offscreen._cwieScaleFactor,
+    // Tiled renderers store these offsets in graph units. Output-pixel tile
+    // coordinates are converted before the offscreen renderer is called.
+    tileGraphRect: {
+      x: offscreen._cwieTileOffsetX,
+      y: offscreen._cwieTileOffsetY,
+    },
+  });
+  ds.scale = transform.scale;
+  ds.offset[0] = transform.offset[0];
+  ds.offset[1] = transform.offset[1];
+}
+
+export function configureVisibleArea(offscreen, bbox, visibleBounds = null) {
+  if (!offscreen) return;
+  if (typeof offscreen.computeVisibleArea === "function") {
+    try {
+      offscreen.computeVisibleArea();
+    } catch (_) {}
+  }
+  const source = visibleBounds || bbox;
+  const visibleArea = [source.paddedMinX, source.paddedMinY, source.width, source.height];
+  if (offscreen.visible_area && typeof offscreen.visible_area.set === "function") {
+    offscreen.visible_area.set(visibleArea);
+  } else {
+    offscreen.visible_area = new Float32Array(visibleArea);
+  }
+  if (offscreen.last_drawn_area && typeof offscreen.last_drawn_area.set === "function") {
+    offscreen.last_drawn_area.set(visibleArea);
+  } else {
+    offscreen.last_drawn_area = new Float32Array(visibleArea);
+  }
+}
+
+export function safeCleanup(offscreen, graph) {
+  try {
+    if (typeof offscreen?.stopRendering === "function") {
+      offscreen.stopRendering();
+    }
+  } catch (_) {}
+  try {
+    if (typeof offscreen?.setCanvas === "function") {
+      offscreen.setCanvas(null);
+    }
+  } catch (_) {}
+  try {
+    if (typeof offscreen?.clear === "function") {
+      offscreen.clear();
+    }
+  } catch (_) {}
+  try {
+    if (typeof graph?.clear === "function") {
+      graph.clear();
+    }
+  } catch (_) {}
+  try {
+    if (typeof graph?.stop === "function") {
+      graph.stop();
+    }
+  } catch (_) {}
+}
+
+export async function prepareGraph(workflowJson, runtimePreviews) {
+  const LGraphRef = resolveGraphConstructor();
+  const LGraphCanvasRef = resolveCanvasConstructor();
+  if (!LGraphRef || !LGraphCanvasRef) {
+    throw new Error("Offscreen render: LiteGraph constructors not available.");
+  }
+  const graph = new LGraphRef();
+  configureGraph(graph, workflowJson);
+  // The frontend registers clone DOM widgets as visible at an unplaced
+  // position and hides widgets of other graphs only in the live canvas
+  // foreground pass. Run that pass before Vue mounts them.
+  app?.canvas?.draw?.(true, false);
+  syncLiveGraphState(graph, app?.graph, runtimePreviews);
+  return { graph, LGraphCanvasRef };
+}

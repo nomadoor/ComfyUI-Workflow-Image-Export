@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { runSingleFlight } from "../../web/js/ui/single_flight.mjs";
+import { runSingleFlight } from "../../web/js/ui/single_flight.js";
 
 test("concurrent export attempts share one operation and allow a later retry", async () => {
   const sharedState = {};

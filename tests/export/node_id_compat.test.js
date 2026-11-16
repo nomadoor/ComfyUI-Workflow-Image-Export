@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { computeGraphBBox } from "../../web/js/export/bbox.mjs";
-import { syncLiveGraphState } from "../../web/js/export/live_graph_sync.mjs";
+import { computeGraphBBox } from "../../web/js/export/bbox.js";
+import { syncLiveGraphState } from "../../web/js/export/live_graph_sync.js";
 
 test("selection bbox accepts arbitrary frontend string node ids", () => {
   const graph = {

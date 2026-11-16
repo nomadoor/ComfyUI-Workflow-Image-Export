@@ -6,7 +6,7 @@ import {
   createExportDragAndScale,
   graphPointToCanvas,
   graphRectToExportRect,
-} from "../../web/js/core/graph_transform.mjs";
+} from "../../web/js/core/graph_transform.js";
 
 test("graph/canvas point conversion follows LiteGraph DragAndScale convention", () => {
   const transform = { scale: 2, offset: [-100, -50] };

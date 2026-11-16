@@ -6,7 +6,7 @@ import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const REPO_ROOT = path.resolve(fileURLToPath(new URL(".", import.meta.url)), "..", "..");
-const ENTRY = "web/js/export/fallback_media_helpers.mjs";
+const ENTRY = "web/js/export/fallback_media_helpers.js";
 const IMPORT_SPECIFIER_RE =
   /(?:import|export)\s+(?:[^"'()]*?\sfrom\s*)?["']([^"']+)["']|import\(\s*["']([^"']+)["']\s*\)/g;
 

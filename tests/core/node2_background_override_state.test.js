@@ -3,7 +3,7 @@ import test from "node:test";
 
 import {
   createBackgroundOverrideState,
-} from "../../web/js/core/backends/node2_background_override_state.mjs";
+} from "../../web/js/core/backends/node2_background_override_state.js";
 
 test("apply, setColor, and restore preserve the state before the first apply", async () => {
   const target = {

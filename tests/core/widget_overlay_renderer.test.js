@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 
 import {
   drawPlannedWidgetOverlays,
-} from "../../web/js/core/backends/widget_overlay_renderer.mjs";
+} from "../../web/js/core/backends/widget_overlay_renderer.js";
 
 function createMockContext() {
   const calls = [];

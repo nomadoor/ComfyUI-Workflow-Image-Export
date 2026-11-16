@@ -2,8 +2,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { inflateSync } from "node:zlib";
 
-import { renderTiledPng } from "../../web/js/export/tiled_render.mjs";
-import { computeTileBounds } from "../../web/js/export/offscreen_render_utils.mjs";
+import { renderTiledPng } from "../../web/js/export/tiled_render.js";
+import { computeTileBounds } from "../../web/js/export/offscreen_render_utils.js";
 
 function createPixelCanvas() {
   const canvas = {

@@ -1,5 +1,9 @@
 ## 0002: Offscreen Export (Classic) 現状ADR
 
+### Status
+
+Accepted. DOM widget の扱いは [0007](./0007-dom-widget-overlay-policy.md)、その後 [0011](./0011-widget-render-ownership.md) で更新された。
+
 ### 状況
 
 ComfyUI Classic (LiteGraph) の workflow JSON から、オフスクリーンで PNG を出力する実装を進行中。

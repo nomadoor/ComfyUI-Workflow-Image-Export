@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { createLiteGraphMeasureTextGuard } from "../../web/js/core/backends/litegraph_measure_text_guard.mjs";
+import { createLiteGraphMeasureTextGuard } from "../../web/js/core/backends/litegraph_measure_text_guard.js";
 
 test("LiteGraph measure-text guard restores the exact static function", () => {
   const original = () => 123;

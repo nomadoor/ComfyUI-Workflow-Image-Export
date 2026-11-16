@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { hideGraphLinks } from "../../web/js/export/link_visibility.mjs";
+import { hideGraphLinks } from "../../web/js/export/link_visibility.js";
 
 test("hideGraphLinks detaches graph and node link references until restored", () => {
   const links = {

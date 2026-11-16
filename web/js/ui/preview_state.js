@@ -1,0 +1,34 @@
+import { createWorkflowSignature } from "../core/workflow_state.js";
+
+export function buildPreviewState({
+  state,
+  selectedNodeIds = [],
+  workflowJsonText = "",
+} = {}) {
+  const previewFormat = state?.format === "webp" ? "webp" : "png";
+  return {
+    ...state,
+    format: previewFormat,
+    embedWorkflow: false,
+    maxLongEdge: 0,
+    selectedNodeIds,
+    previewFast: true,
+    workflowSignature: createWorkflowSignature(workflowJsonText),
+    workflowJsonText,
+  };
+}
+
+export function getPreviewStateKey(previewState) {
+  return JSON.stringify({
+    format: previewState.format,
+    background: previewState.background,
+    solidColor: previewState.solidColor,
+    padding: previewState.padding,
+    showLinks: previewState.showLinks,
+    nodeOpacity: previewState.nodeOpacity,
+    scopeSelected: previewState.scopeSelected,
+    scopeOpacity: previewState.scopeOpacity,
+    selectedNodeIds: previewState.selectedNodeIds,
+    workflowSignature: previewState.workflowSignature,
+  });
+}
