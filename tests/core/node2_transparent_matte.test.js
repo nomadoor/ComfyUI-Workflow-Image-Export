@@ -6,7 +6,7 @@ import {
   getNode2TransparentWarning,
   summarizeNode2TransparentTileRecovery,
   validateNode2TransparentTileOutput,
-} from "../../web/js/core/backends/node2_transparent_matte.mjs";
+} from "../../web/js/core/backends/node2_transparent_matte.js";
 
 function frame(signature, canvas = { signature }) {
   return {

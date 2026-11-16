@@ -1,4 +1,4 @@
-import { createWorkflowSignature } from "../core/workflow_state.mjs";
+import { createWorkflowSignature } from "../core/workflow_state.js";
 
 export function buildPreviewState({
   state,

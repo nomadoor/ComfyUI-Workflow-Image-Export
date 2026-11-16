@@ -6,16 +6,16 @@ import {
   getDomElementGraphRect,
   getNodeIdFromElement,
   resolveNodeIdForGraphRect,
-} from "../overlays/dom_utils.mjs";
+} from "../overlays/dom_utils.js";
 import {
   findNodeForPoint,
   isVhsVideoElement,
   isVideoNodeTitle,
   normalizeSelectedNodeIds,
   shouldRenderResolvedNode,
-} from "./legacy_overlay_utils.mjs";
-import { drawMediaSafely } from "./safe_media_draw.mjs?v=20261109-1";
-import { nodeIdsEqual, toNodeIdKey } from "../node_ids.mjs";
+} from "./legacy_overlay_utils.js";
+import { drawMediaSafely } from "./safe_media_draw.js";
+import { nodeIdsEqual, toNodeIdKey } from "../node_ids.js";
 
 function findGraphNodeById(graph, id) {
   if (toNodeIdKey(id) === null) return null;

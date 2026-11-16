@@ -1,18 +1,18 @@
 import { app } from "/scripts/app.js";
-import { computeGraphBBox } from "./bbox.mjs?v=20260903-16";
-import { applyBackgroundMode, getExportBackgroundFillColor } from "./background_modes.mjs";
+import { computeGraphBBox } from "./bbox.js";
+import { applyBackgroundMode, getExportBackgroundFillColor } from "./background_modes.js";
 import {
   drawBackgroundImageOverlays,
   drawImageThumbnails,
   drawVideoThumbnails,
-} from "./fallback_media_overlays.mjs?v=20261109-1";
+} from "./fallback_media_overlays.js";
 import {
   applyLinkFilter,
   applyRenderFilter,
   computeScaleToFit,
   computeTileBounds,
-} from "./offscreen_render_utils.mjs?v=20260927-3";
-import { applyNodeOpacity } from "./offscreen_node_opacity.mjs";
+} from "./offscreen_render_utils.js";
+import { applyNodeOpacity } from "./offscreen_node_opacity.js";
 import {
   configureTransform,
   configureVisibleArea,
@@ -21,32 +21,32 @@ import {
   disableExportLevelOfDetail,
   prepareGraph,
   safeCleanup,
-} from "./offscreen_graph_setup.mjs?v=20261113-2";
-import { collectNodeRects } from "../core/backends/legacy_bounds.mjs?v=20261109-1";
+} from "./offscreen_graph_setup.js";
+import { collectNodeRects } from "../core/backends/legacy_bounds.js";
 import {
   drawExternalTextOverlays,
   isExternalTextOverlayEnabled,
-} from "../core/backends/legacy_dom_text_overlays.mjs";
+} from "../core/backends/legacy_dom_text_overlays.js";
 import {
   buildOffscreenWidgetRenderPlan,
   collectPlannedMediaElements,
   collectPlannedMediaNodeIds,
   installPlannedWidgetDrawSuppression,
   joinWidgetRenderPlanToGraph,
-} from "../core/backends/widget_render_plan.mjs?v=20261113-1";
+} from "../core/backends/widget_render_plan.js";
 import {
   drawPlannedWidgetOverlays,
-} from "../core/backends/widget_overlay_renderer.mjs?v=20261109-1";
+} from "../core/backends/widget_overlay_renderer.js";
 import {
   drawImageOverlays,
   drawVideoOverlays,
   drawVhsVideoOverlays,
-} from "../core/backends/legacy_media_overlays.mjs?v=20261109-1";
-import { PREVIEW_MAX_PIXELS } from "./limits.mjs?v=20261109-1";
-import { buildMediaFallbackTargets } from "./media_fallback_plan.mjs?v=20260903-16";
-import { createLiteGraphMeasureTextGuard } from "../core/backends/litegraph_measure_text_guard.mjs?v=20260903-16";
-import { drawWidgetMediaFallbacks } from "./widget_media_fallback.mjs?v=20260920-2";
-import { captureClassicRenderModel } from "./classic_render_model.mjs?v=20261113-1";
+} from "../core/backends/legacy_media_overlays.js";
+import { PREVIEW_MAX_PIXELS } from "./limits.js";
+import { buildMediaFallbackTargets } from "./media_fallback_plan.js";
+import { createLiteGraphMeasureTextGuard } from "../core/backends/litegraph_measure_text_guard.js";
+import { drawWidgetMediaFallbacks } from "./widget_media_fallback.js";
+import { captureClassicRenderModel } from "./classic_render_model.js";
 
 function getNowMs() {
   if (typeof performance !== "undefined" && typeof performance.now === "function") {

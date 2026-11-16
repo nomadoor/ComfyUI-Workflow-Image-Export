@@ -9,7 +9,7 @@ import {
   hashString,
   normalizeSelectedNodeIds,
   toWorkflowJsonString,
-} from "../../web/js/core/workflow_state.mjs";
+} from "../../web/js/core/workflow_state.js";
 
 test("normalizeSelectedNodeIds accepts map, array of nodes, array of ids, and object maps", () => {
   assert.deepEqual(

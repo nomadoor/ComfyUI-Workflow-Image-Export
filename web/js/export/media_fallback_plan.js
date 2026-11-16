@@ -1,4 +1,4 @@
-import { toNodeIdKey } from "../core/node_ids.mjs";
+import { toNodeIdKey } from "../core/node_ids.js";
 
 export function buildMediaFallbackTargets(plan) {
   const targets = new Map();

@@ -1,5 +1,5 @@
-import { canvasPointToGraph as transformCanvasPointToGraph } from "../graph_transform.mjs";
-import { toNodeIdKey } from "../node_ids.mjs";
+import { canvasPointToGraph as transformCanvasPointToGraph } from "../graph_transform.js";
+import { toNodeIdKey } from "../node_ids.js";
 
 const NODE_SELECTORS = [
   ".comfy-node",

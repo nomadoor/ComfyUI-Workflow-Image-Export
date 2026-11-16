@@ -7,7 +7,7 @@ import {
   normalizeNodeIdList,
   normalizeNodeIdSet,
   toNodeIdKey,
-} from "../../web/js/core/node_ids.mjs";
+} from "../../web/js/core/node_ids.js";
 
 test("node ids use the frontend local string representation", () => {
   assert.equal(toNodeIdKey(63), "63");

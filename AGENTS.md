@@ -13,7 +13,10 @@ This file defines working rules for coding agents in this repository.
 - This is a ComfyUI frontend extension for exporting workflow images.
 - Python is only the custom-node entry point: `__init__.py` exposes `WEB_DIRECTORY`.
 - The product code is JavaScript under `web/js/`, with styles under `web/css/`.
-- `web/js/main.js` is the only ComfyUI extension entry file. Supporting browser modules should use `.mjs` so ComfyUI does not auto-load them as standalone extensions.
+- Browser modules under `web/` are plain `.js`. ComfyUI serves `.js` with `Cache-Control: no-store`; any other extension (`.mjs` included) gets no cache header, so the browser keeps its own copy and goes on running the old file after an update, through a ComfyUI restart and a hard reload. Do not add `.mjs` files under `web/`.
+- ComfyUI imports every `.js` under `web/` once at startup (the `/extensions` list). `web/js/main.js` is the only file that calls `app.registerExtension`. Every other module only defines and exports: no code that runs on import, no import cycles. The startup import and `main.js`'s own imports load the same URL, so each module still runs once.
+- Import specifiers are plain relative paths with no query string; a query makes a second copy of the module.
+- Code that must load only on demand goes in the dot-directory `web/js/.lazy/`: ComfyUI serves it with `no-store` but does not list it. The vendored pako bundle lives there, because it sets `window.pako` when it runs.
 - Classic uses a LiteGraph renderer; Node 2.0 uses an established browser-compositor backend. Keep their rendering architectures separate.
 - Shared UI and export policy may cover both backends, but backend-specific repairs should remain isolated.
 
@@ -42,7 +45,6 @@ This file defines working rules for coding agents in this repository.
 - Keep rendering backends separate from UI dialog code.
 - Keep DOM widget/media overlay handling best-effort and isolated from the core raster export path.
 - Do not duplicate constants such as tile thresholds, max canvas edge, or default settings across modules unless there is a clear reason.
-- Do not add new supporting `.js` files under `web/`; use `.mjs` unless the file is intentionally a ComfyUI extension entry.
 - Do not introduce Vue or a build step just for the current legacy repair. The existing extension is loaded directly as browser ES modules.
 - Treat LiteGraph coordinate pairs by indexed numeric capability, not
   `Array.isArray()`. Current frontend node positions and sizes use typed-array
@@ -53,19 +55,13 @@ This file defines working rules for coding agents in this repository.
 - Run `npm test` after meaningful JavaScript changes.
 - The current test suite uses Node's built-in test runner.
 - Add focused tests for pure functions when refactoring:
-  - `web/js/export/bbox.mjs`
-  - `web/js/export/png_embed_workflow.mjs`
-  - `web/js/core/utils.mjs`
+  - `web/js/export/bbox.js`
+  - `web/js/export/png_embed_workflow.js`
+  - `web/js/core/utils.js`
   - settings/state/storage modules
+- `npm test` runs every `tests/**/*.test.js`. `tests/smoke/module_rules.test.js` checks the module rules above.
 - Prefer structural assertions over golden image tests.
 - Browser/ComfyUI integration behavior should be manually checked when possible and recorded in `AGENTS-STATE.md`.
-
-## Browser Module Cache Updates
-
-- ComfyUI may cache supporting `.mjs` files across backend restarts. A restart alone is not proof that a changed browser module was loaded.
-- When `web/js/ui/dialog.mjs` or any module in its static import graph changes, bump the dialog import query in `web/js/main.js`.
-- The dialog query string does not automatically version its static dependencies. If a changed dependency was already cached, also revise that dependency's import specifier in its direct importer, then propagate a revision through importers up to `dialog.mjs`.
-- After a cache revision, manually reload ComfyUI and verify the affected control or export path in the browser. Record the revision and result in `AGENTS-STATE.md`.
 
 ## Stop And Ask
 

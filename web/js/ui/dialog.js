@@ -4,40 +4,40 @@ import {
   detectBackendType,
   isNode2UnsupportedError,
   isWebpHugeUnsupportedError,
-} from "../core/capture/index.mjs?v=20261113-2";
-import { getExportWarningMessage } from "../core/capture/warnings.mjs?v=20260903-16";
-import { triggerDownload } from "../core/download.mjs";
-import { computeGraphBBox } from "../export/bbox.mjs?v=20260903-16";
-import { loadLastUsed, saveLastUsed } from "../core/storage.mjs";
+} from "../core/capture/index.js";
+import { getExportWarningMessage } from "../core/capture/warnings.js";
+import { triggerDownload } from "../core/download.js";
+import { computeGraphBBox } from "../export/bbox.js";
+import { loadLastUsed, saveLastUsed } from "../core/storage.js";
 import {
   getSelectedNodeIdsFromApp,
   getWorkflowJsonTextFromApp,
-} from "../core/workflow_state.mjs";
+} from "../core/workflow_state.js";
 import {
   DEFAULTS,
   normalizeState as normalizeSettingsState,
-} from "../core/settings_state.mjs?v=20260915-3";
-import { buildInitialState, toLastUsedState } from "./state.mjs?v=20260915-3";
+} from "../core/settings_state.js";
+import { buildInitialState, toLastUsedState } from "./state.js";
 import {
   buildPreviewState as buildPreviewStateForDialog,
   getPreviewStateKey,
-} from "./preview_state.mjs?v=20261109-1";
+} from "./preview_state.js";
 import {
   resolveBlobExtension,
   resolveWorkflowName,
-} from "./export_filename.mjs";
+} from "./export_filename.js";
 import {
   evaluateWebpAvailability,
-} from "./webp_availability.mjs?v=20261109-1";
-import { resolveExportCaptureOptions } from "../core/node2_export_policy.mjs?v=20260915-3";
+} from "./webp_availability.js";
+import { resolveExportCaptureOptions } from "../core/node2_export_policy.js";
 import {
   createCaretIcon,
   createRadioGroup,
   createRow,
   createSelect,
   createToggle,
-} from "./elements.mjs?v=20260825-2";
-import { runSingleFlight } from "./single_flight.mjs?v=20260903-16";
+} from "./elements.js";
+import { runSingleFlight } from "./single_flight.js";
 
 let activeDialog = null;
 let activeMessageDialog = null;

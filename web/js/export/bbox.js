@@ -1,4 +1,4 @@
-import { nodeIdSetHas, normalizeNodeIdSet } from "../core/node_ids.mjs";
+import { nodeIdSetHas, normalizeNodeIdSet } from "../core/node_ids.js";
 
 const DEFAULT_NODE_SIZE = [240, 120];
 

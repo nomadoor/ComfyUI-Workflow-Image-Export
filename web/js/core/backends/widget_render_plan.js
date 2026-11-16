@@ -1,13 +1,13 @@
 import {
   normalizeSelectedNodeIds,
   shouldRenderResolvedNode,
-} from "./legacy_overlay_utils.mjs";
+} from "./legacy_overlay_utils.js";
 import {
   formatCanvasFont,
   getEffectiveBackground,
   parsePx,
-} from "./legacy_text_helpers.mjs";
-import { toNodeIdKey } from "../node_ids.mjs";
+} from "./legacy_text_helpers.js";
+import { toNodeIdKey } from "../node_ids.js";
 
 const MARKDOWN_SELECTORS = ".comfy-markdown-content, .tiptap";
 const TEXT_ELEMENT_SELECTORS = "textarea, [contenteditable='true'], .ProseMirror, .cm-content";

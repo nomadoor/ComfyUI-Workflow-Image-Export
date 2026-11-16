@@ -1,7 +1,7 @@
 import { app } from "/scripts/app.js";
-export { copyRenderSettings, disableExportLevelOfDetail } from "../core/render_settings.mjs?v=20260915-1";
-import { syncLiveGraphState } from "./live_graph_sync.mjs?v=20261109-1";
-import { resolveTileTransform } from "./tile_plan.mjs?v=20260903-16";
+export { copyRenderSettings, disableExportLevelOfDetail } from "../core/render_settings.js";
+import { syncLiveGraphState } from "./live_graph_sync.js";
+import { resolveTileTransform } from "./tile_plan.js";
 
 function resolveGraphConstructor() {
   if (app?.graph?.constructor) {

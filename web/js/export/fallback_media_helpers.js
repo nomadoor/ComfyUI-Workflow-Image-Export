@@ -3,13 +3,13 @@ import {
   collectDomMediaElements,
   getDomElementGraphRect,
   getNodeIdFromElement,
-} from "../core/overlays/dom_utils.mjs";
+} from "../core/overlays/dom_utils.js";
 import {
   nodeIdSetHas,
   nodeIdsEqual,
   normalizeNodeIdSet,
   toNodeIdKey,
-} from "../core/node_ids.mjs";
+} from "../core/node_ids.js";
 
 export function drawVideoPlaceholder(ctx, x, y, w, h) {
   ctx.save();

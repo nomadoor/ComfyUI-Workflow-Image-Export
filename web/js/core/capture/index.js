@@ -1,20 +1,20 @@
 import { app } from "/scripts/app.js";
-import { detectBackend } from "../detect.mjs?v=20260825-2";
-import { captureNode2 } from "../backends/node2_compositor_capture.mjs?v=20260915-3";
-import { applyBackground, downscaleIfNeeded } from "../postprocess/raster.mjs";
-import { exportWorkflowPng } from "../../export/index.mjs?v=20261113-2";
-import { computeGraphBBox } from "../../export/bbox.mjs?v=20260903-16";
-import { resolveClassicRasterRoute } from "../../export/limits.mjs?v=20261109-1";
-import { embedWorkflowInPngBlob } from "../../export/png_embed_workflow.mjs";
+import { detectBackend } from "../detect.js";
+import { captureNode2 } from "../backends/node2_compositor_capture.js";
+import { applyBackground, downscaleIfNeeded } from "../postprocess/raster.js";
+import { exportWorkflowPng } from "../../export/index.js";
+import { computeGraphBBox } from "../../export/bbox.js";
+import { resolveClassicRasterRoute } from "../../export/limits.js";
+import { embedWorkflowInPngBlob } from "../../export/png_embed_workflow.js";
 import {
   attachCaptureWarnings,
   partitionCaptureNotices,
-} from "./warnings.mjs?v=20260903-16";
+} from "./warnings.js";
 import {
   getSelectedNodeIdsFromApp,
   getWorkflowJsonFromApp,
   toWorkflowJsonString,
-} from "../workflow_state.mjs";
+} from "../workflow_state.js";
 
 export const NODE2_UNSUPPORTED_CODE = "NODE2_UNSUPPORTED";
 export const WEBP_HUGE_UNSUPPORTED_CODE = "WEBP_HUGE_UNSUPPORTED";

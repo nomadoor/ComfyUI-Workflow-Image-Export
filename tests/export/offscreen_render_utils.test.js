@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import {
   applyLinkFilter,
   applyRenderFilter,
-} from "../../web/js/export/offscreen_render_utils.mjs";
+} from "../../web/js/export/offscreen_render_utils.js";
 
 test("applyRenderFilter removes all nodes for none mode without selected ids", () => {
   const graph = {

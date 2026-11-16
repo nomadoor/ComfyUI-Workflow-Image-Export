@@ -6,7 +6,7 @@ import {
   resolveExportCaptureOptions,
   resolveNode2ExportPolicy,
   resolveNode2TileScale,
-} from "../../web/js/core/node2_export_policy.mjs";
+} from "../../web/js/core/node2_export_policy.js";
 
 test("Node 2.0 export always forces tiled capture", () => {
   assert.deepEqual(resolveNode2ExportPolicy({

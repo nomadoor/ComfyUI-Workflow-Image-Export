@@ -5,7 +5,7 @@ import {
   resolveBlobExtension,
   resolveWorkflowName,
   sanitizeFilename,
-} from "../../web/js/ui/export_filename.mjs";
+} from "../../web/js/ui/export_filename.js";
 
 test("sanitizeFilename removes unsafe filesystem characters", () => {
   assert.equal(sanitizeFilename("  bad<>:\"/\\|?*\x00 name  "), "bad name");

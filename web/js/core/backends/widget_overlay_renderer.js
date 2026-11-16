@@ -2,14 +2,14 @@ import {
   captureElementAsCanvas,
   drawTextBlockToRect,
   isCanvasBlank,
-} from "./legacy_text_helpers.mjs";
+} from "./legacy_text_helpers.js";
 import {
   drawBlockedMediaPlaceholder,
   drawMediaSafely,
-} from "./safe_media_draw.mjs?v=20261109-1";
+} from "./safe_media_draw.js";
 import {
   toNodeIdKey,
-} from "../node_ids.mjs";
+} from "../node_ids.js";
 
 function graphRectContains(container, candidate) {
   if (!container || !candidate) return false;

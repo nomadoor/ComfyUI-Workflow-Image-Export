@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import {
   drawMediaSafely,
   isCanvasOriginClean,
-} from "../../web/js/core/backends/safe_media_draw.mjs";
+} from "../../web/js/core/backends/safe_media_draw.js";
 
 class FakeContext {
   constructor(canvas) {

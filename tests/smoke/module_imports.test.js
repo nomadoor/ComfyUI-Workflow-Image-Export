@@ -303,8 +303,8 @@ test("main.js import graph resolves successfully", async (t) => {
   assert.equal(typeof module, "object");
 });
 
-test("dialog.mjs import graph resolves successfully", async (t) => {
-  const { tempRoot, module } = await importMirroredModule("web/js/ui/dialog.mjs");
+test("dialog.js import graph resolves successfully", async (t) => {
+  const { tempRoot, module } = await importMirroredModule("web/js/ui/dialog.js");
   t.after(async () => {
     await fs.rm(tempRoot, { recursive: true, force: true });
   });
@@ -314,7 +314,7 @@ test("dialog.mjs import graph resolves successfully", async (t) => {
 
 test("offscreen setup preserves the current LiteGraph link render mode", async (t) => {
   const { tempRoot, module: graphSetup } = await importMirroredModule(
-    "web/js/export/offscreen_graph_setup.mjs"
+    "web/js/export/offscreen_graph_setup.js"
   );
   t.after(async () => {
     await fs.rm(tempRoot, { recursive: true, force: true });
@@ -328,13 +328,13 @@ test("offscreen setup preserves the current LiteGraph link render mode", async (
 
 test("scaled tile geometry reaches the real offscreen transform in graph units", async (t) => {
   const { tempRoot, module: graphSetup } = await importMirroredModule(
-    "web/js/export/offscreen_graph_setup.mjs"
+    "web/js/export/offscreen_graph_setup.js"
   );
   t.after(async () => {
     await fs.rm(tempRoot, { recursive: true, force: true });
   });
   const tiledRender = await import(pathToFileURL(
-    path.join(REPO_ROOT, "web/js/export/tiled_render.mjs")
+    path.join(REPO_ROOT, "web/js/export/tiled_render.js")
   ).href);
   const geometry = tiledRender.resolveScaledTileGeometry({
     x: 2048,
@@ -375,7 +375,7 @@ test("scaled tile geometry reaches the real offscreen transform in graph units",
 
 test("offscreen session applies destructive filters once before all tile renders", async (t) => {
   const { tempRoot, module, app } = await importMirroredModule(
-    "web/js/export/render_graph_offscreen.mjs"
+    "web/js/export/render_graph_offscreen.js"
   );
   t.after(async () => {
     delete globalThis.document;
@@ -399,7 +399,7 @@ test("offscreen session applies destructive filters once before all tile renders
 
 test("offscreen session resolves an implicit selection bbox before graph filtering", async (t) => {
   const { tempRoot, module, app } = await importMirroredModule(
-    "web/js/export/render_graph_offscreen.mjs"
+    "web/js/export/render_graph_offscreen.js"
   );
   t.after(async () => {
     delete globalThis.document;
@@ -443,7 +443,7 @@ test("offscreen session resolves an implicit selection bbox before graph filteri
 
 test("offscreen session owns one graph and releases canvases in lifecycle order", async (t) => {
   const { tempRoot, module, app } = await importMirroredModule(
-    "web/js/export/render_graph_offscreen.mjs"
+    "web/js/export/render_graph_offscreen.js"
   );
   t.after(async () => {
     delete globalThis.document;
@@ -489,7 +489,7 @@ test("offscreen session owns one graph and releases canvases in lifecycle order"
 
 test("offscreen session retains and detaches a canvas whose draw fails", async (t) => {
   const { tempRoot, module, app } = await importMirroredModule(
-    "web/js/export/render_graph_offscreen.mjs"
+    "web/js/export/render_graph_offscreen.js"
   );
   t.after(async () => {
     delete globalThis.document;
@@ -525,7 +525,7 @@ test("offscreen session retains and detaches a canvas whose draw fails", async (
 
 test("offscreen session detaches a canvas attached by a throwing constructor", async (t) => {
   const { tempRoot, module, app } = await importMirroredModule(
-    "web/js/export/render_graph_offscreen.mjs"
+    "web/js/export/render_graph_offscreen.js"
   );
   t.after(async () => {
     delete globalThis.document;
@@ -553,7 +553,7 @@ test("offscreen session detaches a canvas attached by a throwing constructor", a
 
 test("offscreen export canvases neither bind events nor start a render loop", async (t) => {
   const { tempRoot, module, app } = await importMirroredModule(
-    "web/js/export/render_graph_offscreen.mjs"
+    "web/js/export/render_graph_offscreen.js"
   );
   t.after(async () => {
     delete globalThis.document;
@@ -576,7 +576,7 @@ test("offscreen export canvases neither bind events nor start a render loop", as
 
 test("offscreen clones never request the live root graph id", async (t) => {
   const { tempRoot, module, app } = await importMirroredModule(
-    "web/js/export/render_graph_offscreen.mjs"
+    "web/js/export/render_graph_offscreen.js"
   );
   t.after(async () => {
     delete globalThis.document;
@@ -595,7 +595,7 @@ test("offscreen clones never request the live root graph id", async (t) => {
 
 test("offscreen export canvases reuse the loaded live grid image", async (t) => {
   const { tempRoot, module, app } = await importMirroredModule(
-    "web/js/export/render_graph_offscreen.mjs"
+    "web/js/export/render_graph_offscreen.js"
   );
   t.after(async () => {
     delete globalThis.document;
@@ -618,45 +618,20 @@ test("offscreen export canvases reuse the loaded live grid image", async (t) => 
 
 test("Classic export has no renderer bound to the live graph", async () => {
   for (const removed of [
-    "web/js/core/backends/legacy_capture.mjs",
-    "web/js/core/backends/live_render_guard.mjs",
+    "web/js/core/backends/legacy_capture.js",
+    "web/js/core/backends/live_render_guard.js",
   ]) {
     await assert.rejects(fs.access(path.join(REPO_ROOT, removed)), removed);
   }
   for (const file of [
-    "web/js/ui/dialog.mjs",
-    "web/js/core/capture/index.mjs",
-    "web/js/export/render_graph_offscreen.mjs",
+    "web/js/ui/dialog.js",
+    "web/js/core/capture/index.js",
+    "web/js/export/render_graph_offscreen.js",
   ]) {
     const source = await fs.readFile(path.join(REPO_ROOT, file), "utf8");
     assert.equal(source.includes("captureLegacy"), false, file);
     assert.equal(source.includes("createLiveRenderGuard"), false, file);
   }
-});
-
-test("main.js is the only ComfyUI auto-loaded JS entry under web/js", async () => {
-  const webJsRoot = path.join(REPO_ROOT, "web", "js");
-  const jsFiles = [];
-
-  async function walk(dir) {
-    const entries = await fs.readdir(dir, { withFileTypes: true });
-    for (const entry of entries) {
-      const fullPath = path.join(dir, entry.name);
-      if (entry.isDirectory()) {
-        await walk(fullPath);
-      } else if (entry.isFile() && entry.name.endsWith(".js")) {
-        jsFiles.push(toPosix(path.relative(REPO_ROOT, fullPath)));
-      }
-    }
-  }
-
-  await walk(webJsRoot);
-  assert.deepEqual(jsFiles.sort(), ["web/js/main.js"]);
-});
-
-test("main.js cache-busts the mjs dialog entry", async () => {
-  const mainSource = await fs.readFile(path.join(REPO_ROOT, "web/js/main.js"), "utf8");
-  assert.match(mainSource, /import\("\.\/ui\/dialog\.mjs\?v=[^"?]+"\)/);
 });
 
 test("local browser modules use one complete identity per target", async () => {
@@ -669,7 +644,7 @@ test("local browser modules use one complete identity per target", async () => {
       const fullPath = path.join(dir, entry.name);
       if (entry.isDirectory()) {
         await walk(fullPath);
-      } else if (entry.isFile() && /\.(?:m?js)$/.test(entry.name)) {
+      } else if (entry.isFile() && /\.js$/.test(entry.name)) {
         sourceFiles.push(fullPath);
       }
     }
@@ -699,7 +674,7 @@ test("local browser modules use one complete identity per target", async () => {
 
 test("fallback media overlays never draw unverified media into the export canvas", async () => {
   const source = await fs.readFile(
-    path.join(REPO_ROOT, "web/js/export/fallback_media_overlays.mjs"),
+    path.join(REPO_ROOT, "web/js/export/fallback_media_overlays.js"),
     "utf8"
   );
 
@@ -709,11 +684,11 @@ test("fallback media overlays never draw unverified media into the export canvas
 
 test("huge tiled exports share safe media snapshots and retain failure ownership", async () => {
   const indexSource = await fs.readFile(
-    path.join(REPO_ROOT, "web/js/export/index.mjs"),
+    path.join(REPO_ROOT, "web/js/export/index.js"),
     "utf8"
   );
   const renderSource = await fs.readFile(
-    path.join(REPO_ROOT, "web/js/export/render_graph_offscreen.mjs"),
+    path.join(REPO_ROOT, "web/js/export/render_graph_offscreen.js"),
     "utf8"
   );
   const hugeScopeBlock = extractBracedBlockAfter(
@@ -733,7 +708,7 @@ test("huge tiled exports share safe media snapshots and retain failure ownership
 
 test("previews draw markdown as text instead of foreignObject captures", async () => {
   const renderSource = await fs.readFile(
-    path.join(REPO_ROOT, "web/js/export/render_graph_offscreen.mjs"),
+    path.join(REPO_ROOT, "web/js/export/render_graph_offscreen.js"),
     "utf8"
   );
   const overlayCalls = renderSource.split("drawPlannedWidgetOverlays({").slice(1);
@@ -746,7 +721,7 @@ test("previews draw markdown as text instead of foreignObject captures", async (
 
 test("huge image thumbnails skip previews the clone already draws natively", async () => {
   const renderSource = await fs.readFile(
-    path.join(REPO_ROOT, "web/js/export/render_graph_offscreen.mjs"),
+    path.join(REPO_ROOT, "web/js/export/render_graph_offscreen.js"),
     "utf8"
   );
   const thumbnailCall = extractBracedBlockAfter(renderSource, "drawImageThumbnails(");
@@ -760,10 +735,10 @@ test("huge image thumbnails skip previews the clone already draws natively", asy
 
 test("removed extension Settings registration does not return to the import graph", async () => {
   await assert.rejects(
-    fs.access(path.join(REPO_ROOT, "web/js/core/settings.mjs"))
+    fs.access(path.join(REPO_ROOT, "web/js/core/settings.js"))
   );
   const mainSource = await fs.readFile(path.join(REPO_ROOT, "web/js/main.js"), "utf8");
-  const dialogSource = await fs.readFile(path.join(REPO_ROOT, "web/js/ui/dialog.mjs"), "utf8");
+  const dialogSource = await fs.readFile(path.join(REPO_ROOT, "web/js/ui/dialog.js"), "utf8");
   assert.equal(mainSource.includes("registerLegacySettings"), false);
   assert.equal(dialogSource.includes("getDefaultsFromSettings"), false);
   assert.equal(dialogSource.includes("setDefaultsInSettings"), false);

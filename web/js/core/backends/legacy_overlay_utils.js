@@ -2,7 +2,7 @@ import {
   nodeIdSetHas,
   normalizeNodeIdSet,
   toNodeIdKey,
-} from "../node_ids.mjs";
+} from "../node_ids.js";
 
 export function findNodeForPoint(nodeRects, x, y) {
   if (!nodeRects?.length) return null;

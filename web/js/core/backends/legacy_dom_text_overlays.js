@@ -3,19 +3,19 @@ import {
   diagnoseDomElement,
   getDomElementGraphRect,
   resolveNodeIdForGraphRect,
-} from "../overlays/dom_utils.mjs";
+} from "../overlays/dom_utils.js";
 import {
   normalizeSelectedNodeIds,
   shouldRenderResolvedNode,
-} from "./legacy_overlay_utils.mjs";
+} from "./legacy_overlay_utils.js";
 import {
   drawTextBlockToRect,
   formatCanvasFont,
   getEffectiveBackground,
   isEffectivelyVisibleElement,
   parsePx,
-} from "./legacy_text_helpers.mjs";
-import { nodeIdsEqual, toNodeIdKey } from "../node_ids.mjs";
+} from "./legacy_text_helpers.js";
+import { nodeIdsEqual, toNodeIdKey } from "../node_ids.js";
 
 export function isExternalTextOverlayEnabled(options = {}) {
   return options?.allowExternalDomText === true;
@@ -82,7 +82,7 @@ function getScaledTextStyle(element, scale) {
  *
  * collectTextElementsFromDom() structurally rejects every `.dom-widget` and
  * `[data-node-id]` descendant. Widget text can therefore reach the export only
- * through widget_render_plan.mjs, even when widget.element is unavailable.
+ * through widget_render_plan.js, even when widget.element is unavailable.
  */
 export function drawExternalTextOverlays({
   exportCtx,
