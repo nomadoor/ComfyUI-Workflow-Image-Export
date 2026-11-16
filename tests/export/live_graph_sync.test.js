@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { syncLiveGraphState } from "../../web/js/export/live_graph_sync.mjs";
+import { syncLiveGraphState } from "../../web/js/export/live_graph_sync.js";
 
 test("clone nodes receive captured runtime preview images LiteGraph draws natively", () => {
   const first = { naturalWidth: 64, naturalHeight: 64 };

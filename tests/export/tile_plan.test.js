@@ -1,12 +1,12 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { graphPointToCanvas } from "../../web/js/core/graph_transform.mjs";
+import { graphPointToCanvas } from "../../web/js/core/graph_transform.js";
 import {
   resolveTileGeometry,
   resolveTileTransform,
   resolveTiledOutputSize,
-} from "../../web/js/export/tile_plan.mjs";
+} from "../../web/js/export/tile_plan.js";
 
 test("scaled tile graph origin maps to the tile-local canvas origin", () => {
   const bbox = {

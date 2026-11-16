@@ -3,7 +3,7 @@ import {
   getCanvasRoot,
   getDomElementGraphRect,
   isElementInGraphNode,
-} from "../core/overlays/dom_utils.mjs";
+} from "../core/overlays/dom_utils.js";
 import {
   buildDomMediaByNodeId,
   buildDomMediaByOverlap,
@@ -25,20 +25,20 @@ import {
   sanitizeMediaUrl,
   selectDomMedia,
   shouldRenderResolvedNode,
-} from "./fallback_media_helpers.mjs";
+} from "./fallback_media_helpers.js";
 import {
   nodeIdSetHas,
   normalizeNodeIdSet,
   toNodeIdKey,
-} from "../core/node_ids.mjs";
-import { drawMediaSafely } from "../core/backends/safe_media_draw.mjs?v=20261109-1";
+} from "../core/node_ids.js";
+import { drawMediaSafely } from "../core/backends/safe_media_draw.js";
 import {
   createOriginCleanMediaSnapshot,
   hasMediaSnapshot,
   readMediaSnapshot,
   resolveMediaSnapshot,
-} from "./media_snapshot_cache.mjs?v=20260903-16";
-import { resolveMediaFallbackRect } from "./media_fallback_plan.mjs?v=20260903-16";
+} from "./media_snapshot_cache.js";
+import { resolveMediaFallbackRect } from "./media_fallback_plan.js";
 
 function addFallbackCoverage(
   coverageByNodeId,

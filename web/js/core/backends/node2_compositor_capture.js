@@ -1,28 +1,28 @@
 import { app } from "/scripts/app.js";
-import { getSettingsAccess } from "../detect.mjs?v=20260825-2";
-import { toNodeIdKey } from "../node_ids.mjs";
-import { computeGraphBBox } from "../../export/bbox.mjs?v=20260903-16";
+import { getSettingsAccess } from "../detect.js";
+import { toNodeIdKey } from "../node_ids.js";
+import { computeGraphBBox } from "../../export/bbox.js";
 import {
   NODE2_MATTE_BG_A,
   NODE2_MATTE_BG_B,
-} from "../../export/background_modes.mjs";
+} from "../../export/background_modes.js";
 import {
   isCanvasTransparent,
   recoverTransparentCanvas,
-} from "../../export/transparent_recovery.mjs";
+} from "../../export/transparent_recovery.js";
 import {
   createBackgroundOverrideState,
-} from "./node2_background_override_state.mjs";
+} from "./node2_background_override_state.js";
 import {
   formatNode2TilePixelLimitMessage,
   resolveNode2TileScale,
-} from "../node2_export_policy.mjs?v=20260915-3";
+} from "../node2_export_policy.js";
 import {
   captureTwoFrameTransparentMatte,
   getNode2TransparentWarning,
   summarizeNode2TransparentTileRecovery,
   validateNode2TransparentTileOutput,
-} from "./node2_transparent_matte.mjs";
+} from "./node2_transparent_matte.js";
 
 const NODE2_CAPTURE_STYLE_ID = "cwie-node2-capture-style";
 const NODE2_CAPTURE_VERSION = "node2-transparent-matte-2026-07-29-1";

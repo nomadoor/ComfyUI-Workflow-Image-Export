@@ -1,4 +1,4 @@
-import { toNodeIdKey } from "../core/node_ids.mjs";
+import { toNodeIdKey } from "../core/node_ids.js";
 
 function buildNodeIdMap(graph) {
   const nodes = graph?._nodes || graph?.nodes || [];

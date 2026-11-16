@@ -5,7 +5,7 @@ import test from "node:test";
 import {
   copyRenderSettings,
   disableExportLevelOfDetail,
-} from "../../web/js/core/render_settings.mjs";
+} from "../../web/js/core/render_settings.js";
 
 test("export preserves the current LiteGraph link render mode", () => {
   const sourceCanvas = { links_render_mode: 2 };
@@ -162,7 +162,7 @@ function assertOrdered(source, markers, label) {
 
 test("Classic export disables LOD after copying live settings and before drawing", async () => {
   assertOrdered(
-    await readSource("web/js/export/render_graph_offscreen.mjs"),
+    await readSource("web/js/export/render_graph_offscreen.js"),
     [
       "copyRenderSettings(app?.canvas, offscreen);",
       "disableExportLevelOfDetail(offscreen);",

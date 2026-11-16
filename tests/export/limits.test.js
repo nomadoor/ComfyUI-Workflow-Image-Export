@@ -10,7 +10,7 @@ import {
   normalizeCanvasDimension,
   resolveClassicRasterRoute,
   shouldTile,
-} from "../../web/js/export/limits.mjs";
+} from "../../web/js/export/limits.js";
 
 test("normalizeCanvasDimension returns safe positive integer dimensions", () => {
   assert.equal(normalizeCanvasDimension(1.2), 2);
@@ -136,7 +136,7 @@ test("unknown exceed modes downscale like the default policy", () => {
 
 test("Classic capture renders every raster export through the clone exporter", async () => {
   const source = await readFile(
-    new URL("../../web/js/core/capture/index.mjs", import.meta.url),
+    new URL("../../web/js/core/capture/index.js", import.meta.url),
     "utf8"
   );
 

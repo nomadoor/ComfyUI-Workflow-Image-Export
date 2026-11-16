@@ -1,7 +1,7 @@
-import { buildWidgetRenderPlan } from "../core/backends/widget_render_plan.mjs?v=20261113-1";
-import { snapshotPlannedWidgetMedia } from "./widget_media_fallback.mjs?v=20260920-2";
-import { isMediaOriginClean } from "../core/backends/safe_media_draw.mjs?v=20261109-1";
-import { toNodeIdKey } from "../core/node_ids.mjs";
+import { buildWidgetRenderPlan } from "../core/backends/widget_render_plan.js";
+import { snapshotPlannedWidgetMedia } from "./widget_media_fallback.js";
+import { isMediaOriginClean } from "../core/backends/safe_media_draw.js";
+import { toNodeIdKey } from "../core/node_ids.js";
 
 function freezeRecord(value) {
   return value && typeof value === "object"

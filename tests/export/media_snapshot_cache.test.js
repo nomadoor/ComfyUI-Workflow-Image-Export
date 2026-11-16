@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import {
   createOriginCleanMediaSnapshot,
   resolveMediaSnapshot,
-} from "../../web/js/export/media_snapshot_cache.mjs";
+} from "../../web/js/export/media_snapshot_cache.js";
 
 test("media snapshots are resolved once and shared by every tile", async () => {
   const cache = new Map();

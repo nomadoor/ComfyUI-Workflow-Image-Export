@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import {
   buildPreviewState,
   getPreviewStateKey,
-} from "../../web/js/ui/preview_state.mjs";
+} from "../../web/js/ui/preview_state.js";
 
 test("buildPreviewState forces preview-safe export options", () => {
   const state = buildPreviewState({

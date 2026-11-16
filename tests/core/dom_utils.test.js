@@ -3,13 +3,13 @@ import assert from "node:assert/strict";
 
 import {
   isWidgetOwnedDomElement,
-} from "../../web/js/core/overlays/dom_utils.mjs";
+} from "../../web/js/core/overlays/dom_utils.js";
 import {
   buildPickKey,
   getExternalTextElementText,
   isExternalTextOverlayEnabled,
   shouldSkipExternalTextElement,
-} from "../../web/js/core/backends/legacy_dom_text_overlays.mjs";
+} from "../../web/js/core/backends/legacy_dom_text_overlays.js";
 
 class MiniElement {
   constructor({ className = "", attributes = {} } = {}) {

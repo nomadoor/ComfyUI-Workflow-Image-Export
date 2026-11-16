@@ -1,4 +1,4 @@
-import { toBlobAsync, blobToImage } from "../utils.mjs";
+import { toBlobAsync, blobToImage } from "../utils.js";
 
 function resolveBackgroundMode(options) {
   const mode = options?.background || "ui";

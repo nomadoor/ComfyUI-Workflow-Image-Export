@@ -1,10 +1,10 @@
-import { toBlobAsync } from "../core/utils.mjs";
-import { TILE_SIZE } from "./limits.mjs?v=20261109-1";
-import { encodePngFromTiles } from "./tiled_png_encoder.mjs?v=20261109-1";
+import { toBlobAsync } from "../core/utils.js";
+import { TILE_SIZE } from "./limits.js";
+import { encodePngFromTiles } from "./tiled_png_encoder.js";
 import {
   resolveTileGeometry,
   resolveTiledOutputSize,
-} from "./tile_plan.mjs?v=20260903-16";
+} from "./tile_plan.js";
 
 export function resolveTiledPngOutputSize(bboxOverride, renderScaleFactor = 1) {
   return resolveTiledOutputSize(bboxOverride, renderScaleFactor);

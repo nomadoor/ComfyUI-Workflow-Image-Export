@@ -5,7 +5,7 @@ import {
   renderTiled,
   resolveScaledTileGeometry,
   resolveTiledPngOutputSize,
-} from "../../web/js/export/tiled_render.mjs";
+} from "../../web/js/export/tiled_render.js";
 
 test("tiled PNG output dimensions include the render scale", () => {
   assert.deepEqual(resolveTiledPngOutputSize({ width: 5000, height: 3000 }, 2), {

@@ -1,9 +1,9 @@
-import { hideGraphLinks, syncNodeLinkRefsToGraphLinks } from "./link_visibility.mjs";
+import { hideGraphLinks, syncNodeLinkRefsToGraphLinks } from "./link_visibility.js";
 import {
   nodeIdSetHas,
   normalizeNodeIdSet,
   toNodeIdKey,
-} from "../core/node_ids.mjs";
+} from "../core/node_ids.js";
 
 export function applyRenderFilter(graph, selectedNodeIds, mode) {
   if (!graph || !mode || mode === "all") return;

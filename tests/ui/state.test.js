@@ -1,13 +1,13 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { DEFAULTS } from "../../web/js/core/settings_state.mjs";
+import { DEFAULTS } from "../../web/js/core/settings_state.js";
 import {
   buildInitialState,
   normalizeDialogState,
   normalizeScopeOpacity,
   toLastUsedState,
-} from "../../web/js/ui/state.mjs";
+} from "../../web/js/ui/state.js";
 
 test("normalizeScopeOpacity clamps values into the supported range", () => {
   assert.equal(normalizeScopeOpacity(-5), 0);

@@ -1,12 +1,12 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { drawPlannedWidgetOverlays } from "../../web/js/core/backends/widget_overlay_renderer.mjs";
-import { buildOffscreenWidgetRenderPlan, buildWidgetRenderPlan } from "../../web/js/core/backends/widget_render_plan.mjs";
+import { drawPlannedWidgetOverlays } from "../../web/js/core/backends/widget_overlay_renderer.js";
+import { buildOffscreenWidgetRenderPlan, buildWidgetRenderPlan } from "../../web/js/core/backends/widget_render_plan.js";
 import {
   drawWidgetMediaFallbacks,
   snapshotPlannedWidgetMedia,
-} from "../../web/js/export/widget_media_fallback.mjs";
+} from "../../web/js/export/widget_media_fallback.js";
 
 function mediaEntry(key, element, x = 40) {
   return {

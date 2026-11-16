@@ -5,7 +5,7 @@ import {
   createRadioGroup,
   createRow,
   createSelect,
-} from "../../web/js/ui/elements.mjs";
+} from "../../web/js/ui/elements.js";
 
 class MockElement {
   constructor(tagName) {

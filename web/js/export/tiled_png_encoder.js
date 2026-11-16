@@ -1,5 +1,5 @@
-import { toUint32, concatUint8, crc32 } from "../core/utils.mjs";
-import { TILE_SIZE } from "./limits.mjs?v=20261109-1";
+import { toUint32, concatUint8, crc32 } from "../core/utils.js";
+import { TILE_SIZE } from "./limits.js";
 
 const ADLER_MOD = 65521;
 const ADLER_NMAX = 5552;
@@ -13,7 +13,7 @@ export function clampPngCompression(value) {
 async function resolvePako() {
   if (window?.pako) return window.pako;
   try {
-    const mod = await import("../vendor/pako.min.mjs");
+    const mod = await import("../.lazy/pako.min.js");
     return mod?.default || mod?.pako || window?.pako || null;
   } catch (_) {
     return null;

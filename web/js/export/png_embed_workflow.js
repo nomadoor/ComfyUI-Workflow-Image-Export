@@ -1,4 +1,4 @@
-import { toUint32, concatUint8, crc32 } from "../core/utils.mjs";
+import { toUint32, concatUint8, crc32 } from "../core/utils.js";
 
 function createPngChunk(type, data) {
   const typeBytes = new TextEncoder().encode(type);

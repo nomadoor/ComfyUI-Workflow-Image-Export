@@ -4,8 +4,8 @@ import assert from "node:assert/strict";
 import {
   drawImageOverlays,
   drawVhsVideoOverlays,
-} from "../../web/js/core/backends/legacy_media_overlays.mjs";
-import { drawWidgetMediaFallbacks } from "../../web/js/export/widget_media_fallback.mjs";
+} from "../../web/js/core/backends/legacy_media_overlays.js";
+import { drawWidgetMediaFallbacks } from "../../web/js/export/widget_media_fallback.js";
 
 class MockImageElement {}
 class MockCanvasElement {

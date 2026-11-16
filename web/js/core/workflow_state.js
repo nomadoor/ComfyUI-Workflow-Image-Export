@@ -1,4 +1,4 @@
-import { normalizeNodeIdList } from "./node_ids.mjs";
+import { normalizeNodeIdList } from "./node_ids.js";
 
 export function normalizeSelectedNodeIds(value) {
   return normalizeNodeIdList(value);

@@ -1,8 +1,8 @@
-import { toNodeIdKey } from "../core/node_ids.mjs";
+import { toNodeIdKey } from "../core/node_ids.js";
 import {
   createOriginCleanMediaSnapshot,
   resolveMediaSnapshot,
-} from "./media_snapshot_cache.mjs?v=20260903-16";
+} from "./media_snapshot_cache.js";
 
 function intersectGraphRects(a, b) {
   if (!a || !b) return null;

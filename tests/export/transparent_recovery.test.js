@@ -3,7 +3,7 @@ import test from "node:test";
 
 import {
   recoverTransparentCanvas,
-} from "../../web/js/export/transparent_recovery.mjs";
+} from "../../web/js/export/transparent_recovery.js";
 
 class FakeContext {
   constructor(canvas) {

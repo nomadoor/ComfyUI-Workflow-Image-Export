@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { evaluateWebpAvailability } from "../../web/js/ui/webp_availability.mjs";
+import { evaluateWebpAvailability } from "../../web/js/ui/webp_availability.js";
 
 test("evaluateWebpAvailability allows non-webp formats", () => {
   const result = evaluateWebpAvailability({

@@ -1,5 +1,5 @@
 import { app } from "/scripts/app.js";
-import { installLegacyCanvasMenuItem } from "./core/menu.mjs?v=20260825-2";
+import { installLegacyCanvasMenuItem } from "./core/menu.js";
 
 const DEBUG_STORAGE_KEY = "cwie.debug";
 const DEBUG_SESSION_KEY = "cwie.debug.session";
@@ -59,8 +59,7 @@ function buildMenuLabel() {
 
 async function openDialog(log) {
   try {
-    // Bump this URL and the affected static import chain together. See AGENTS.md.
-    const mod = await import("./ui/dialog.mjs?v=20261113-2");
+    const mod = await import("./ui/dialog.js");
     const openExportDialog = mod?.openExportDialog;
     if (typeof openExportDialog !== "function") {
       throw new Error("workflow-image-export: openExportDialog not available");
@@ -79,19 +78,19 @@ function installNode2DebugApi() {
   const root = window.__cwie__ || {};
   const api = {
     async inspect() {
-      const mod = await import("./core/backends/node2_compositor_capture.mjs?v=20260915-3");
+      const mod = await import("./core/backends/node2_compositor_capture.js");
       return mod.inspectNode2Targets();
     },
     async captureFrame(options = {}) {
-      const mod = await import("./core/backends/node2_compositor_capture.mjs?v=20260915-3");
+      const mod = await import("./core/backends/node2_compositor_capture.js");
       return mod.captureNode2SingleFrame(options);
     },
     async tileProbe(options = {}) {
-      const mod = await import("./core/backends/node2_compositor_capture.mjs?v=20260915-3");
+      const mod = await import("./core/backends/node2_compositor_capture.js");
       return mod.runNode2TileProbe(options);
     },
     async cameraMoveProbe(options = {}) {
-      const mod = await import("./core/backends/node2_compositor_capture.mjs?v=20260915-3");
+      const mod = await import("./core/backends/node2_compositor_capture.js");
       return mod.runNode2CameraMoveProbe(options);
     },
   };

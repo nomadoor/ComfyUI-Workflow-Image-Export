@@ -6,7 +6,7 @@ import {
   getExportWarningMessage,
   getNode2WarningMessage,
   partitionCaptureNotices,
-} from "../../web/js/core/capture/warnings.mjs";
+} from "../../web/js/core/capture/warnings.js";
 
 test("capture warnings survive on the returned blob", () => {
   const blob = new Blob(["png"], { type: "image/png" });

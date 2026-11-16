@@ -9,7 +9,7 @@ import {
   collectPlannedWidgetIndexes,
   installPlannedWidgetDrawSuppression,
   joinWidgetRenderPlanToGraph,
-} from "../../web/js/core/backends/widget_render_plan.mjs";
+} from "../../web/js/core/backends/widget_render_plan.js";
 
 class MockElement {
   constructor({ matches = [], children = new Map(), style = {} } = {}) {

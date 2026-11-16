@@ -1,22 +1,22 @@
-import { toBlobAsync } from "../core/utils.mjs";
-import { normalizeNodeIdList } from "../core/node_ids.mjs";
+import { toBlobAsync } from "../core/utils.js";
+import { normalizeNodeIdList } from "../core/node_ids.js";
 
 import {
   resolveUiBackgroundColor,
   resolveSolidBackgroundColor,
   EXTRACT_BG_1,
   EXTRACT_BG_2,
-} from "./background_modes.mjs";
+} from "./background_modes.js";
 import {
   captureLiveClassicRenderModel,
   computeOffscreenBBox,
   createOffscreenRenderSession,
-} from "./render_graph_offscreen.mjs?v=20261113-2";
-import { embedWorkflowInPngBlob } from "./png_embed_workflow.mjs";
-import { shouldTile } from "./limits.mjs?v=20261109-1";
-import { clampPngCompression } from "./tiled_png_encoder.mjs?v=20261109-1";
-import { isCanvasTransparent, recoverTransparentCanvas } from "./transparent_recovery.mjs";
-import { renderTiled, renderTiledPng } from "./tiled_render.mjs?v=20261109-1";
+} from "./render_graph_offscreen.js";
+import { embedWorkflowInPngBlob } from "./png_embed_workflow.js";
+import { shouldTile } from "./limits.js";
+import { clampPngCompression } from "./tiled_png_encoder.js";
+import { isCanvasTransparent, recoverTransparentCanvas } from "./transparent_recovery.js";
+import { renderTiled, renderTiledPng } from "./tiled_render.js";
 
 function getNowMs() {
   if (typeof performance !== "undefined" && typeof performance.now === "function") {
