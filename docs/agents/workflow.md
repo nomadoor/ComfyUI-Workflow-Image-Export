@@ -8,8 +8,12 @@ AI-only instructionsは英語で記述する。schemas、identifiers、template 
 
 ## Branch policy
 
+- 作業は`dev`から切ったwork branchで行い、PRは`dev`に出してsquashでmergeする（1 PR = `dev`上の1 commit）。
+- `main`へは、`dev`から`main`へのPRをmerge commitでmergeする。`dev`を`main`へsquashしない。`dev`をforce pushしない。
+- releaseは、`pyproject.toml`のversionを上げるPRを`dev`に出してsquashでmergeし、そのあと`dev`から`main`へのPRを出す。`main`に`pyproject.toml`の変更が入ると、GitHub ActionsがComfy Registryに公開する。
+- branch rulesetが、`dev`はsquashだけ、`main`はmerge commitだけを許す。
 - 承認された最初のrepository変更の直前にwork branchを作成する。
-- default branch上で製品またはworkflow fileを変更しない。
+- `main`と`dev`の上で製品またはworkflow fileを直接変更しない。
 - Phase 1がrepositoryを変更しない場合は、`GO`後、実装開始前にbranchを作成する。
 
 ## Specification and tickets

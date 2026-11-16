@@ -20,13 +20,12 @@ This file defines working rules for coding agents in this repository.
 - Classic uses a LiteGraph renderer; Node 2.0 uses an established browser-compositor backend. Keep their rendering architectures separate.
 - Shared UI and export policy may cover both backends, but backend-specific repairs should remain isolated.
 
-## Current Priorities
+## Product Scope
 
-1. Stabilize and simplify the Classic export path without reviving unsafe preview-save or direct-media paths.
-2. Keep the context menu and dialog usable in current ComfyUI Classic and Node 2.0.
-3. Preserve PNG/WebP export, PNG workflow embedding, background options, padding, and selection cropping.
-4. Add tests around fragile pure logic before or while refactoring it.
-5. Avoid expanding scope into SVG export or a new UI framework during export cleanup.
+- Both renderers are supported: the context menu and the dialog work in current ComfyUI Classic and Nodes 2.0.
+- Keep PNG/WebP export, PNG workflow embedding, background options, padding, and selection cropping working.
+- Do not revive unsafe preview-save or direct-media paths in the Classic export (see `ops/adr/0014`, `0016`).
+- SVG export and a new UI framework are out of scope unless the owner asks for them.
 
 ## Non-Negotiables
 
@@ -35,8 +34,8 @@ This file defines working rules for coding agents in this repository.
 - Do not add runtime code execution such as `eval` or generated function bodies.
 - Avoid new dependencies. If one is truly needed, explain why and keep it small.
 - Do not bundle large assets, model files, screenshots, or generated media.
-- Keep changes scoped. Do not rewrite unrelated files while repairing legacy export.
-- Do not treat `ops/` as disposable. It contains design notes and ADRs; update it only when the task explicitly calls for documentation or architectural notes.
+- Keep changes scoped. Do not rewrite unrelated files.
+- Do not treat `ops/` as disposable. It contains the requirements, design notes and ADRs; update it only when the task explicitly calls for documentation or architectural notes.
 
 ## Architecture Guidelines
 
@@ -45,7 +44,7 @@ This file defines working rules for coding agents in this repository.
 - Keep rendering backends separate from UI dialog code.
 - Keep DOM widget/media overlay handling best-effort and isolated from the core raster export path.
 - Do not duplicate constants such as tile thresholds, max canvas edge, or default settings across modules unless there is a clear reason.
-- Do not introduce Vue or a build step just for the current legacy repair. The existing extension is loaded directly as browser ES modules.
+- No build step and no Vue: the extension is loaded directly as browser ES modules (see Stop And Ask).
 - Treat LiteGraph coordinate pairs by indexed numeric capability, not
   `Array.isArray()`. Current frontend node positions and sizes use typed-array
   views and proxies.
@@ -61,7 +60,7 @@ This file defines working rules for coding agents in this repository.
   - settings/state/storage modules
 - `npm test` runs every `tests/**/*.test.js`. `tests/smoke/module_rules.test.js` checks the module rules above.
 - Prefer structural assertions over golden image tests.
-- Browser/ComfyUI integration behavior should be manually checked when possible and recorded in `AGENTS-STATE.md`.
+- Check browser/ComfyUI integration behavior by hand when possible, in the renderer(s) the change touches, and write what was checked in the PR description.
 
 ## Stop And Ask
 
@@ -74,16 +73,9 @@ Ask before:
 - Making broad UI redesigns beyond keeping the existing dialog functional.
 - Changing repository packaging metadata in `pyproject.toml`.
 
-## Agent State
+## Where Things Are Recorded
 
-Before starting work, read `AGENTS-STATE.md` if it exists.
-
-When finishing a meaningful step, update `AGENTS-STATE.md` with:
-
-- current goal
-- files changed
-- checks run
-- next action
-- blockers or assumptions
-
-`AGENTS-STATE.md` is local working memory for agents. Do not treat chat history as the source of truth.
+- Decisions and their reasons go into `ops/adr/`; write an ADR for any decision a later change must not undo by accident.
+- The requirements are in `ops/requirements.md`; `ops/notes.md` and `ops/test-strategy.md` are historical notes.
+- Work in progress lives in GitHub issues and pull requests. `docs/agents/workflow.md` covers branches, releases and approvals.
+- There is no local state file. Do not rely on chat history; what the next agent needs goes into one of the places above.

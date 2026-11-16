@@ -1,4 +1,4 @@
-# ADR-001: Robust Node Detection and TypedArray Compatibility
+# ADR-0000: Robust Node Detection and TypedArray Compatibility
 
 ## Status
 Accepted

@@ -1,5 +1,9 @@
 ## 0005: 👻 ゴーストCanvasリークの修正 (Ghost Canvas Cleanup)
 
+### Status
+
+Accepted. 2026-11-09 の補足で現在の frontend に合わせて更新した。
+
 ### 状況
 
 - ComfyUI (LiteGraph) 環境でエクスポートを実行すると、一時的な Canvas インスタンスが `app.graph` にバインドされたまま残ってしまう。
