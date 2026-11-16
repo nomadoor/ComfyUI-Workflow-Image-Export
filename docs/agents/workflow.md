@@ -29,8 +29,7 @@ AI-only instructionsは英語で記述する。schemas、identifiers、template 
 - `GO`は実装、test、internal review、およびそのreviewで見つかった安全な修正を許可する。
 - `GO`はcommitを許可しない。
 - commitは、diff、requirements、test、review findingsを含むcommit packetを提示した後、明示的な承認を必要とする。
-- pushとPR作成はcommitとは別の承認を必要とする。PRは既定でDraftとする。
-- Draft PRをreadyにするにはCI成功とユーザー承認が必要である。
+- pushとPR作成はcommitとは別の承認を必要とする。
 - mergeは初期workflowの範囲外である。
 
 ## Implementation and review
