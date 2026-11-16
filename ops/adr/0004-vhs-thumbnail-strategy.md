@@ -1,5 +1,9 @@
 ## 0004: VHS ノードのサムネイル取得方針（暫定停止）
 
+### Status
+
+Superseded by [0007](./0007-dom-widget-overlay-policy.md).
+
 ### 状況
 
 - Load Video など標準系ノードは DOM 上に video/img/canvas が存在し、

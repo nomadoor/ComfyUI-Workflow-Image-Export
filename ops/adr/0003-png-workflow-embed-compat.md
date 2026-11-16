@@ -1,5 +1,9 @@
 ## 0003: PNG ワークフロー埋め込みの互換性
 
+### Status
+
+Accepted.
+
 ### 状況
 
 workflow を PNG に埋め込み、ComfyUI 側で読み戻せる必要がある。

@@ -1,5 +1,9 @@
 ## 0006: Offscreen Graph Configure — 安定版 frontend 対応
 
+### Status
+
+Accepted.
+
 ### 状況
 
 - ComfyUI_frontend v1.41.x 系（例: v1.41.21）で `exportWorkflowPng` を実行すると、`Error: Offscreen render: graph.configure not available.` が発生しエクスポートが失敗していた。
